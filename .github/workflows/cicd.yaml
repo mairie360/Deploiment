@@ -22,7 +22,7 @@ jobs:
 
       # --- Étape 3 : Démarrage d’un cluster Kubernetes éphémère ---
       - name: Start Minikube
-        uses: medyagh/setup-minikube@v0.3.1
+        uses: medyagh/setup-minikube@latest
         with:
           driver: docker
           memory: 4g
