@@ -1,0 +1,19 @@
+apiVersion: v2
+name: mairie360
+version: 0.1.0
+dependencies:
+  - name: database
+    version: "0.1.0"
+    repository: "file://charts/database"
+  # - name: redis
+  #   version: 0.1.0
+  #   repository: "file://commons/redis"
+  # - name: APIs
+  #   version: 0.1.0
+  #   repository: "file://charts/APIs"
+  # - name: BFFs
+  #   version: 0.1.0
+  #   repository: "file://charts/BFFs"
+  # - name: Fronts
+  #   version: 0.1.0
+  #   repository: "file://charts/Fronts"

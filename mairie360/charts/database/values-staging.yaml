@@ -1,0 +1,18 @@
+image:
+  repository: "ghcr.io/mairie360/database"
+  tag: "main-18242192009"
+
+persistence:
+  enabled: true
+  size: "1Gi"
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+
+# Valeurs pour le Secret (variables d'environnement)
+env:
+  POSTGRES_USER: "staging_user"
+  POSTGRES_PASSWORD: "staging_pass"
+  POSTGRES_DB: "core_staging"

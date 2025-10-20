@@ -1,0 +1,15 @@
+enabled: false        # Par défaut désactivé, activé via parent
+image:
+  repository: "ghcr.io/mairie360/database"
+  tag: "main-18242192009"
+persistence:
+  enabled: true
+  size: "1Gi"
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+env:
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "pass"
+  POSTGRES_DB: "database"
