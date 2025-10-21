@@ -25,12 +25,18 @@ database:
     enabled: true
     size: "1Gi"
 
-  # redis:
-  #   enabled: true
-  #   image:
-  #     tag: "7"
-  #   persistence:
-  #     enabled: false
+  redis:
+    enabled: true
+    replicaCount: 1
+    image:
+      tag: "7.2.0"          # tag que tu veux utiliser pour dev
+    redis:
+      password: "devpassword" # mot de passe Redis pour dev
+    persistence:
+      enabled: false
+    config:
+      maxmemory: "256mb"
+      maxmemory-policy: "allkeys-lru"
 
 # APIs:
 #   enabled: true

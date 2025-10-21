@@ -5,9 +5,9 @@ dependencies:
   - name: database
     version: "0.1.0"
     repository: "file://charts/database"
-  # - name: redis
-  #   version: 0.1.0
-  #   repository: "file://commons/redis"
+  - name: redis
+    version: 0.1.0
+    repository: "file://charts/redis"
   # - name: APIs
   #   version: 0.1.0
   #   repository: "file://charts/APIs"

@@ -1,0 +1,43 @@
+# -----------------------------
+# Valeurs globales pour l'environnement production
+# -----------------------------
+global:
+  namespace: prod
+  imagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "1"
+    limits:
+      memory: "2Gi"
+      cpu: "2"
+
+# -----------------------------
+# Sous-charts activés et configurés pour prod
+# -----------------------------
+database:
+  enabled: true
+  image:
+    repository: "ghcr.io/mairie360/database"
+    tag: "prod-18242192009"
+  env:
+    POSTGRES_USER: "postgres"
+    POSTGRES_PASSWORD: "prod_pass"
+    POSTGRES_DB: "core_prod"
+  persistence:
+    enabled: true
+    size: "5Gi"
+
+  redis:
+    enabled: true
+    replicaCount: 2
+    image:
+      tag: "7.2.0"
+    redis:
+      password: "prodpassword"
+    persistence:
+      enabled: true
+      size: "2Gi"
+    config:
+      maxmemory: "1Gb"
+      maxmemory-policy: "allkeys-lru"
