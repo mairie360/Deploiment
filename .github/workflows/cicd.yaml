@@ -87,7 +87,7 @@ jobs:
       # --- Étape 6 : Tests Helm ---
       - name: Run Helm tests
         run: |
-          helm test mairie360-commons -n dev || true
+          helm test mairie360-commons -n dev
 
       # --- Étape 7 : Nettoyage ---
       - name: Cleanup commons
