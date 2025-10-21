@@ -215,3 +215,90 @@ jobs:
         run: |
           helm uninstall mairie360-redis-prod -n prod || true
           kubectl delete namespace prod --ignore-not-found || true
+
+  # ================================
+  # 🧩 JOB 4 : Tests d’intégration complets (Dev, Staging, Prod)
+  # ================================
+  helm-cluster:
+    name: Full Cluster Integration Tests
+    runs-on: ubuntu-latest
+    needs: [helm-db, helm-redis]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          driver: docker
+          memory: 8g
+          cpus: 4
+
+      # ---- Dev ----
+      - name: Deploy Full Cluster (Dev)
+        run: |
+          helm upgrade --install mairie360-dev ./mairie360 \
+            -f ./mairie360/values-dev.yaml \
+            -n dev --create-namespace
+
+      - name: Wait for all Dev pods
+        run: |
+          kubectl wait --for=condition=Ready pods --all -n dev --timeout=600s
+
+      - name: Run Integration Tests (Dev)
+        run: |
+          helm test mairie360-dev -n dev
+
+      - name: Cleanup Dev
+        if: always()
+        run: |
+          helm uninstall mairie360-dev -n dev || true
+          kubectl delete namespace dev --ignore-not-found || true
+
+      # ---- Staging ----
+      - name: Deploy Full Cluster (Staging)
+        run: |
+          helm upgrade --install mairie360-staging ./mairie360 \
+            -f ./mairie360/values-staging.yaml \
+            -n staging --create-namespace
+
+      - name: Wait for all Staging pods
+        run: |
+          kubectl wait --for=condition=Ready pods --all -n staging --timeout=600s
+
+      - name: Run Integration Tests (Staging)
+        run: |
+          helm test mairie360-staging -n staging
+
+      - name: Cleanup Staging
+        if: always()
+        run: |
+          helm uninstall mairie360-staging -n staging || true
+          kubectl delete namespace staging --ignore-not-found || true
+
+      # ---- Prod ----
+      - name: Deploy Full Cluster (Prod)
+        run: |
+          helm upgrade --install mairie360-prod ./mairie360 \
+            -f ./mairie360/values-prod.yaml \
+            -n prod --create-namespace
+
+      - name: Wait for all Prod pods
+        run: |
+          kubectl wait --for=condition=Ready pods --all -n prod --timeout=600s
+
+      - name: Run Integration Tests (Prod)
+        run: |
+          helm test mairie360-prod -n prod
+
+      - name: Cleanup Prod
+        if: always()
+        run: |
+          helm uninstall mairie360-prod -n prod || true
+          kubectl delete namespace prod --ignore-not-found || true
