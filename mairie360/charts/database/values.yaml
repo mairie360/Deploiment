@@ -1,8 +1,26 @@
+enabled: true
+
 image:
-  repository: "postgres"
-  tag: "15"
+  repository: "ghcr.io/mairie360/database"
+  tag: "main-latest"
+  pullSecret: "ghcr-secret"
+
+persistence:
+  enabled: true
+  size: "1Gi"
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
 
 env:
   POSTGRES_USER: "postgres"
-  POSTGRES_PASSWORD: "changeme"
+  POSTGRES_PASSWORD: "postgres"
   POSTGRES_DB: "postgres"
+
+imagePullSecret:
+  name: "ghcr-secret"
+  username: '{{ env "GHCR_USERNAME" }}'
+  password: '{{ env "GHCR_TOKEN" }}'
+  email: '{{ env "GHCR_EMAIL" }}'

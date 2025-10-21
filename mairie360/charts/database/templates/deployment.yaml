@@ -14,9 +14,21 @@ spec:
       labels:
         app: {{ include "database.name" . }}
     spec:
+      securityContext:
+        fsGroup: 999
+      initContainers:
+        - name: init-postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
       containers:
         - name: database
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
           ports:
             - containerPort: 5432
           env:
@@ -35,5 +47,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "database.fullname" . }}-secret
                   key: POSTGRES_DB
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "database.fullname" . }}-pvc
       imagePullSecrets:
         - name: ghcr-secret

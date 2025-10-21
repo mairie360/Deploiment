@@ -16,16 +16,12 @@ global:
 # Sous-charts activés et configurés pour prod
 # -----------------------------
 database:
-  enabled: true
   image:
-    repository: "ghcr.io/mairie360/database"
-    tag: "prod-18242192009"
+    tag: "main-18242192009"
   env:
-    POSTGRES_USER: "postgres"
     POSTGRES_PASSWORD: "prod_pass"
     POSTGRES_DB: "core_prod"
   persistence:
-    enabled: true
     size: "5Gi"
 
   redis:

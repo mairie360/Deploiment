@@ -13,16 +13,12 @@ global:
 # Sous-charts activés et configurés pour staging
 # -----------------------------
 database:
-  enabled: true
   image:
-    repository: "ghcr.io/mairie360/database"
-    tag: "staging-18242192009"
+    tag: "main-18242192009"
   env:
-    POSTGRES_USER: "postgres"
     POSTGRES_PASSWORD: "staging_pass"
     POSTGRES_DB: "core_staging"
   persistence:
-    enabled: true
     size: "2Gi"
 
   redis:

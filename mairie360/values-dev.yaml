@@ -13,16 +13,12 @@ global:
 # Sous-charts activés et configurés pour dev
 # -----------------------------
 database:
-  enabled: true
   image:
-    repository: "ghcr.io/mairie360/database"
     tag: "main-18242192009"
   env:
-    POSTGRES_USER: "postgres"
     POSTGRES_PASSWORD: "dev_pass"
     POSTGRES_DB: "core_dev"
   persistence:
-    enabled: true
     size: "1Gi"
 
   redis:
@@ -37,21 +33,3 @@ database:
     config:
       maxmemory: "256mb"
       maxmemory-policy: "allkeys-lru"
-
-# APIs:
-#   enabled: true
-#   image:
-#     tag: "main"
-#   replicaCount: 1
-
-# BFFs:
-#   enabled: true
-#   image:
-#     tag: "main"
-#   replicaCount: 1
-
-# Fronts:
-#   enabled: true
-#   image:
-#     tag: "main"
-#   replicaCount: 1
