@@ -25,10 +25,10 @@ done
 echo "Déploiement Dev..."
 helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-dev.yaml -n dev
 
-# echo "Déploiement Staging..."
-# helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-staging.yaml -n staging
+echo "Déploiement Staging..."
+helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-staging.yaml -n staging
 
-# echo "Déploiement Prod..."
-# helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-prod.yaml -n prod
+echo "Déploiement Prod..."
+helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-prod.yaml -n prod
 
 echo "✅ Tous les environnements déployés dans un seul cluster"
