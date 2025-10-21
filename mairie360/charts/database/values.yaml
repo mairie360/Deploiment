@@ -1,0 +1,8 @@
+image:
+  repository: "postgres"
+  tag: "15"
+
+env:
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "changeme"
+  POSTGRES_DB: "postgres"
