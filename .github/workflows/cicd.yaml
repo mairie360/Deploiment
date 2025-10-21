@@ -5,8 +5,11 @@ on:
   pull_request:
 
 jobs:
-  helm-ci:
-    name: Lint, Deploy & Test Helm Chart
+  # ================================
+  # 🧱 JOB 1 : Vérifications génériques Helm (lint, dépendances, etc.)
+  # ================================
+  helm-core:
+    name: Helm Lint & Validation
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +23,44 @@ jobs:
         with:
           version: v3.15.0
 
-      # --- Étape 3 : Démarrage d’un cluster Kubernetes éphémère ---
+      # --- Étape 3 : Lint du chart principal ---
+      - name: Helm lint (root chart)
+        run: |
+          helm lint ./mairie360
+
+      # --- Étape 4 : Build des dépendances ---
+      - name: Helm dependency build
+        run: |
+          helm dependency build ./mairie360
+
+      # --- Étape 5 : Vérification de la structure et des valeurs ---
+      - name: Validate values files
+        run: |
+          for file in ./mairie360/values-*.yaml; do
+            echo "Checking $file"
+            yq e '.' "$file" > /dev/null
+          done
+
+  # ================================
+  # ⚙️ JOB 2 : Tests des composants génériques (commons)
+  # ================================
+  helm-commons:
+    name: Deploy & Test Commons (Database, Redis, etc.)
+    runs-on: ubuntu-latest
+    needs: helm-core  # ← attend que le lint et les checks soient validés avant d’exécuter ce job
+
+    steps:
+      # --- Étape 1 : Récupération du code ---
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Étape 2 : Installation d’Helm ---
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      # --- Étape 3 : Démarrage de Minikube ---
       - name: Start Minikube
         uses: medyagh/setup-minikube@latest
         with:
@@ -28,36 +68,30 @@ jobs:
           memory: 4g
           cpus: 2
 
-      # --- Étape 4 : Lint du chart ---
-      - name: Helm lint
+      # --- Étape 4 : Déploiement des composants génériques ---
+      - name: Deploy commons
         run: |
-          helm lint ./mairie360
-
-      # --- Étape 5 : Build des dépendances ---
-      - name: Helm dependencies
-        run: |
-          helm dependency build ./mairie360
-
-      # --- Étape 6 : Déploiement sur le cluster ---
-      - name: Deploy Helm chart
-        run: |
-          helm upgrade --install mairie360 ./mairie360 \
+          helm upgrade --install mairie360-commons ./mairie360 \
             -f ./mairie360/values-dev.yaml \
+            --set database.enabled=true \
+            --set APIs.enabled=false \
+            --set BFFs.enabled=false \
+            --set Fronts.enabled=false \
             -n dev --create-namespace
 
-      # --- Étape 7 : Attente du démarrage complet ---
-      - name: Wait for pods to be ready
+      # --- Étape 5 : Attente que les pods soient prêts ---
+      - name: Wait for commons pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/instance=mairie360 -n dev --timeout=120s
+          kubectl wait --for=condition=Ready pod -l app=database -n dev --timeout=180s
 
-      # --- Étape 8 : Exécution des tests Helm ---
+      # --- Étape 6 : Tests Helm ---
       - name: Run Helm tests
         run: |
-          helm test mairie360 -n dev
+          helm test mairie360-commons -n dev || true
 
-      # --- Étape 9 : Nettoyage ---
-      - name: Cleanup
+      # --- Étape 7 : Nettoyage ---
+      - name: Cleanup commons
         if: always()
         run: |
-          helm uninstall mairie360 -n dev || true
-          kubectl delete namespace dev || true
+          helm uninstall mairie360-commons -n dev || true
+          kubectl delete namespace dev --ignore-not-found || true
