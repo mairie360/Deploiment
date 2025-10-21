@@ -34,9 +34,16 @@ spec:
         - sh
         - -c
         - |
-          echo "🔍 Testing PostgreSQL connection..."
-          until pg_isready -h {{ include "database.fullname" . }} -p 5432; do
-            echo "Waiting for database..."
+          echo "🔍 Starting PostgreSQL connection test..."
+          echo "Using host: {{ include "database.fullname" . }}"
+          COUNT=0
+          until pg_isready -h {{ include "database.fullname" . }} -p 5432 > /dev/null 2>&1; do
+            COUNT=$((COUNT+1))
+            echo "⏳ Waiting for PostgreSQL to be ready... ($COUNT)"
             sleep 2
+            if [ $COUNT -gt 30 ]; then
+              echo "❌ PostgreSQL did not become ready in time!"
+              exit 1
+            fi
           done
           echo "✅ PostgreSQL is reachable!"
