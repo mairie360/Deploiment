@@ -70,7 +70,7 @@ jobs:
 
       - name: Wait for Database Dev pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n dev --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=database -n dev --timeout=300s
 
       - name: Test Dev
         run: |
@@ -92,7 +92,7 @@ jobs:
 
       - name: Wait for Database Staging pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n staging --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=database -n staging --timeout=300s
 
       - name: Test Staging
         run: |
@@ -114,7 +114,7 @@ jobs:
 
       - name: Wait for Database Prod pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n prod --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=database -n prod --timeout=300s
 
       - name: Test Prod
         run: |
@@ -160,7 +160,7 @@ jobs:
 
       - name: Wait for Redis Dev pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n dev --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=redis -n dev --timeout=300s
 
       - name: Test Dev Redis
         run: |
@@ -182,7 +182,7 @@ jobs:
 
       - name: Wait for Redis Staging pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n staging --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=redis -n staging --timeout=300s
 
       - name: Test Staging Redis
         run: |
@@ -204,7 +204,7 @@ jobs:
 
       - name: Wait for Redis Prod pods
         run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n prod --timeout=180s
+          kubectl wait --for=condition=Ready pod -l app=redis -n prod --timeout=300s
 
       - name: Test Prod Redis
         run: |
