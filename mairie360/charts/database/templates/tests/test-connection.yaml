@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "database.fullname" . }}-test"
+  labels:
+    app: "{{ include "database.name" . }}"
+    helm.sh/chart: "{{ include "database.chart" . }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+  annotations:
+    "helm.sh/hook": test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: psql-test
+      image: postgres:17
+      env:
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "database.fullname" . }}-secret
+              key: POSTGRES_USER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "database.fullname" . }}-secret
+              key: POSTGRES_PASSWORD
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "database.fullname" . }}-secret
+              key: POSTGRES_DB
+      command:
+        - sh
+        - -c
+        - |
+          echo "🔍 Testing PostgreSQL connection..."
+          until pg_isready -h {{ include "database.fullname" . }} -p 5432; do
+            echo "Waiting for database..."
+            sleep 2
+          done
+          echo "✅ PostgreSQL is reachable!"
