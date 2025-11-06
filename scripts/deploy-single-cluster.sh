@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Vérifie si Minikube est lancé, sinon le démarre
+if ! minikube status >/dev/null 2>&1; then
+  echo "Démarrage de Minikube..."
+  minikube start --driver=docker --memory=4g --cpus=2
+fi
+
 # Nom du chart
 CHART_DIR="./mairie360"
 CHART_NAME="mairie360"
@@ -19,14 +25,43 @@ if [ -z "$GHCR_USERNAME" ] || [ -z "$GHCR_TOKEN" ] || [ -z "$GHCR_EMAIL" ]; then
   exit 1
 fi
 
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm repo update
+
+# Installer Vault via Helm
+helm install vault hashicorp/vault -f vault-values.yaml
+
+# Attendre que le pod vault-0 existe
+echo "⏳ Attente que le pod Vault soit créé..."
+until kubectl get pod vault-0 &>/dev/null; do
+  sleep 2
+done
+
+# Attendre que le pod vault-0 soit prêt
+echo "⏳ Attente que le pod Vault soit prêt..."
+kubectl wait --for=condition=Ready pod/vault-0 --timeout=5m
+
+# echo "🔑 Initialisation de Vault..."
+# if ! kubectl exec vault-0 -- vault status -format=json | grep -q '"initialized":true'; then
+#     kubectl exec vault-0 -- vault operator init
+# else
+#     echo "ℹ️ Vault est déjà initialisé"
+# fi
+
+# VAULT_SEALED=$(kubectl exec vault-0 -- vault status -address=http://127.0.0.1:8200 -format=json | jq -r '.sealed')
+# if [ "$VAULT_SEALED" = "true" ]; then
+#     echo "🔓 Unseal de Vault..."
+#     # Ici tu peux injecter les clés de unseal
+#     kubectl exec -it vault-0 -- vault operator unseal <clé_1>
+#     kubectl exec -it vault-0 -- vault operator unseal <clé_2>
+#     kubectl exec -it vault-0 -- vault operator unseal <clé_3>
+# else
+#     echo "ℹ️ Vault est déjà unsealed"
+# fi
+
 GHCR_SERVER="ghcr.io"
 GHCR_SECRET_NAME="ghcr-secret"
 
-# Vérifie si Minikube est lancé, sinon le démarre
-if ! minikube status >/dev/null 2>&1; then
-  echo "Démarrage de Minikube..."
-  minikube start --driver=docker --memory=4g --cpus=2
-fi
 
 # Création des namespaces et secrets
 for ns in dev staging prod; do
@@ -55,10 +90,10 @@ done
 echo "Déploiement Dev..."
 helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-dev.yaml -n dev
 
-echo "Déploiement Staging..."
-helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-staging.yaml -n staging
+# echo "Déploiement Staging..."
+# helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-staging.yaml -n staging
 
-echo "Déploiement Prod..."
-helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-prod.yaml -n prod
+# echo "Déploiement Prod..."
+# helm upgrade --install $CHART_NAME $CHART_DIR -f $CHART_DIR/values-prod.yaml -n prod
 
 echo "✅ Tous les environnements déployés dans un seul cluster"

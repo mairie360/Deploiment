@@ -1,0 +1,14 @@
+server:
+  dataStorage:
+    enabled: true
+    size: 1Gi
+  standalone:
+    enabled: true
+  dev:
+    enabled: true
+
+ui:
+  enabled: true
+
+global:
+  tlsDisable: true
