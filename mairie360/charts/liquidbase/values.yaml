@@ -1,0 +1,13 @@
+liquibase:
+  image: liquibase/liquibase:latest
+  gitRepo: "https://https://github.com/mairie360/Database.git"
+  gitTag: "v0.1.0"   # peut être différent selon dev/staging/prod
+  changelogFile: "changelog.xml"
+  propertiesFile: "liquibase.properties"
+
+database:
+  host: "database"
+  name: "core"
+  secretName: "db-credentials"
+  usernameKey: "username"
+  passwordKey: "password"

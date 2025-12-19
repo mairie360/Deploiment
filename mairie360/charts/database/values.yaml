@@ -24,3 +24,6 @@ imagePullSecret:
   username: '{{ env "GHCR_USERNAME" }}'
   password: '{{ env "GHCR_TOKEN" }}'
   email: '{{ env "GHCR_EMAIL" }}'
+
+vault:
+  enabled: true
