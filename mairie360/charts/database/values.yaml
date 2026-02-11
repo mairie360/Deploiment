@@ -9,7 +9,7 @@ image:
 persistence:
   enabled: true
   size: 2Gi
-  storageClass: "standard"
+  storageClass: "local-path"
 
 resources:
   requests:
