@@ -40,20 +40,19 @@ spec:
       containers:
         - name: liquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: IfNotPresent
+          # ... reste du code ...
           env:
-            # Liquibase 4.x+ utilise préférentiellement ces noms de variables
             - name: LIQUIBASE_COMMAND_URL
               value: "jdbc:postgresql://{{ .Values.db.host }}:{{ .Values.db.port }}/{{ .Values.db.name }}"
             - name: LIQUIBASE_COMMAND_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: mairie360-database-secret
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }} # <--- MODIFICATION ICI
                   key: POSTGRES_USER
             - name: LIQUIBASE_COMMAND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mairie360-database-secret
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }} # <--- MODIFICATION ICI
                   key: POSTGRES_PASSWORD
             # On force le chemin vers le fichier copié dans le Dockerfile
             - name: LIQUIBASE_SEARCH_PATH
