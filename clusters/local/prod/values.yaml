@@ -14,6 +14,11 @@ mairie360-stack:
           - path: /
             pathType: ImplementationSpecific
 
+  # 3. Service (AJOUTE CE BLOC ICI)
+  service:
+    type: ClusterIP
+    port: 80
+
   # 4. Database (Haute performance)
   database:
     resources:
