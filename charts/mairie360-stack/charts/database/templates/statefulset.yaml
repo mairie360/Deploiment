@@ -53,7 +53,7 @@ spec:
             - name: POSTGRES_PASSWORD
               value: {{ .Values.env.POSTGRES_PASSWORD | quote }}
             - name: POSTGRES_DB
-              value: "{{ .Values.env.POSTGRES_DB }}_{{ .Release.Namespace }}"
+              value: {{ .Values.env.POSTGRES_DB | quote }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

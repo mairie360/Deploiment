@@ -1,7 +1,6 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # Le timestamp permet de relancer le job à chaque 'helm upgrade'
   name: {{ include "liquibase.fullname" . }}-{{ now | date "20060102150405" }}
   labels:
     {{- include "liquibase.labels" . | nindent 4 }}
@@ -15,10 +14,8 @@ spec:
       restartPolicy: OnFailure
       imagePullSecrets:
         - name: ghcr-secret
-
       initContainers:
         - name: wait-for-db
-          # Utilisation de pg_isready pour une vérification réelle de l'état de la DB
           image: postgres:15-alpine
           imagePullPolicy: IfNotPresent
           env:
@@ -36,25 +33,31 @@ spec:
                 sleep 2
               done
               echo "Base de données prête ! Lancement des migrations Liquibase."
-
       containers:
         - name: liquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          # ... reste du code ...
+          imagePullPolicy: Always
           env:
+            # 1. URL Dynamique
             - name: LIQUIBASE_COMMAND_URL
               value: "jdbc:postgresql://{{ .Values.db.host }}:{{ .Values.db.port }}/{{ .Values.db.name }}"
+
+            # 2. Identifiants dynamiques depuis le secret
             - name: LIQUIBASE_COMMAND_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default "mairie360-database-secret" }} # <--- MODIFICATION ICI
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
                   key: POSTGRES_USER
             - name: LIQUIBASE_COMMAND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default "mairie360-database-secret" }} # <--- MODIFICATION ICI
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
                   key: POSTGRES_PASSWORD
-            # On force le chemin vers le fichier copié dans le Dockerfile
+
+            # 3. FORCE l'ignorance du fichier liquibase.properties interne
+            - name: LIQUIBASE_DEFAULTS_FILE
+              value: ""
+
             - name: LIQUIBASE_SEARCH_PATH
               value: "/liquibase/changelog"
           args:
