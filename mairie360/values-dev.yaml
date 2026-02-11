@@ -4,10 +4,19 @@
 global:
   namespace: dev
   imagePullPolicy: IfNotPresent
-  # resources:
-  #   requests:
-  #     memory: "256Mi"
-  #     cpu: "250m"
+
+# -----------------------------
+# Références d'accès pour les services Backend
+# Ces valeurs seront injectées dans les variables d'env du Back
+# -----------------------------
+dataAccess:
+  postgresql:
+    host: mairie360-database
+    port: 5432
+    database: "core_dev"
+  redis:
+    host: mairie360-redis-master
+    port: 6379
 
 # -----------------------------
 # Sous-charts activés et configurés pour dev
@@ -38,8 +47,9 @@ redis:
 liquibase:
   image:
     repository: ghcr.io/mairie360/liquibase-migrations
-    tag: "dev-latest" # Paramètre pour la version
+    tag: "dev-latest"
   db:
+    # On réutilise les valeurs définies dans dataAccess pour rester cohérent
     host: mairie360-database
     port: 5432
     name: "core_dev"
