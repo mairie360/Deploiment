@@ -16,7 +16,6 @@ mairie360-stack:
 
   # 4. Database
   database:
-    nameOverride: "database" # Force le nom du service à être juste "database"
     resources:
       requests:
         memory: "128Mi"
