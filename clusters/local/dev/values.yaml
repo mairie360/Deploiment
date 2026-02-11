@@ -22,6 +22,10 @@ mairie360-stack:
         cpu: "100m"
     persistence:
       size: "1Gi"
+    env:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "mysecretpassword"
+      POSTGRES_DB: "mairie_db_dev"
 
   # 5. Liquibase (L'aiguillage pour le Job)
   liquibase:
@@ -30,7 +34,7 @@ mairie360-stack:
     db:
       host: "local-dev-database"
       port: 5432
-      name: "core"
+      name: "mairie_db_dev"
     secretName: "local-dev-database-secret"
 
   # 6. Redis
