@@ -1,0 +1,14 @@
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: traefik
+  hosts:
+    - host: admin.mairie360.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # On prépare le terrain pour le HTTPS plus tard
+  tls: []
+
+service:
+  type: ClusterIP # Plus besoin de NodePort car on a l'Ingress
