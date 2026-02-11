@@ -4,14 +4,15 @@
 global:
   namespace: dev
   imagePullPolicy: IfNotPresent
-  resources:
-    requests:
-      memory: "256Mi"
-      cpu: "250m"
+  # resources:
+  #   requests:
+  #     memory: "256Mi"
+  #     cpu: "250m"
 
 # -----------------------------
 # Sous-charts activés et configurés pour dev
 # -----------------------------
+
 database:
   image:
     tag: "main-18242192009"
@@ -21,15 +22,24 @@ database:
   persistence:
     size: "1Gi"
 
+redis:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "7.2.0"
   redis:
-    enabled: true
-    replicaCount: 1
-    image:
-      tag: "7.2.0"          # tag que tu veux utiliser pour dev
-    redis:
-      password: "devpassword" # mot de passe Redis pour dev
-    persistence:
-      enabled: false
-    config:
-      maxmemory: "256mb"
-      maxmemory-policy: "allkeys-lru"
+    password: "devpassword"
+  persistence:
+    enabled: false
+  config:
+    maxmemory: "256mb"
+    maxmemory-policy: "allkeys-lru"
+
+liquibase:
+  image:
+    repository: ghcr.io/mairie360/liquibase-migrations
+    tag: "dev-latest" # Paramètre pour la version
+  db:
+    host: mairie360-database
+    port: 5432
+    name: "core_dev"

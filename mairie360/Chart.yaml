@@ -3,12 +3,12 @@ name: mairie360
 version: 0.1.0
 
 dependencies:
-  - name: database
-    version: 0.1.0
-    repository: "file://./charts/database"
+  # - name: database
+  #   version: 0.1.0
+  #   repository: "file://./charts/database"
   - name: redis
     version: 0.1.0
     repository: "file://./charts/redis"
-  - name: vault
+  - name: liquibase
     version: 0.1.0
-    repository: "file://charts/vault"
+    repository: "file://./charts/liquibase"

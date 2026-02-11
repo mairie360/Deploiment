@@ -1,29 +1,27 @@
+# Enable the database chart
 enabled: true
 
 image:
   repository: "ghcr.io/mairie360/database"
-  tag: "main-latest"
+  tag: "latest"
   pullSecret: "ghcr-secret"
 
 persistence:
   enabled: true
-  size: "1Gi"
+  size: 2Gi
+  storageClass: "standard"
 
 resources:
   requests:
     memory: "256Mi"
     cpu: "250m"
 
+# Hardcoded environment variables for local run
 env:
   POSTGRES_USER: "postgres"
-  POSTGRES_PASSWORD: "postgres"
-  POSTGRES_DB: "postgres"
+  POSTGRES_PASSWORD: "mysecretpassword"
+  POSTGRES_DB: "mairie_db"
 
-imagePullSecret:
-  name: "ghcr-secret"
-  username: '{{ env "GHCR_USERNAME" }}'
-  password: '{{ env "GHCR_TOKEN" }}'
-  email: '{{ env "GHCR_EMAIL" }}'
-
+# Vault is disabled as requested
 vault:
-  enabled: true
+  enabled: false
