@@ -61,7 +61,7 @@ helm dependency build ./mairie360
 echo "🚀 Deploying 'dev' environment..."
 helm upgrade --install mairie360 ./mairie360 \
   -f ./mairie360/values-dev.yaml \
-  --set database.storageClass=local-path \
+  --set persistence.storageClass=local-path \
   --namespace dev \
   --atomic \
   --timeout 15m \
