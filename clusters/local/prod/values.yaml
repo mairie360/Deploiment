@@ -37,7 +37,7 @@ mairie360-stack:
   # 5. Liquibase
   liquibase:
     image:
-      tag: "1.0.0"
+      tag: "0.1.0"
     db:
       host: "local-prod-database"
       port: 5432

@@ -36,7 +36,7 @@ mairie360-stack:
   # Note : Assure-toi que l'image.tag est bien défini ici si ton chart en a besoin
   liquibase:
     image:
-      tag: "latest"
+      tag: "staging-latest"
     db:
       host: "local-staging-database"
       port: 5432
