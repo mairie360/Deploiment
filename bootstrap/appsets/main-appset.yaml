@@ -15,6 +15,7 @@ spec:
     metadata:
       name: 'local-{{env}}'
     spec:
+      project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
         targetRevision: mair-23/set-up-db-deployment # <--- CHANGE CECI
