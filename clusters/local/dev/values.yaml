@@ -25,6 +25,8 @@ mairie360-stack:
 
   # 5. Liquibase (L'aiguillage pour le Job)
   liquibase:
+    image:
+      tag: "dev-latest"
     db:
       host: "local-dev-database"
       port: 5432
