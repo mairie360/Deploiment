@@ -1,9 +1,44 @@
 mairie360-stack:
+  # 1. Image (Tag fixe obligatoire en prod !)
+  image:
+    pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
+    repository: ghcr.io/mairie360/core
+    tag: "0.1.0" # Ne jamais utiliser 'latest' en production
+
+  # 2. Ingress (Activé pour le public)
+  ingress:
+    enabled: true
+    hosts:
+      - host: app.mairie360.fr
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+
+  # 4. Database (Haute performance)
   database:
     resources:
       requests:
-        memory: "1Gi" # Plus costaud pour la prod
+        memory: "1Gi"
+        cpu: "1000m"
+      limits: # On fixe des limites en prod
+        memory: "2Gi"
     persistence:
       size: "10Gi"
-  image:
-    pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
+    env:
+      POSTGRES_USER: "postgres_admin" # User plus sécurisé
+      POSTGRES_PASSWORD: "prod_db_mdp" # À gérer via Vault idéalement
+      POSTGRES_DB: "mairie_db_prod"
+
+  # 5. Liquibase
+  liquibase:
+    image:
+      tag: "1.0.0"
+    db:
+      host: "local-prod-database"
+      port: 5432
+      name: "mairie_db_prod"
+    secretName: "local-prod-database-secret"
+
+  # 6. Redis
+  redis:
+    enabled: true
