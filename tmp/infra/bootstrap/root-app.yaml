@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # On utilise file:// pour indiquer un chemin filesystem
+    repoURL: 'file:///app/infra'
+    # On pointe directement vers le dossier des manifests
+    path: infra/apps/dev
+    targetRevision: HEAD
+    # L'ASTUCE : On définit une section helm vide pour forcer le mode "non-git"
+    helm:
+      # On ne met rien dedans, ça force Argo à juste lire le path
+      values: ""
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

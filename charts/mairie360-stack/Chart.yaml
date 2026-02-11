@@ -1,0 +1,17 @@
+apiVersion: v2
+name: mairie360-stack
+description: Umbrella chart pour Mairie360
+type: application
+version: 0.1.0
+
+dependencies:
+  - name: database
+    version: "0.1.0"
+    repository: "file://./charts/database"
+  - name: redis
+    version: "0.1.0"
+    repository: "file://./charts/redis"
+  - name: liquibase
+    version: "0.1.0"
+    repository: "file://./charts/liquibase"
+  # Ajoute APIs, BFFs et Fronts ici quand ils auront leur Chart.yaml

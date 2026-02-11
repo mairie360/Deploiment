@@ -1,2 +1,6 @@
 mairie360/charts/*.tgz
 .env
+*.private-key.pem
+
+**/charts/*.tgz
+**/Chart.lock

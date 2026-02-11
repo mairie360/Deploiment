@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mairie360.fullname" . }}-liquibase-{{ .Release.Revision }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      containers:
+      - name: liquibase
+        image: ghcr.io/mairie360/liquibase-migrations:latest
+        envFrom:
+          - secretRef:
+              name: {{ include "mairie360.fullname" . }}-db-credentials
+      restartPolicy: OnFailure

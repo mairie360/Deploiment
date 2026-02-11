@@ -1,9 +1,0 @@
-dependencies:
-- name: redis
-  repository: file://./charts/redis
-  version: 0.1.0
-- name: liquibase
-  repository: file://./charts/liquibase
-  version: 0.1.0
-digest: sha256:07a27ce189483146f3d6f1e95cea2ebe4570408edf9d434e47e6b8470319296a
-generated: "2026-02-11T16:55:05.887360337+08:00"

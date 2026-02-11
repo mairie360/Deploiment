@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-from-other-namespaces
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {} # S'applique à TOUS les pods du namespace
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector: {} # Autorise tout ce qui vient du MEME namespace

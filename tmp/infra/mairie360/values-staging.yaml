@@ -1,0 +1,36 @@
+# -----------------------------
+# Valeurs globales pour l'environnement staging
+# -----------------------------
+global:
+  namespace: staging
+  imagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+
+# -----------------------------
+# Sous-charts activés et configurés pour staging
+# -----------------------------
+database:
+  image:
+    tag: "main-18242192009"
+  env:
+    POSTGRES_PASSWORD: "staging_pass"
+    POSTGRES_DB: "core_staging"
+  persistence:
+    size: "2Gi"
+
+  redis:
+    enabled: true
+    replicaCount: 1
+    image:
+      tag: "7.2.0"
+    redis:
+      password: "stagingpassword"
+    persistence:
+      enabled: true
+      size: "1Gi"
+    config:
+      maxmemory: "512mb"
+      maxmemory-policy: "allkeys-lru"

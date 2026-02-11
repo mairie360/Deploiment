@@ -1,0 +1,2 @@
+database:
+  storageClass: "local-path" # comment for local run

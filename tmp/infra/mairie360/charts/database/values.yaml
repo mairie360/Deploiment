@@ -1,0 +1,26 @@
+# Enable the database chart
+enabled: true
+
+image:
+  repository: "ghcr.io/mairie360/database"
+  tag: "latest"
+  pullSecret: "ghcr-secret"
+
+persistence:
+  enabled: true
+  size: 2Gi
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+
+# Hardcoded environment variables for local run
+env:
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "mysecretpassword"
+  POSTGRES_DB: "mairie_db"
+
+# Vault is disabled as requested
+vault:
+  enabled: false
