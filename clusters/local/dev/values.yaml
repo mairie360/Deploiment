@@ -25,9 +25,10 @@ mairie360-stack:
 
   # 5. Liquibase (L'aiguillage pour le Job)
   liquibase:
-    env:
-      DB_HOST: "local-dev-database"
-      DB_PORT: "5432"
+    db:
+      host: "local-dev-database"
+      port: 5432
+      name: "core"
     secretName: "local-dev-database-secret"
 
   # 6. Redis
