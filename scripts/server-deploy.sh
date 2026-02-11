@@ -59,9 +59,9 @@ echo "📦 Building App dependencies..."
 helm dependency build ./mairie360
 
 echo "🚀 Deploying 'dev' environment..."
-# On utilise --atomic pour nettoyer si le timeout (image pull) est dépassé
 helm upgrade --install mairie360 ./mairie360 \
   -f ./mairie360/values-dev.yaml \
+  --set database.storageClass=local-path \
   --namespace dev \
   --atomic \
   --timeout 15m \
