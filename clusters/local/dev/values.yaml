@@ -16,6 +16,7 @@ mairie360-stack:
 
   # 4. Database
   database:
+    nameOverride: "database" # Force le nom du service à être juste "database"
     resources:
       requests:
         memory: "128Mi"
@@ -23,6 +24,14 @@ mairie360-stack:
     persistence:
       size: "1Gi"
 
-  # 5. Redis (Pour éviter la prochaine erreur potentielle)
+  # 5. Liquibase (L'aiguillage pour le Job)
+  liquibase:
+    env:
+      DB_HOST: "database" # Doit correspondre au nameOverride ci-dessus
+      DB_PORT: "5432"
+    # On s'assure que le secret utilisé correspond à celui généré par le chart database
+    secretName: "local-dev-database-secret"
+
+  # 6. Redis
   redis:
-    enabled: false
+    enabled: true
