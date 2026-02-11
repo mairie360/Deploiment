@@ -27,9 +27,8 @@ mairie360-stack:
   # 5. Liquibase (L'aiguillage pour le Job)
   liquibase:
     env:
-      DB_HOST: "database" # Doit correspondre au nameOverride ci-dessus
+      DB_HOST: "local-dev-database"
       DB_PORT: "5432"
-    # On s'assure que le secret utilisé correspond à celui généré par le chart database
     secretName: "local-dev-database-secret"
 
   # 6. Redis
