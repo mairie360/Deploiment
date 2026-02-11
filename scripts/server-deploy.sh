@@ -70,12 +70,13 @@ echo "📦 Building App dependencies..."
 helm dependency build ./mairie360
 
 echo "🚀 Deploying 'dev' environment..."
-# Augmentation du timeout à 10m pour laisser le temps aux images de descendre
 helm upgrade --install mairie360 ./mairie360 \
   -f ./mairie360/values-dev.yaml \
   --namespace dev \
-  --timeout 10m0s \
-  --wait
+  --atomic \
+  --timeout 15m \
+  --wait-for-jobs \
+  --cleanup-on-fail
 
 echo "✅ Full Bootstrap and Deployment successful!"
 
