@@ -18,7 +18,18 @@ if ! command -v helm &> /dev/null; then
   curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 fi
 
-# --- 2. CHARGEMENT DU .ENV ---
+# --- 2. CONFIGURATION DU STOCKAGE (K3S Fix) ---
+echo "🔧 Configuring Storage Classes..."
+# On définit local-path comme défaut
+kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' --type=merge
+
+# On crée l'alias 'standard' pour correspondre aux attentes de tes Charts Helm
+if ! kubectl get storageclass standard &> /dev/null; then
+  echo "📦 Creating 'standard' storageclass alias..."
+  kubectl get storageclass local-path -o json | jq 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp) | .metadata.name = "standard"' | kubectl apply -f -
+fi
+
+# --- 3. CHARGEMENT DU .ENV ---
 if [ -f ".env" ]; then
   export $(grep -v '^#' .env | xargs)
 else
@@ -26,8 +37,7 @@ else
   exit 1
 fi
 
-# --- 3. CONFIGURATION DU CLUSTER (Namespaces & Secrets) ---
-# On boucle sur les environnements applicatifs uniquement pour les secrets GHCR
+# --- 4. CONFIGURATION DU CLUSTER (Namespaces & Secrets) ---
 for ns in dev staging prod; do
   kubectl create namespace $ns --dry-run=client -o yaml | kubectl apply -f -
 
@@ -39,27 +49,32 @@ for ns in dev staging prod; do
     -n $ns --dry-run=client -o yaml | kubectl apply -f -
 done
 
-# Namespace pour les outils d'admin
 kubectl create namespace portainer --dry-run=client -o yaml | kubectl apply -f -
 
-# --- 4. INSTALLATION DES OUTILS (PORTAINER) ---
+# --- 5. NETTOYAGE DES PVC EN ATTENTE (Optionnel mais recommandé en Dev) ---
+# Si des PVC sont bloqués en Pending sur l'ancienne config, on les purge pour repartir propre
+echo "🧹 Checking for pending PVCs..."
+kubectl get pvc -n dev | grep Pending | awk '{print $1}' | xargs -r kubectl delete pvc -n dev
+
+# --- 6. INSTALLATION DES OUTILS (PORTAINER) ---
 echo "📊 Deploying Portainer via config file..."
 helm repo add portainer https://portainer.github.io/k8s/
 helm repo update
 
-# On utilise le fichier de config externe
 helm upgrade --install portainer portainer/portainer \
   --namespace portainer \
   -f configs/portainer-values.yaml
 
-# --- 5. DÉPLOIEMENT DE L'APPLICATION ---
+# --- 7. DÉPLOIEMENT DE L'APPLICATION ---
 echo "📦 Building App dependencies..."
 helm dependency build ./mairie360
 
 echo "🚀 Deploying 'dev' environment..."
+# Augmentation du timeout à 10m pour laisser le temps aux images de descendre
 helm upgrade --install mairie360 ./mairie360 \
   -f ./mairie360/values-dev.yaml \
   --namespace dev \
+  --timeout 10m0s \
   --wait
 
 echo "✅ Full Bootstrap and Deployment successful!"
