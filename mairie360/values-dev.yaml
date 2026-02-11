@@ -4,6 +4,10 @@
 global:
   namespace: dev
   imagePullPolicy: IfNotPresent
+  domain: "mairie360.dev"
+
+service:
+  type: ClusterIP
 
 # -----------------------------
 # Références d'accès pour les services Backend
