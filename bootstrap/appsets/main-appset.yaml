@@ -7,18 +7,18 @@ metadata:
 spec:
   generators:
     - list:
-        - env: dev
-        - env: staging
-        - env: prod
+        elements:
+          - env: dev
+          - env: staging
+          - env: prod
   template:
     metadata:
       name: 'local-{{env}}'
     spec:
-      project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        targetRevision: HEAD
-        path: 'clusters/local/{{env}}' # On pointe vers tes dossiers clusters
+        targetRevision: mair-23/set-up-db-deployment # <--- CHANGE CECI
+        path: 'clusters/local/{{env}}'
         helm:
           parameters:
             - name: "image.pullSecretData"
