@@ -4,11 +4,13 @@ metadata:
   name: argocd-server-ingress
   namespace: argocd
   annotations:
-    kubernetes.io/ingress.class: nginx # <--- AJOUTE CECI
+    kubernetes.io/ingress.class: nginx
+    # Indique à Nginx que le service derrière (Argo) parle en HTTPS
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    # Augmente la taille max des uploads (utile pour certaines configs Argo)
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
 spec:
-  ingressClassName: nginx # <--- ET CECI (pour les versions récentes de K8s)
+  ingressClassName: nginx
   rules:
   - host: argo.mairie360.fr
     http:
