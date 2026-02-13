@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infra-configs
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/mairie360/Deploiment.git'
+    targetRevision: mair-23/set-up-db-deployment
+    path: configs  # <--- C'est ici qu'Argo va chercher ton argocd-ingress.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
