@@ -4,13 +4,13 @@ metadata:
   name: argocd-server-ingress
   namespace: argocd
   annotations:
-    kubernetes.io/ingress.class: nginx
-    # Crucial : Argo CD communique en HTTPS en interne
+    kubernetes.io/ingress.class: nginx # <--- AJOUTE CECI
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
 spec:
+  ingressClassName: nginx # <--- ET CECI (pour les versions récentes de K8s)
   rules:
-  - host: argo.mairie360.fr  # REMPLACE PAR TON DOMAINE
+  - host: argo.mairie360.fr
     http:
       paths:
       - path: /
