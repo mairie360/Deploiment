@@ -9,6 +9,7 @@ mairie360-stack:
   ingress:
     enabled: true
     className: "nginx"
+    clusterIssuer: "letsencrypt-prod"
     annotations:
       kubernetes.io/ingress.allow-http: "false"
       nginx.ingress.kubernetes.io/ssl-redirect: "true"

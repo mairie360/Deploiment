@@ -9,6 +9,7 @@ mairie360-stack:
   ingress:
     enabled: true
     className: "nginx"
+    clusterIssuer: "letsencrypt-dev"
     annotations:
       kubernetes.io/ingress.allow-http: "false"
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -20,7 +21,7 @@ mairie360-stack:
             serviceName: "mairie360-gateway"
             servicePort: 80
     tls:
-      - secretName: argocd-server-tls
+      - secretName: dev-mairie360-tls
         hosts:
           - dev.mairie360-eip.fr
 

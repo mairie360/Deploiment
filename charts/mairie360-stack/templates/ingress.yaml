@@ -12,6 +12,10 @@ metadata:
     {{- if .Values.ingress.className }}
     kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
     {{- end }}
+    {{/* Ajout automatique de l'annotation Cert-Manager si le ClusterIssuer est défini */}}
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
@@ -33,7 +37,11 @@ spec:
         paths:
           {{- range .paths }}
           - path: {{ .path }}
-            pathType: {{ .pathType | default "Prefix" }}
+            {{- if .pathType }}
+            pathType: {{ .pathType }}
+            {{- else }}
+            pathType: Prefix
+            {{- end }}
             backend:
               service:
                 name: {{ .serviceName | default "mairie360-gateway" }}
