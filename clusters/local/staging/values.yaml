@@ -23,6 +23,7 @@ mairie360-stack:
         cpu: "500m"
     persistence:
       size: "2Gi"
+      storageClass: "local-path"
     env:
       POSTGRES_USER: "postgres"
       POSTGRES_PASSWORD: "stagingpassword123"

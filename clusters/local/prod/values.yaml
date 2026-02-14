@@ -25,6 +25,7 @@ mairie360-stack:
         memory: "2Gi"
     persistence:
       size: "10Gi"
+      storageClass: "local-path"
     env:
       POSTGRES_USER: "postgres_admin" # User plus sécurisé
       POSTGRES_PASSWORD: "prod_db_mdp" # À gérer via Vault idéalement
