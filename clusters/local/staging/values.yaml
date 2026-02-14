@@ -7,12 +7,8 @@ mairie360-stack:
 
   # 2. Ingress
   ingress:
-    enabled: true
-    hosts:
-      - host: staging.mairie360.local
-        paths:
-          - path: /
-            pathType: ImplementationSpecific
+      enabled: true
+      host: staging.mairie360-eip.fr
 
   # 3. Service (AJOUTE CE BLOC ICI)
   service:

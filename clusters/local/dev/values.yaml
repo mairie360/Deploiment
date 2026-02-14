@@ -7,7 +7,8 @@ mairie360-stack:
 
   # 2. Ingress (Pour corriger ta nouvelle erreur)
   ingress:
-    enabled: false  # On le désactive pour le dev local, mais la clé existe enfin !
+      enabled: true
+      host: dev.mairie360-eip.fr
 
   # 3. Service
   service:
