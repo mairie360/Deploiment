@@ -7,12 +7,15 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    # On rajoute ceci pour que cert-manager gère le secret automatiquement
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
   tls:
   - hosts:
     - argo.mairie360-eip.fr
-    secretName: mairie360-tls-secret
+    # ON UTILISE LE SECRET QUE CERT-MANAGER A REMPLI
+    secretName: argocd-server-tls
   rules:
   - host: argo.mairie360-eip.fr
     http:
