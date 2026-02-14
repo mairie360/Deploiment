@@ -9,7 +9,7 @@ mairie360-stack:
   ingress:
     enabled: true
     className: "nginx"
-    clusterIssuer: "letsencrypt-staging"
+    clusterIssuer: "letsencrypt-local"
     annotations:
       kubernetes.io/ingress.allow-http: "false"
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -18,7 +18,7 @@ mairie360-stack:
         paths:
           - path: /
             pathType: ImplementationSpecific
-            serviceName: "mairie360-gateway"
+            serviceName: "local-staging-mairie360-stack-gateway"
             servicePort: 80
     tls:
       - secretName: staging-mairie360-tls

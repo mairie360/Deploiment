@@ -1,43 +1,13 @@
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: letsencrypt-dev
+  name: letsencrypt-local
 spec:
   acme:
     email: quentin.tennerel@epitech.eu
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
-      name: letsencrypt-dev-key
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
----
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-staging
-spec:
-  acme:
-    email: quentin.tennerel@epitech.eu
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef:
-      name: letsencrypt-staging-key
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
----
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    email: quentin.tennerel@epitech.eu
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef:
-      name: letsencrypt-prod-key
+      name: letsencrypt-local-key
     solvers:
     - http01:
         ingress:

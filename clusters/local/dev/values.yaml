@@ -9,7 +9,7 @@ mairie360-stack:
   ingress:
     enabled: true
     className: "nginx"
-    clusterIssuer: "letsencrypt-prod"
+    clusterIssuer: "letsencrypt-local"
     annotations:
       # --- FIX POUR LET'S ENCRYPT ---
       # Autorise le HTTP sur le port 80 pour que le challenge ACME passe
@@ -24,7 +24,7 @@ mairie360-stack:
         paths:
           - path: /
             pathType: ImplementationSpecific
-            serviceName: "mairie360-gateway"
+            serviceName: "local-dev-mairie360-stack-gateway"
             servicePort: 80
     tls:
       - secretName: dev-mairie360-tls
