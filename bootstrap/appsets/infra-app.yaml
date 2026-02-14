@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: 'https://github.com/mairie360/Deploiment.git'
     targetRevision: mair-23/set-up-db-deployment
-    path: configs  # <--- C'est ici qu'Argo va chercher ton argocd-ingress.yaml
+    path: bootstrap/appsets
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
