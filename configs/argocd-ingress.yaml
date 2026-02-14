@@ -4,24 +4,17 @@ metadata:
   name: argocd-server-ingress
   namespace: argocd
   annotations:
-    # Use Nginx as the ingress controller
     kubernetes.io/ingress.class: nginx
-    # ArgoCD server communicates over HTTPS internally
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    # Allow large payloads (useful for complex ArgoCD configs)
     nginx.ingress.kubernetes.io/proxy-body-size: "0"
-    # Link to the ClusterIssuer created via Ansible for Let's Encrypt certificates
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
   tls:
-  # Certificate will be automatically issued for this hostname
   - hosts:
-    - argo.mairie360.fr
-    # Secret where the SSL certificate will be stored by Cert-Manager
-    secretName: argocd-server-tls
+    - argo.mairie360-eip.fr
+    secretName: mairie360-tls-secret
   rules:
-  - host: argo.mairie360.fr
+  - host: argo.mairie360-eip.fr
     http:
       paths:
       - path: /
