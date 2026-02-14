@@ -5,25 +5,22 @@ mairie360-stack:
     repository: ghcr.io/mairie360/core
     tag: "latest"
 
-  # 2. Ingress (Configuré pour HTTPS)
+  # 2. Ingress
   ingress:
     enabled: true
     className: "nginx"
     annotations:
-      # On force la redirection HTTP vers HTTPS
       kubernetes.io/ingress.allow-http: "false"
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
-      # Si tu utilises cert-manager pour générer tes certificats automatiquement :
-      # cert-manager.io/cluster-issuer: "letsencrypt-prod"
     hosts:
       - host: dev.mairie360-eip.fr
         paths:
           - path: /
             pathType: ImplementationSpecific
             serviceName: "mairie360-gateway"
-            servicePort: 80 # Le service interne reste souvent en 80, c'est l'Ingress qui gère le TLS
+            servicePort: 80
     tls:
-      - secretName: argocd-server-tls # Le nom du certificat (doit exister dans le namespace)
+      - secretName: argocd-server-tls
         hosts:
           - dev.mairie360-eip.fr
 

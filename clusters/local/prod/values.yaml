@@ -1,34 +1,48 @@
 mairie360-stack:
-  # 1. Image (Tag fixe obligatoire en prod !)
+  # 1. Image
   image:
     pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
     repository: ghcr.io/mairie360/core
-    tag: "0.1.0" # Ne jamais utiliser 'latest' en production
+    tag: "0.1.0"
 
-  # 2. Ingress (Activé pour le public)
+  # 2. Ingress
   ingress:
-      enabled: true
-      host: prod.mairie360-eip.fr
+    enabled: true
+    className: "nginx"
+    annotations:
+      kubernetes.io/ingress.allow-http: "false"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: prod.mairie360-eip.fr
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            serviceName: "mairie360-gateway"
+            servicePort: 80
+    tls:
+      - secretName: prod-mairie360-tls
+        hosts:
+          - prod.mairie360-eip.fr
 
-  # 3. Service (AJOUTE CE BLOC ICI)
+  # 3. Service
   service:
     type: ClusterIP
     port: 80
 
-  # 4. Database (Haute performance)
+  # 4. Database
   database:
     resources:
       requests:
         memory: "1Gi"
         cpu: "1000m"
-      limits: # On fixe des limites en prod
+      limits:
         memory: "2Gi"
     persistence:
       size: "10Gi"
       storageClass: "local-path"
     env:
-      POSTGRES_USER: "postgres_admin" # User plus sécurisé
-      POSTGRES_PASSWORD: "prod_db_mdp" # À gérer via Vault idéalement
+      POSTGRES_USER: "postgres_admin"
+      POSTGRES_PASSWORD: "prod_db_mdp"
       POSTGRES_DB: "mairie_db_prod"
 
   # 5. Liquibase

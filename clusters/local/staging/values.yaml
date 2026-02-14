@@ -7,10 +7,24 @@ mairie360-stack:
 
   # 2. Ingress
   ingress:
-      enabled: true
-      host: staging.mairie360-eip.fr
+    enabled: true
+    className: "nginx"
+    annotations:
+      kubernetes.io/ingress.allow-http: "false"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: staging.mairie360-eip.fr
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            serviceName: "mairie360-gateway"
+            servicePort: 80
+    tls:
+      - secretName: staging-mairie360-tls
+        hosts:
+          - staging.mairie360-eip.fr
 
-  # 3. Service (AJOUTE CE BLOC ICI)
+  # 3. Service
   service:
     type: ClusterIP
     port: 80
@@ -30,7 +44,6 @@ mairie360-stack:
       POSTGRES_DB: "mairie_db_staging"
 
   # 5. Liquibase
-  # Note : Assure-toi que l'image.tag est bien défini ici si ton chart en a besoin
   liquibase:
     image:
       tag: "staging-latest"
