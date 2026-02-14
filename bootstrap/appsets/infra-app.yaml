@@ -6,19 +6,16 @@ metadata:
 spec:
   project: default
   sources:
-    # 1. Tes manifests existants dans bootstrap/appsets
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
       targetRevision: mair-23/set-up-db-deployment
       path: bootstrap/appsets
       directory:
         recurse: true
     
-    # 2. Tes configs (Portainer, RBAC, etc.)
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
       targetRevision: mair-23/set-up-db-deployment
       path: configs
 
-    # 3. AJOUT : Installation de Cert-Manager avec le fix DNS
     - repoURL: 'https://charts.jetstack.io'
       chart: cert-manager
       targetRevision: v1.13.3
@@ -26,13 +23,21 @@ spec:
         releaseName: cert-manager
         values: |
           installCRDs: true
+          # Fix pour le self-check HTTP-01 en environnement contraint
+          hostAliases:
+            - ip: "51.158.96.108"
+              hostnames:
+                - "dev.mairie360-eip.fr"
+                - "staging.mairie360-eip.fr"
+                - "prod.mairie360-eip.fr"
+          # On garde ça par sécurité pour les futures validations DNS
           extraArgs:
             - --dns01-recursive-nameservers-only
             - --dns01-recursive-nameservers=8.8.8.8:53,1.1.1.1:53
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd 
+    namespace: cert-manager # Conseil : Déploie cert-manager dans son propre namespace
     
   syncPolicy:
     automated:
