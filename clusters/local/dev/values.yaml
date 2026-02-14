@@ -5,10 +5,27 @@ mairie360-stack:
     repository: ghcr.io/mairie360/core
     tag: "latest"
 
-  # 2. Ingress (Pour corriger ta nouvelle erreur)
+  # 2. Ingress (Configuré pour HTTPS)
   ingress:
-      enabled: true
-      host: dev.mairie360-eip.fr
+    enabled: true
+    className: "nginx"
+    annotations:
+      # On force la redirection HTTP vers HTTPS
+      kubernetes.io/ingress.allow-http: "false"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      # Si tu utilises cert-manager pour générer tes certificats automatiquement :
+      # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: dev.mairie360-eip.fr
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            serviceName: "mairie360-gateway"
+            servicePort: 80 # Le service interne reste souvent en 80, c'est l'Ingress qui gère le TLS
+    tls:
+      - secretName: argocd-server-tls # Le nom du certificat (doit exister dans le namespace)
+        hosts:
+          - dev.mairie360-eip.fr
 
   # 3. Service
   service:
@@ -29,7 +46,7 @@ mairie360-stack:
       POSTGRES_PASSWORD: "mysecretpassword"
       POSTGRES_DB: "mairie_db_dev"
 
-  # 5. Liquibase (L'aiguillage pour le Job)
+  # 5. Liquibase
   liquibase:
     image:
       tag: "dev-latest"
