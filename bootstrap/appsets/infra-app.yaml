@@ -5,10 +5,13 @@ metadata:
   namespace: argocd
 spec:
   project: default
-  source:
-    repoURL: 'https://github.com/mairie360/Deploiment.git'
-    targetRevision: mair-23/set-up-db-deployment
-    path: bootstrap/appsets
+  sources: # <--- On passe au pluriel pour gérer plusieurs dossiers
+    - repoURL: 'https://github.com/mairie360/Deploiment.git'
+      targetRevision: mair-23/set-up-db-deployment
+      path: bootstrap/appsets # Surveille les ApplicationSets
+    - repoURL: 'https://github.com/mairie360/Deploiment.git'
+      targetRevision: mair-23/set-up-db-deployment
+      path: configs # Surveille l'Ingress, Portainer, etc.
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
