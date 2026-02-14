@@ -9,10 +9,17 @@ mairie360-stack:
   ingress:
     enabled: true
     className: "nginx"
-    clusterIssuer: "letsencrypt-dev"
+    # Note : Vérifie que ton ClusterIssuer s'appelle bien letsencrypt-prod (vu dans Ansible) 
+    # ou letsencrypt-dev selon ton environnement actuel.
+    clusterIssuer: "letsencrypt-prod" 
     annotations:
-      kubernetes.io/ingress.allow-http: "false"
-      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      # MODIFICATIONS ICI :
+      # On autorise le HTTP pour le challenge ACME
+      kubernetes.io/ingress.allow-http: "true"
+      # On désactive la redirection forcée le temps de la validation
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      # Optionnel mais recommandé pour éviter les conflits de challenge
+      nginx.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0"
     hosts:
       - host: dev.mairie360-eip.fr
         paths:
