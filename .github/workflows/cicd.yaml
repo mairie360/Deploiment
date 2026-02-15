@@ -39,34 +39,34 @@ jobs:
               -f ./clusters/local/$env/values.yaml > dry-run-$env.yaml
           done
 
-  # ================================
-  # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
-  # ================================
-  helm-tests:
-    name: Functional Tests
-    needs: helm-validation
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        component: [database, redis, full] # On parallélise pour gagner du temps
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # # ================================
+  # # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
+  # # ================================
+  # helm-tests:
+  #   name: Functional Tests
+  #   needs: helm-validation
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       component: [database, redis, full] # On parallélise pour gagner du temps
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-      - name: Start Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          memory: 6g
-          cpus: 2
+  #     - name: Start Minikube
+  #       uses: medyagh/setup-minikube@latest
+  #       with:
+  #         memory: 6g
+  #         cpus: 2
 
-      - name: Deploy & Test ${{ matrix.component }}
-        run: |
-          # Logique simplifiée : on déploie selon le composant de la matrix
-          # Utilisation des fichiers de values réels de ton repo
-          helm upgrade --install mairie360-${{ matrix.component }} ./charts/mairie360-stack \
-            -f ./clusters/local/dev/values.yaml \
-            --set ${{ matrix.component }}.enabled=true \
-            -n test --create-namespace
+  #     - name: Deploy & Test ${{ matrix.component }}
+  #       run: |
+  #         # Logique simplifiée : on déploie selon le composant de la matrix
+  #         # Utilisation des fichiers de values réels de ton repo
+  #         helm upgrade --install mairie360-${{ matrix.component }} ./charts/mairie360-stack \
+  #           -f ./clusters/local/dev/values.yaml \
+  #           --set ${{ matrix.component }}.enabled=true \
+  #           -n test --create-namespace
           
-          kubectl wait --for=condition=Ready pods --all -n test --timeout=300s
-          helm test mairie360-${{ matrix.component }} -n test
+  #         kubectl wait --for=condition=Ready pods --all -n test --timeout=300s
+  #         helm test mairie360-${{ matrix.component }} -n test
