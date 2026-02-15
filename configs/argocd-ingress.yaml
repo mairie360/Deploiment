@@ -20,10 +20,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - argo.mairie360-eip.fr
+    - argocd.mairie360-eip.fr
     secretName: argocd-server-tls
   rules:
-  - host: argo.mairie360-eip.fr
+  - host: argocd.mairie360-eip.fr
     http:
       paths:
       - path: /
