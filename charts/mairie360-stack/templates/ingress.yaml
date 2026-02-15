@@ -1,4 +1,5 @@
-{{- if .Values.ingress.enabled -}}
+{{- $ingress := .Values.ingress | default dict -}}
+{{- if and .Values.ingress .Values.ingress.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -6,23 +7,22 @@ metadata:
   labels:
     {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
-    {{- with .Values.ingress.annotations }}
+    {{- with $ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- if .Values.ingress.className }}
-    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    {{- if $ingress.className }}
+    kubernetes.io/ingress.class: {{ $ingress.className | quote }}
     {{- end }}
-    {{/* Ajout automatique de l'annotation Cert-Manager si le ClusterIssuer est défini */}}
-    {{- if .Values.ingress.clusterIssuer }}
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- if $ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | quote }}
     {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
+  {{- if $ingress.className }}
+  ingressClassName: {{ $ingress.className }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if $ingress.tls }}
   tls:
-    {{- range .Values.ingress.tls }}
+    {{- range $ingress.tls }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}
@@ -31,20 +31,16 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
+    {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
           {{- range .paths }}
           - path: {{ .path }}
-            {{- if .pathType }}
-            pathType: {{ .pathType }}
-            {{- else }}
-            pathType: Prefix
-            {{- end }}
+            pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ .serviceName | default "mairie360-gateway" }}
+                name: {{ .serviceName | default (printf "%s-gateway" (include "mairie360.fullname" $)) }}
                 port:
                   number: {{ .servicePort | default 80 }}
           {{- end }}

@@ -5,11 +5,15 @@ metadata:
   labels:
     app: {{ include "mairie360.fullname" . }}
 spec:
+  {{- if .Values.service }}
   type: {{ .Values.service.type | default "LoadBalancer" }}
+  {{- else }}
+  type: LoadBalancer
+  {{- end }}
   ports:
     - port: 80
-      targetPort: 8080 # Le port sur lequel ton application écoute
+      targetPort: 8080
       protocol: TCP
       name: http
   selector:
-    app: {{ include "mairie360.fullname" . }}-backend # Doit correspondre aux labels de ton Deployment
+    app: {{ include "mairie360.fullname" . }}-backend

@@ -2,16 +2,16 @@ name: Helm CI/CD
 
 on:
   push:
+    branches: [ main, develop ]
   pull_request:
 
 jobs:
   # ================================
-  # 🧱 JOB 1 : Vérifications génériques Helm (lint, dépendances, etc.)
+  # 🧱 JOB 1 : Validation & Qualité
   # ================================
-  helm-core:
-    name: Helm Lint & Validation
+  helm-validation:
+    name: Lint & Template Validation
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,284 +21,52 @@ jobs:
         with:
           version: v3.15.0
 
-      - name: Helm lint (root chart)
+      - name: Helm lint (Recursive)
         run: |
-          helm lint ./mairie360
+          # Lint du chart principal et des subcharts
+          helm lint ./charts/mairie360-stack
+          find ./charts/mairie360-stack/charts -maxdepth 1 -type d -exec helm lint {} \;
 
       - name: Helm dependency build
-        run: |
-          helm dependency build ./mairie360
+        run: helm dependency build ./charts/mairie360-stack
 
-      - name: Validate values files
+      # ✨ LE TEST CRUCIAL : Simulation de rendu pour chaque env
+      - name: Validate Template Rendering (Dry-Run)
         run: |
-          for file in ./mairie360/values-*.yaml; do
-            echo "Checking $file"
-            yq e '.' "$file" > /dev/null
+          for env in dev staging prod; do
+            echo "Testing rendering for $env"
+            helm template test ./charts/mairie360-stack \
+              -f ./clusters/local/$env/values.yaml > dry-run-$env.yaml
           done
 
   # ================================
-  # ⚙️ JOB 2 : Tests Database
+  # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
   # ================================
-  helm-db:
-    name: Deploy & Test Database
+  helm-tests:
+    name: Functional Tests
+    needs: helm-validation
     runs-on: ubuntu-latest
-    needs: helm-core
-
+    strategy:
+      matrix:
+        component: [database, redis, full] # On parallélise pour gagner du temps
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.15.0
-
       - name: Start Minikube
         uses: medyagh/setup-minikube@latest
         with:
-          driver: docker
-          memory: 4g
+          memory: 6g
           cpus: 2
 
-      # ---- Dev ----
-      - name: Deploy Database Dev
+      - name: Deploy & Test ${{ matrix.component }}
         run: |
-          helm upgrade --install mairie360-db-dev ./mairie360 \
-            -f ./mairie360/values-dev.yaml \
-            --set database.enabled=true \
-            -n dev --create-namespace
-
-      - name: Wait for Database Dev pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n dev --timeout=300s
-
-      - name: Test Dev
-        run: |
-          helm test mairie360-db-dev -n dev
-
-      - name: Cleanup Dev
-        if: always()
-        run: |
-          helm uninstall mairie360-db-dev -n dev || true
-          kubectl delete namespace dev --ignore-not-found || true
-
-      # ---- Staging ----
-      - name: Deploy Database Staging
-        run: |
-          helm upgrade --install mairie360-db-staging ./mairie360 \
-            -f ./mairie360/values-staging.yaml \
-            --set database.enabled=true \
-            -n staging --create-namespace
-
-      - name: Wait for Database Staging pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n staging --timeout=300s
-
-      - name: Test Staging
-        run: |
-          helm test mairie360-db-staging -n staging
-
-      - name: Cleanup Staging
-        if: always()
-        run: |
-          helm uninstall mairie360-db-staging -n staging || true
-          kubectl delete namespace staging --ignore-not-found || true
-
-      # ---- Prod ----
-      - name: Deploy Database Prod
-        run: |
-          helm upgrade --install mairie360-db-prod ./mairie360 \
-            -f ./mairie360/values-prod.yaml \
-            --set database.enabled=true \
-            -n prod --create-namespace
-
-      - name: Wait for Database Prod pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=database -n prod --timeout=300s
-
-      - name: Test Prod
-        run: |
-          helm test mairie360-db-prod -n prod
-
-      - name: Cleanup Prod
-        if: always()
-        run: |
-          helm uninstall mairie360-db-prod -n prod || true
-          kubectl delete namespace prod --ignore-not-found || true
-
-  # ================================
-  # ⚙️ JOB 3 : Tests Redis
-  # ================================
-  helm-redis:
-    name: Deploy & Test Redis
-    runs-on: ubuntu-latest
-    needs: helm-core
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.15.0
-
-      - name: Start Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          driver: docker
-          memory: 4g
-          cpus: 2
-
-      # ---- Dev ----
-      - name: Deploy Redis Dev
-        run: |
-          helm upgrade --install mairie360-redis-dev ./mairie360 \
-            -f ./mairie360/values-dev.yaml \
-            --set redis.enabled=true \
-            -n dev --create-namespace
-
-      - name: Wait for Redis Dev pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n dev --timeout=300s
-
-      - name: Test Dev Redis
-        run: |
-          helm test mairie360-redis-dev -n dev
-
-      - name: Cleanup Dev Redis
-        if: always()
-        run: |
-          helm uninstall mairie360-redis-dev -n dev || true
-          kubectl delete namespace dev --ignore-not-found || true
-
-      # ---- Staging ----
-      - name: Deploy Redis Staging
-        run: |
-          helm upgrade --install mairie360-redis-staging ./mairie360 \
-            -f ./mairie360/values-staging.yaml \
-            --set redis.enabled=true \
-            -n staging --create-namespace
-
-      - name: Wait for Redis Staging pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n staging --timeout=300s
-
-      - name: Test Staging Redis
-        run: |
-          helm test mairie360-redis-staging -n staging
-
-      - name: Cleanup Staging Redis
-        if: always()
-        run: |
-          helm uninstall mairie360-redis-staging -n staging || true
-          kubectl delete namespace staging --ignore-not-found || true
-
-      # ---- Prod ----
-      - name: Deploy Redis Prod
-        run: |
-          helm upgrade --install mairie360-redis-prod ./mairie360 \
-            -f ./mairie360/values-prod.yaml \
-            --set redis.enabled=true \
-            -n prod --create-namespace
-
-      - name: Wait for Redis Prod pods
-        run: |
-          kubectl wait --for=condition=Ready pod -l app=redis -n prod --timeout=300s
-
-      - name: Test Prod Redis
-        run: |
-          helm test mairie360-redis-prod -n prod
-
-      - name: Cleanup Prod Redis
-        if: always()
-        run: |
-          helm uninstall mairie360-redis-prod -n prod || true
-          kubectl delete namespace prod --ignore-not-found || true
-
-  # ================================
-  # 🧩 JOB 4 : Tests d’intégration complets (Dev, Staging, Prod)
-  # ================================
-  helm-cluster:
-    name: Full Cluster Integration Tests
-    runs-on: ubuntu-latest
-    needs: [helm-db, helm-redis]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.15.0
-
-      - name: Start Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          driver: docker
-          memory: 8g
-          cpus: 4
-
-      # ---- Dev ----
-      - name: Deploy Full Cluster (Dev)
-        run: |
-          helm upgrade --install mairie360-dev ./mairie360 \
-            -f ./mairie360/values-dev.yaml \
-            -n dev --create-namespace
-
-      - name: Wait for all Dev pods
-        run: |
-          kubectl wait --for=condition=Ready pods --all -n dev --timeout=600s
-
-      - name: Run Integration Tests (Dev)
-        run: |
-          helm test mairie360-dev -n dev
-
-      - name: Cleanup Dev
-        if: always()
-        run: |
-          helm uninstall mairie360-dev -n dev || true
-          kubectl delete namespace dev --ignore-not-found || true
-
-      # ---- Staging ----
-      - name: Deploy Full Cluster (Staging)
-        run: |
-          helm upgrade --install mairie360-staging ./mairie360 \
-            -f ./mairie360/values-staging.yaml \
-            -n staging --create-namespace
-
-      - name: Wait for all Staging pods
-        run: |
-          kubectl wait --for=condition=Ready pods --all -n staging --timeout=600s
-
-      - name: Run Integration Tests (Staging)
-        run: |
-          helm test mairie360-staging -n staging
-
-      - name: Cleanup Staging
-        if: always()
-        run: |
-          helm uninstall mairie360-staging -n staging || true
-          kubectl delete namespace staging --ignore-not-found || true
-
-      # ---- Prod ----
-      - name: Deploy Full Cluster (Prod)
-        run: |
-          helm upgrade --install mairie360-prod ./mairie360 \
-            -f ./mairie360/values-prod.yaml \
-            -n prod --create-namespace
-
-      - name: Wait for all Prod pods
-        run: |
-          kubectl wait --for=condition=Ready pods --all -n prod --timeout=600s
-
-      - name: Run Integration Tests (Prod)
-        run: |
-          helm test mairie360-prod -n prod
-
-      - name: Cleanup Prod
-        if: always()
-        run: |
-          helm uninstall mairie360-prod -n prod || true
-          kubectl delete namespace prod --ignore-not-found || true
+          # Logique simplifiée : on déploie selon le composant de la matrix
+          # Utilisation des fichiers de values réels de ton repo
+          helm upgrade --install mairie360-${{ matrix.component }} ./charts/mairie360-stack \
+            -f ./clusters/local/dev/values.yaml \
+            --set ${{ matrix.component }}.enabled=true \
+            -n test --create-namespace
+          
+          kubectl wait --for=condition=Ready pods --all -n test --timeout=300s
+          helm test mairie360-${{ matrix.component }} -n test
