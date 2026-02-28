@@ -1,0 +1,18 @@
+{{- range $apiName, $apiConfig := .Values.instances }}
+{{- if $apiConfig.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $apiName }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ $apiName }}
+{{- end }}
+{{- end }}

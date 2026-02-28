@@ -1,0 +1,14 @@
+# charts/mairie360-stack/charts/APIs/values.yaml
+instances:
+  core-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/core-api
+      tag: latest
+    env:
+      - name: PUBLIC_URL
+        value: "http://core.development.mairie360.fr"
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"

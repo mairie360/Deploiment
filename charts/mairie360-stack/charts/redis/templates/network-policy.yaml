@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "redis.fullname" . }}-access
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          component: api # APIs autorisées
+    - podSelector:
+        matchLabels:
+          component: bff # BFFs autorisés (pour plus tard)
+    ports:
+    - port: 6379
