@@ -7,7 +7,7 @@ spec:
   generators:
     - git:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        revision: mair-31add-bffs-in-helm-config
+        revision: mair-30-add-apis-in-helm-config
         directories:
           - path: clusters/local/* # Il va trouver dev, staging, prod
   template:
@@ -17,7 +17,7 @@ spec:
       project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        targetRevision: mair-31add-bffs-in-helm-config
+        targetRevision: mair-30-add-apis-in-helm-config
         path: '{{path}}' # Pointe vers clusters/local/dev, etc.
       destination:
         server: https://kubernetes.default.svc
