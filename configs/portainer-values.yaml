@@ -1,0 +1,22 @@
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: traefik
+  hosts:
+    - host: admin.mairie360.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Cette section est CRUCIALE pour que Portainer s'auto-connecte
+persistence:
+  enabled: true
+  storageClass: "local-path"
+  size: 1Gi
+
+# On force les droits via Helm également
+rbac:
+  install: true

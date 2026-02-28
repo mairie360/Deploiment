@@ -1,0 +1,7 @@
+apiVersion: v2
+name: dev-env
+version: 1.0.0
+dependencies:
+  - name: mairie360-stack
+    version: "0.1.0"
+    repository: "file://../../../charts/mairie360-stack"

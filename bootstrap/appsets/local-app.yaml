@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: local-environments
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        revision: mair-23/set-up-db-deployment
+        directories:
+          - path: clusters/local/* # Il va trouver dev, staging, prod
+  template:
+    metadata:
+      name: 'local-{{path.basename}}' # Nommera les apps : local-dev, local-prod, etc.
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        targetRevision: mair-23/set-up-db-deployment
+        path: '{{path}}' # Pointe vers clusters/local/dev, etc.
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'mairie360-{{path.basename}}' # Isole chaque env dans son namespace
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

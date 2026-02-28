@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "liquibase.fullname" . }}-{{ now | date "20060102150405" }}
+  labels:
+    {{- include "liquibase.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "liquibase.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-secret
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              value: "{{ .Values.db.host }}"
+            - name: DB_PORT
+              value: "{{ .Values.db.port }}"
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente de la base de données sur $DB_HOST:$DB_PORT..."
+              until pg_isready -h $DB_HOST -p $DB_PORT -U postgres; do
+                echo "La base de données n'est pas encore prête. Nouvelle tentative dans 2 secondes..."
+                sleep 2
+              done
+              echo "Base de données prête ! Lancement des migrations Liquibase."
+      containers:
+        - name: liquibase
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: Always
+          env:
+            # 1. URL Dynamique
+            - name: LIQUIBASE_COMMAND_URL
+              value: "jdbc:postgresql://{{ .Values.db.host }}:{{ .Values.db.port }}/{{ .Values.db.name }}"
+
+            # 2. Identifiants dynamiques depuis le secret
+            - name: LIQUIBASE_COMMAND_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
+                  key: POSTGRES_USER
+            - name: LIQUIBASE_COMMAND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
+                  key: POSTGRES_PASSWORD
+
+            # 3. FORCE l'ignorance du fichier liquibase.properties interne
+            - name: LIQUIBASE_DEFAULTS_FILE
+              value: ""
+
+            - name: LIQUIBASE_SEARCH_PATH
+              value: "/liquibase/changelog"
+          args:
+            - --changelog-file=changelog.xml
+            - update

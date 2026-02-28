@@ -1,0 +1,72 @@
+name: Helm CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+
+jobs:
+  # ================================
+  # 🧱 JOB 1 : Validation & Qualité
+  # ================================
+  helm-validation:
+    name: Lint & Template Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Helm lint (Recursive)
+        run: |
+          # Lint du chart principal et des subcharts
+          helm lint ./charts/mairie360-stack
+          find ./charts/mairie360-stack/charts -maxdepth 1 -type d -exec helm lint {} \;
+
+      - name: Helm dependency build
+        run: helm dependency build ./charts/mairie360-stack
+
+      # ✨ LE TEST CRUCIAL : Simulation de rendu pour chaque env
+      - name: Validate Template Rendering (Dry-Run)
+        run: |
+          for env in dev staging prod; do
+            echo "Testing rendering for $env"
+            helm template test ./charts/mairie360-stack \
+              -f ./clusters/local/$env/values.yaml > dry-run-$env.yaml
+          done
+
+  # # ================================
+  # # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
+  # # ================================
+  # helm-tests:
+  #   name: Functional Tests
+  #   needs: helm-validation
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       component: [database, redis, full] # On parallélise pour gagner du temps
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+
+  #     - name: Start Minikube
+  #       uses: medyagh/setup-minikube@latest
+  #       with:
+  #         memory: 6g
+  #         cpus: 2
+
+  #     - name: Deploy & Test ${{ matrix.component }}
+  #       run: |
+  #         # Logique simplifiée : on déploie selon le composant de la matrix
+  #         # Utilisation des fichiers de values réels de ton repo
+  #         helm upgrade --install mairie360-${{ matrix.component }} ./charts/mairie360-stack \
+  #           -f ./clusters/local/dev/values.yaml \
+  #           --set ${{ matrix.component }}.enabled=true \
+  #           -n test --create-namespace
+          
+  #         kubectl wait --for=condition=Ready pods --all -n test --timeout=300s
+  #         helm test mairie360-${{ matrix.component }} -n test

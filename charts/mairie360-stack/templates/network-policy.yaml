@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-and-internal
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {} # S'applique à TOUS les pods du namespace
+  policyTypes:
+  - Ingress
+  ingress:
+  # 1. Autorise tout ce qui vient du MÊME namespace (ton réglage actuel)
+  - from:
+    - podSelector: {} 
+  # 2. AJOUT : Autorise le contrôleur Ingress Nginx à contacter tes pods
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
