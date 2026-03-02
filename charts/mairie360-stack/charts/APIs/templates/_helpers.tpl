@@ -39,9 +39,7 @@
       name: {{ printf "%s-redis" .Release.Name }}
       key: redis-password
 
-{{/* URL formatée pour les libs qui préfèrent une chaîne complète (ex: redis://:password@host:port) */}}
 - name: REDIS_URL
-  value: {{ printf "redis://:%s-redis:6379" .Release.Name | quote }}
-  # Note : Si ton code a besoin du mot de passe DANS l'URL, il faudra le gérer 
-  # au niveau applicatif via REDIS_PASSWORD pour des raisons de sécurité K8s.
+  # On enlève le ":" erroné devant l'hôte
+  value: {{ printf "redis://%s-redis:6379" .Release.Name | quote }}
 {{- end -}}
