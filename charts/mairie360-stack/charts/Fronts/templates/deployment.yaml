@@ -1,0 +1,39 @@
+{{- range $frontName, $frontConfig := .Values.instances }}
+{{- if $frontConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $frontName | lower }}
+  labels:
+    {{- include "fronts.labels" $ | nindent 4 }}
+    app: {{ $frontName | lower }}
+spec:
+  replicas: {{ $frontConfig.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $frontName | lower }}
+  template:
+    metadata:
+      labels:
+        {{- include "fronts.labels" $ | nindent 8 }}
+        app: {{ $frontName | lower }}
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      initContainers:
+        - name: wait-for-bff
+          image: busybox:1.28
+          command: ['sh', '-c', {{ printf "until nc -zv %s-bff-user 4000; do echo waiting for bff; sleep 2; done;" $.Release.Name | quote }}]
+      containers:
+        - name: {{ $frontName | lower }}
+          image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag | default "latest" }}"
+          ports:
+            - containerPort: 80
+          env:
+            {{- include "fronts.commonEnv" $ | nindent 12 }}
+            {{- if $frontConfig.env }}
+            {{- toYaml $frontConfig.env | nindent 12 }}
+            {{- end }}
+{{- end }}
+{{- end }}

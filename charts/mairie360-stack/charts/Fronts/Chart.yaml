@@ -1,0 +1,5 @@
+apiVersion: v2
+name: fronts
+description: Chart pour les Frontends de Mairie360
+type: application
+version: 0.1.0

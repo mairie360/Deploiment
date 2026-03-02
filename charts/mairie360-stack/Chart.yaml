@@ -15,3 +15,5 @@ dependencies:
     version: "0.1.0"
   - name: BFFs
     version: "0.1.0"
+  - name: Fronts
+    version: "0.1.0"
