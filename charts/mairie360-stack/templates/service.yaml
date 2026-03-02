@@ -2,18 +2,13 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "mairie360.fullname" . }}-gateway
-  labels:
-    app: {{ include "mairie360.fullname" . }}
 spec:
-  {{- if .Values.service }}
-  type: {{ .Values.service.type | default "LoadBalancer" }}
-  {{- else }}
-  type: LoadBalancer
-  {{- end }}
+  type: ClusterIP # Pas besoin de LoadBalancer si tu as un Ingress
   ports:
     - port: 80
-      targetPort: 8080
+      targetPort: 80 # Aligne-le sur le port de ton container front
       protocol: TCP
       name: http
   selector:
-    app: {{ include "mairie360.fullname" . }}-backend
+    # Doit matcher le label 'app' ou 'app.kubernetes.io/name' de ton pod front
+    app.kubernetes.io/name: fronts

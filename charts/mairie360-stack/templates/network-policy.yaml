@@ -8,11 +8,6 @@ spec:
   policyTypes:
   - Ingress
   ingress:
-  # 1. Autorise tout ce qui vient du MÊME namespace (ton réglage actuel)
-  - from:
-    - podSelector: {} 
-  # 2. AJOUT : Autorise le contrôleur Ingress Nginx à contacter tes pods
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: ingress-nginx
+    - from:
+      - podSelector: {} # Autorise tous les pods du namespace
+      - namespaceSelector: {} # Autorise TOUS les namespaces (y compris celui d'ingress-nginx)
