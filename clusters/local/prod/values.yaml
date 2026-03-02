@@ -59,3 +59,22 @@ mairie360-stack:
   # 6. Redis
   redis:
     enabled: true
+    
+# 7. APIs
+  APIs:
+    instances:
+      core-api:
+        enabled: true
+        image:
+          tag: "latest" # On utilise l'image stable
+
+  # 8. BFFs
+  BFFs:
+    instances:
+      bff-user:
+        enabled: true
+        image:
+          tag: "latest" # On utilise l'image stable
+        env:
+          - name: APP_NAME
+            value: "BFF User Production"
