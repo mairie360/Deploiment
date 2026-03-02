@@ -1,0 +1,41 @@
+{{- range $apiName, $apiConfig := .Values.instances }}
+{{- if $apiConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $apiName }}
+  labels:
+    app: {{ $apiName }}
+    component: api
+spec:
+  replicas: {{ $apiConfig.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $apiName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $apiName }}
+        component: api
+    spec:
+      containers:
+        - name: {{ $apiName }}
+          image: "{{ $apiConfig.image.repository }}:{{ $apiConfig.image.tag | default "latest" }}"
+          ports:
+            - containerPort: 3000
+          {{/* On injecte les probes basées sur ton Docker Compose */}}
+          healthcheck:
+            httpGet:
+              path: /health
+              port: 3000
+          env:
+            {{- /* 1. Inclusion du template générique défini dans helpers */ -}}
+            {{- include "apis.commonEnv" $ | nindent 12 }}
+            
+            {{- /* 2. Inclusion des variables spécifiques à cette API précise */ -}}
+            {{- if $apiConfig.env }}
+            {{- toYaml $apiConfig.env | nindent 12 }}
+            {{- end }}
+{{- end }}
+{{- end }}
