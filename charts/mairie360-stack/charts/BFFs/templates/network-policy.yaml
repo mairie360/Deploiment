@@ -1,22 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  # Utilise le helper pour éviter les conflits entre dev/prod
   name: {{ include "bffs.fullname" . }}-access
-  labels:
-    {{- include "bffs.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      component: bff
+      app.kubernetes.io/component: bff
   policyTypes:
     - Ingress
   ingress:
     - from:
         - podSelector:
             matchLabels:
-              # On aligne avec le label du déploiement Fronts
-              component: frontend 
+              # On utilise le label exact constaté sur ton pod front
+              app.kubernetes.io/component: frontend 
       ports:
         - protocol: TCP
           port: 4000

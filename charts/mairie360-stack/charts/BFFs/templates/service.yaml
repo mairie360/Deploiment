@@ -11,7 +11,7 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 80          # Port exposé au sein du cluster
+    - port: 4000          # Port exposé au sein du cluster
       targetPort: 4000  # Port réel sur lequel le container écoute
       protocol: TCP
       name: http
