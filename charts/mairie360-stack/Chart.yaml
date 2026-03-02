@@ -7,16 +7,11 @@ version: 0.1.0
 dependencies:
   - name: database
     version: "0.1.0"
-    repository: "file://./charts/database"
   - name: redis
     version: "0.1.0"
-    repository: "file://./charts/redis"
   - name: liquibase
     version: "0.1.0"
-    repository: "file://./charts/liquibase"
   - name: APIs
-    version: 0.1.0
-    repository: "file://./charts/APIs"
+    version: "0.1.0"
   - name: BFFs
-    version: 0.1.0
-    repository: "file://./charts/BFFs"
+    version: "0.1.0"
