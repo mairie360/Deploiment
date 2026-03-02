@@ -9,19 +9,26 @@ spec:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
         revision: mair-31add-bffs-in-helm-config
         directories:
-          - path: clusters/local/* # Il va trouver dev, staging, prod
-  template:
+          - path: clusters/local/* template:
     metadata:
-      name: 'local-{{path.basename}}' # Nommera les apps : local-dev, local-prod, etc.
+      name: 'local-{{path.basename}}'
     spec:
       project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
         targetRevision: mair-31add-bffs-in-helm-config
-        path: '{{path}}' # Pointe vers clusters/local/dev, etc.
+        # --- LA MODIFICATION EST ICI ---
+        # On ne pointe plus sur {{path}} (clusters/local/dev)
+        # On pointe sur le vrai code source
+        path: charts/mairie360-stack 
+        helm:
+          # On dit à Helm d'aller chercher le fichier values spécifique à l'env
+          valueFiles:
+            - "../../{{path}}/values.yaml"
+        # -------------------------------
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'mairie360-{{path.basename}}' # Isole chaque env dans son namespace
+        namespace: 'mairie360-{{path.basename}}'
       syncPolicy:
         automated:
           prune: true
