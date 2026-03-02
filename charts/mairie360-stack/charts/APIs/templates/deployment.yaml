@@ -19,21 +19,29 @@ spec:
         app: {{ $apiName }}
         component: api
     spec:
+      {{/* Init Container pour attendre la DB */}}
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.28
+          command: ['sh', '-c', "until nc -zv {{ $.Release.Name }}-database 5432; do echo 'Waiting for database...'; sleep 2; done;"]
       containers:
         - name: {{ $apiName }}
           image: "{{ $apiConfig.image.repository }}:{{ $apiConfig.image.tag | default "latest" }}"
           ports:
             - containerPort: 3000
-          {{/* On injecte les probes basées sur ton Docker Compose */}}
-          healthcheck:
+          {{/* Probes Kubernetes (remplace le healthcheck Docker) */}}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
             httpGet:
               path: /health
               port: 3000
           env:
-            {{- /* 1. Inclusion du template générique défini dans helpers */ -}}
             {{- include "apis.commonEnv" $ | nindent 12 }}
-            
-            {{- /* 2. Inclusion des variables spécifiques à cette API précise */ -}}
             {{- if $apiConfig.env }}
             {{- toYaml $apiConfig.env | nindent 12 }}
             {{- end }}
