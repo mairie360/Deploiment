@@ -1,0 +1,38 @@
+{{- range $bffName, $bffConfig := .Values.instances }}
+{{- if $bffConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $bffName }}
+  labels:
+    app: {{ $bffName }}
+    component: bff
+spec:
+  replicas: {{ $bffConfig.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $bffName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $bffName }}
+        component: bff
+    spec:
+      containers:
+        - name: {{ $bffName }}
+          image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
+          ports:
+            - containerPort: 4000
+          env:
+            {{- include "bffs.commonEnv" $ | nindent 12 }}
+            {{- if $bffConfig.env }}
+            {{- toYaml $bffConfig.env | nindent 12 }}
+            {{- end }}
+          resources:
+            limits:
+              memory: "512Mi" # Node.js est plus gourmand que Rust !
+            requests:
+              memory: "256Mi"
+{{- end }}
+{{- end }}

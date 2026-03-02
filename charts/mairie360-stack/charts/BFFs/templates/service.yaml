@@ -1,0 +1,21 @@
+{{- range $bffName, $bffConfig := .Values.instances }}
+{{- if $bffConfig.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $bffName }}
+  labels:
+    app: {{ $bffName }}
+    component: bff
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80          # Port exposé au sein du cluster
+      targetPort: 4000  # Port réel sur lequel le container écoute
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ $bffName }} # Doit correspondre exactement au label du Deployment
+{{- end }}
+{{- end }}
