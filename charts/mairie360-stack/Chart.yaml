@@ -17,3 +17,6 @@ dependencies:
   - name: APIs
     version: 0.1.0
     repository: "file://./charts/APIs"
+  - name: BFFs
+    version: 0.1.0
+    repository: "file://./charts/BFFs"
