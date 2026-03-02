@@ -19,17 +19,22 @@ spec:
         app: {{ $apiName }}
         component: api
     spec:
+      {{/* Ajout du secret pour GHCR */}}
+      imagePullSecrets:
+        - name: ghcr-secret
       {{/* Init Container pour attendre la DB */}}
       initContainers:
         - name: wait-for-db
           image: busybox:1.28
-          command: ['sh', '-c', "until nc -zv {{ $.Release.Name }}-database 5432; do echo 'Waiting for database...'; sleep 2; done;"]
+          command: 
+            - 'sh'
+            - '-c'
+            - {{ printf "until nc -zv %s-database 5432; do echo waiting for db; sleep 2; done;" $.Release.Name | quote }}
       containers:
         - name: {{ $apiName }}
           image: "{{ $apiConfig.image.repository }}:{{ $apiConfig.image.tag | default "latest" }}"
           ports:
             - containerPort: 3000
-          {{/* Probes Kubernetes (remplace le healthcheck Docker) */}}
           livenessProbe:
             httpGet:
               path: /health

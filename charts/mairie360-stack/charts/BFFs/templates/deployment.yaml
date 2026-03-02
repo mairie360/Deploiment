@@ -19,11 +19,17 @@ spec:
         app: {{ $bffName }}
         component: bff
     spec:
+      {{/* Ajout du secret pour GHCR */}}
+      imagePullSecrets:
+        - name: ghcr-secret
       {{/* Init Container pour attendre l'API */}}
       initContainers:
         - name: wait-for-api
           image: busybox:1.28
-          command: ['sh', '-c', "until nc -zv {{ $.Release.Name }}-core-api 80; do echo 'Waiting for Core API...'; sleep 2; done;"]
+          command: 
+            - 'sh'
+            - '-c'
+            - {{ printf "until nc -zv %s-core-api 80; do echo waiting for api; sleep 2; done;" $.Release.Name | quote }}
       containers:
         - name: {{ $bffName }}
           image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"

@@ -20,7 +20,8 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST
-              value: "{{ .Values.db.host }}"
+              # Génère dynamiquement "local-dev-database", "local-prod-database", etc.
+              value: {{ printf "%s-database" .Release.Name | quote }}
             - name: DB_PORT
               value: "{{ .Values.db.port }}"
           command:
@@ -38,26 +39,25 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
           env:
-            # 1. URL Dynamique
+            # 1. URL Dynamique basée sur le nom de la release
             - name: LIQUIBASE_COMMAND_URL
-              value: "jdbc:postgresql://{{ .Values.db.host }}:{{ .Values.db.port }}/{{ .Values.db.name }}"
+              value: {{ printf "jdbc:postgresql://%s-database:%s/%s" .Release.Name (toString .Values.db.port) .Values.db.name | quote }}
 
-            # 2. Identifiants dynamiques depuis le secret
+            # 2. Identifiants dynamiques depuis le secret (utilise le secretName configuré ou celui par défaut)
             - name: LIQUIBASE_COMMAND_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
+                  name: {{ .Values.secretName | default (printf "%s-database-secret" .Release.Name) }}
                   key: POSTGRES_USER
             - name: LIQUIBASE_COMMAND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default "mairie360-database-secret" }}
+                  name: {{ .Values.secretName | default (printf "%s-database-secret" .Release.Name) }}
                   key: POSTGRES_PASSWORD
 
-            # 3. FORCE l'ignorance du fichier liquibase.properties interne
+            # 3. Paramètres Liquibase
             - name: LIQUIBASE_DEFAULTS_FILE
               value: ""
-
             - name: LIQUIBASE_SEARCH_PATH
               value: "/liquibase/changelog"
           args:
