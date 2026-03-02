@@ -1,0 +1,6 @@
+spec:
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              component: bff
