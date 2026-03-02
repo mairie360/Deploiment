@@ -9,7 +9,8 @@ spec:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
         revision: mair-31add-bffs-in-helm-config
         directories:
-          - path: clusters/local/* template:
+          - path: clusters/local/*
+  template: # <--- BIEN ALIGNÉ SOUS "spec" (2 espaces)
     metadata:
       name: 'local-{{path.basename}}'
     spec:
@@ -17,15 +18,10 @@ spec:
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
         targetRevision: mair-31add-bffs-in-helm-config
-        # --- LA MODIFICATION EST ICI ---
-        # On ne pointe plus sur {{path}} (clusters/local/dev)
-        # On pointe sur le vrai code source
         path: charts/mairie360-stack 
         helm:
-          # On dit à Helm d'aller chercher le fichier values spécifique à l'env
           valueFiles:
             - "../../{{path}}/values.yaml"
-        # -------------------------------
       destination:
         server: https://kubernetes.default.svc
         namespace: 'mairie360-{{path.basename}}'
