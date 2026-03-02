@@ -70,8 +70,8 @@ mairie360-stack:
       core-api:
         enabled: true
         image:
-          # On surcharge le tag par défaut par dev-latest
           tag: "dev-latest"
+          repository: ghcr.io/mairie360/core-api
 
   # 8. BFFs
   BFFs:
@@ -79,8 +79,8 @@ mairie360-stack:
       bff-user:
         enabled: true
         image:
-          # Ici aussi, on utilise l'image de dev
           tag: "dev-latest"
+          repository: ghcr.io/mairie360/bff-user
         env:
           - name: APP_NAME
             value: "BFF User"

@@ -65,6 +65,7 @@ mairie360-stack:
         enabled: true
         image:
           tag: "staging-latest"
+          repository: ghcr.io/mairie360/core-api
 
   # 8. BFFs
   BFFs:
@@ -73,6 +74,7 @@ mairie360-stack:
         enabled: true
         image:
           tag: "staging-latest"
+          repository: ghcr.io/mairie360/bff-user
         env:
           - name: APP_NAME
             value: "BFF User Staging"

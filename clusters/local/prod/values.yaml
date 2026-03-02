@@ -67,6 +67,7 @@ mairie360-stack:
         enabled: true
         image:
           tag: "latest" # On utilise l'image stable
+          repository: ghcr.io/mairie360/core-api
 
   # 8. BFFs
   BFFs:
@@ -75,6 +76,7 @@ mairie360-stack:
         enabled: true
         image:
           tag: "latest" # On utilise l'image stable
+          repository: ghcr.io/mairie360/bff-user
         env:
           - name: APP_NAME
             value: "BFF User Production"
