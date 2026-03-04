@@ -12,10 +12,12 @@ spec:
   replicas: {{ $frontConfig.replicaCount | default 1 }}
   selector:
     matchLabels:
-      app: {{ $frontName | lower }}
+      # --- CORRECTION ICI ---
+      {{- include "fronts.selectorLabels" $ | nindent 6 }}
   template:
     metadata:
       labels:
+        # --- ET ICI ---
         {{- include "fronts.labels" $ | nindent 8 }}
         app: {{ $frontName | lower }}
     spec:
@@ -29,7 +31,7 @@ spec:
         - name: {{ $frontName | lower }}
           image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag | default "latest" }}"
           ports:
-            - containerPort: 3000 # Retour au port 3000
+            - containerPort: 3000
           env:
             - name: PORT
               value: "3000"
@@ -40,8 +42,8 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 3000 # Doit matcher le port de l'app
-            initialDelaySeconds: 5
+              port: 3000
+            initialDelaySeconds: 15 # Augmenté car Next.js peut être lent à démarrer
             periodSeconds: 10
 {{- end }}
 {{- end }}
