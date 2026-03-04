@@ -22,6 +22,7 @@ spec:
       {{/* Secret pour GHCR */}}
       imagePullSecrets:
         - name: ghcr-secret
+      
       {{/* Init Container : Attente de TOUTES les dépendances (Redis + APIs) */}}
       initContainers:
         - name: wait-for-dependencies
@@ -38,6 +39,8 @@ spec:
               until nc -zv {{ $.Release.Name }}-email-api 3004; do echo waiting for email-api; sleep 2; done;
               until nc -zv {{ $.Release.Name }}-files-api 3005; do echo waiting for files-api; sleep 2; done;
               until nc -zv {{ $.Release.Name }}-elearning-api 3006; do echo waiting for elearning-api; sleep 2; done;
+
+      {{/* Container principal du BFF */}}
       containers:
         - name: {{ $bffName }}
           image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
@@ -53,5 +56,12 @@ spec:
               memory: "512Mi"
             requests:
               memory: "256Mi"
+          # Ajout d'une readinessProbe pour sécuriser le trafic
+          readinessProbe:
+            httpGet:
+              path: /health # Ou ton endpoint de check
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
 {{- end }}
 {{- end }}

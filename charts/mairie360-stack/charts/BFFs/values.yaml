@@ -1,10 +1,42 @@
-# Supprime la ligne "BFFs:" et désindente le reste
 instances:
   bff-user:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-user
-      tag: "latest"
-    env:
-      - name: APP_NAME
-        value: "BFF User"
+      tag: "dev-latest"
+        
+  bff-project:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-project
+      tag: "dev-latest"
+
+  bff-calendar:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-calendar
+      tag: "dev-latest"
+
+  bff-message:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-message
+      tag: "dev-latest"
+
+  bff-email:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-email
+      tag: "dev-latest"
+
+  bff-files:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-files
+      tag: "dev-latest"
+
+  bff-elearning:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-elearning
+      tag: "dev-latest"

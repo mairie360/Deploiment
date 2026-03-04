@@ -64,6 +64,42 @@ APIs:
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/core-api
+        
+    project-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/project-api
+        
+    calendar-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/calendar-api
+        
+    message-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/message-api
+        
+    email-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/email-api
+        
+    files-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/files-api
+        
+    elearning-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/elearning-api
 
 # 8. BFFs
 BFFs:
@@ -73,9 +109,42 @@ BFFs:
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-user
-      env:
-        - name: APP_NAME
-          value: "BFF User Staging"
+          
+    bff-project:
+        enabled: true
+        image:
+          tag: "staging-latest"
+          repository: ghcr.io/mairie360/bff-project
+        
+    bff-calendar:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-calendar
+        
+    bff-message:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-message
+        
+    bff-email:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-email
+        
+    bff-files:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-files
+        
+    bff-elearning:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-elearning
           
 # 9. Fronts
 Fronts:
