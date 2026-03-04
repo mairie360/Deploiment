@@ -1,5 +1,4 @@
-{{/* 1. FONCTIONS DE NOMMAGE (Résout l'erreur "no template bffs.fullname") */}}
-
+{{/* 1. FONCTIONS DE NOMMAGE ET LABELS */}}
 {{- define "bffs.name" -}}
 {{- default .Chart.Name .Values.nameOverride | lower | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -34,15 +33,14 @@ app.kubernetes.io/component: bff
 
 ---
 
-{{/* 2. VARIABLES D'ENVIRONNEMENT (Ton bloc existant) */}}
-
+{{/* 2. VARIABLES D'ENVIRONNEMENT (Le bloc corrigé) */}}
 {{- define "bffs.commonEnv" -}}
 - name: PORT
   value: "4000"
 - name: NODE_ENV
   value: "production"
 
-{{/* Connexion Redis (pour les sessions/cache) */}}
+# Connexion Redis
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
 - name: REDIS_PASSWORD
@@ -50,9 +48,8 @@ app.kubernetes.io/component: bff
     secretKeyRef:
       name: {{ printf "%s-redis" .Release.Name }}
       key: redis-password
-{{- end -}}
 
-# Liste des endpoints APIs pour le BFF
+# Liste des endpoints APIs (Matching les ports du Service API)
 - name: CORE_API_URL
   value: {{ printf "http://%s-core-api:3000" .Release.Name | quote }}
 - name: PROJECT_API_URL
