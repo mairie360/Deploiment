@@ -7,7 +7,7 @@ spec:
   generators:
     - git:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        revision: mair-32-add-fronts-to-helm-config
+        revision: mair-47-add-missing-services
         directories:
           - path: clusters/local/*
   template: # <--- BIEN ALIGNÉ SOUS "spec" (2 espaces)
@@ -17,7 +17,7 @@ spec:
       project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        targetRevision: mair-32-add-fronts-to-helm-config
+        targetRevision: mair-47-add-missing-services
         path: charts/mairie360-stack 
         helm:
           valueFiles:
