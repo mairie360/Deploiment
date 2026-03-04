@@ -29,11 +29,19 @@ spec:
         - name: {{ $frontName | lower }}
           image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag | default "latest" }}"
           ports:
-            - containerPort: 80
+            - containerPort: 3000 # Retour au port 3000
           env:
+            - name: PORT
+              value: "3000"
             {{- include "fronts.commonEnv" $ | nindent 12 }}
             {{- if $frontConfig.env }}
             {{- toYaml $frontConfig.env | nindent 12 }}
             {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000 # Doit matcher le port de l'app
+            initialDelaySeconds: 5
+            periodSeconds: 10
 {{- end }}
 {{- end }}

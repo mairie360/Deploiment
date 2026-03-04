@@ -19,17 +19,25 @@ spec:
         app: {{ $bffName }}
         component: bff
     spec:
-      {{/* Ajout du secret pour GHCR */}}
+      {{/* Secret pour GHCR */}}
       imagePullSecrets:
         - name: ghcr-secret
-      {{/* Init Container pour attendre l'API */}}
+      {{/* Init Container : Attente de TOUTES les dépendances (Redis + APIs) */}}
       initContainers:
-        - name: wait-for-api
+        - name: wait-for-dependencies
           image: busybox:1.28
           command: 
             - 'sh'
             - '-c'
-            - {{ printf "until nc -zv %s-core-api 80; do echo waiting for api; sleep 2; done;" $.Release.Name | quote }}
+            - >
+              until nc -zv {{ $.Release.Name }}-redis 6379; do echo waiting for redis; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-core-api 3000; do echo waiting for core-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-project-api 3001; do echo waiting for project-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-calendar-api 3002; do echo waiting for calendar-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-message-api 3003; do echo waiting for message-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-email-api 3004; do echo waiting for email-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-files-api 3005; do echo waiting for files-api; sleep 2; done;
+              until nc -zv {{ $.Release.Name }}-elearning-api 3006; do echo waiting for elearning-api; sleep 2; done;
       containers:
         - name: {{ $bffName }}
           image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
