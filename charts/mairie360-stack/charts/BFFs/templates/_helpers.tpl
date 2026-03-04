@@ -42,10 +42,6 @@ app.kubernetes.io/component: bff
 - name: NODE_ENV
   value: "production"
 
-{{/* URL de l'API Core (interne au cluster) */}}
-- name: CORE_API_URL
-  value: {{ printf "http://%s-core-api:3000" .Release.Name | quote }}
-
 {{/* Connexion Redis (pour les sessions/cache) */}}
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
@@ -54,4 +50,21 @@ app.kubernetes.io/component: bff
     secretKeyRef:
       name: {{ printf "%s-redis" .Release.Name }}
       key: redis-password
+{{- end -}}
+
+# Liste des endpoints APIs pour le BFF
+- name: CORE_API_URL
+  value: {{ printf "http://%s-core-api:3000" .Release.Name | quote }}
+- name: PROJECT_API_URL
+  value: {{ printf "http://%s-project-api:3001" .Release.Name | quote }}
+- name: CALENDAR_API_URL
+  value: {{ printf "http://%s-calendar-api:3002" .Release.Name | quote }}
+- name: MESSAGE_API_URL
+  value: {{ printf "http://%s-message-api:3003" .Release.Name | quote }}
+- name: EMAIL_API_URL
+  value: {{ printf "http://%s-email-api:3004" .Release.Name | quote }}
+- name: FILES_API_URL
+  value: {{ printf "http://%s-files-api:3005" .Release.Name | quote }}
+- name: ELEARNING_API_URL
+  value: {{ printf "http://%s-elearning-api:3006" .Release.Name | quote }}
 {{- end -}}
