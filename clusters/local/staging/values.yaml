@@ -16,7 +16,7 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
-          serviceName: "local-staging-mairie360-stack-gateway"
+          serviceName: "local-staging-fronts"
           servicePort: 80
   tls:
     - secretName: staging-mairie360-tls

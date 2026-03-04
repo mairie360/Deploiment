@@ -23,7 +23,7 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
-          serviceName: "local-dev-mairie360-stack-gateway"
+          serviceName: "local-dev-fronts"
           servicePort: 80
   tls:
     - secretName: dev-mairie360-tls
@@ -62,7 +62,7 @@ liquibase:
 # 6. Redis
 redis:
   enabled: true
-  
+
 # 7. APIs
 APIs:
   instances:
@@ -83,7 +83,7 @@ BFFs:
       env:
         - name: APP_NAME
           value: "BFF User"
-          
+
 # 9. Fronts
 Fronts:
   instances:
