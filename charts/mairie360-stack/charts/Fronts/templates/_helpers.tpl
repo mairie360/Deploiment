@@ -38,7 +38,7 @@ app.kubernetes.io/component: frontend
 
 {{- define "fronts.commonEnv" -}}
 - name: PORT
-  value: "80"
+  value: "3000"  # <--- CHANGÉ : de 80 à 3000
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
 - name: USER_BFF_URL
