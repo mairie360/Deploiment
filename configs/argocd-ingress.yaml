@@ -6,14 +6,18 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: nginx
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    # --- FIX POUR LE CHALLENGE SSL ---
-    # On autorise le HTTP (port 80) et on désactive la redirection auto
-    kubernetes.io/ingress.allow-http: "true"
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
-    # ---------------------------------
-    # Configuration backend ArgoCD
+    
+    # --- CONFIGURATION STABLE ---
+    # On force le SSL pour éviter les boucles de redirection avec le pod Argo
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # On dit à Nginx que le pod Argo parle HTTPS en interne
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    
+    # Recommandé pour ArgoCD : laisse passer le flux sans altération
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    
     nginx.ingress.kubernetes.io/proxy-body-size: "0"
     nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
 spec:
