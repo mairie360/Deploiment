@@ -10,6 +10,12 @@ metadata:
     component: api
 spec:
   replicas: {{ $apiConfig.replicaCount | default 1 }}
+  # Stratégie pour éviter le blocage de RAM sur petit VPS
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: {{ $apiName }}
@@ -19,17 +25,9 @@ spec:
         app: {{ $apiName }}
         component: api
     spec:
-      {{/* Ajout du secret pour GHCR */}}
       imagePullSecrets:
         - name: ghcr-secret
-      {{/* Init Container pour attendre la DB */}}
-      initContainers:
-        - name: wait-for-db
-          image: busybox:1.28
-          command: 
-            - 'sh'
-            - '-c'
-            - {{ printf "until nc -zv %s-database 5432; do echo waiting for db; sleep 2; done;" $.Release.Name | quote }}
+      # Suppression de l'initContainer wait-for-db pour accélérer le boot
       containers:
         - name: {{ $apiName }}
           image: "{{ $apiConfig.image.repository }}:{{ $apiConfig.image.tag | default "latest" }}"
@@ -39,16 +37,20 @@ spec:
             httpGet:
               path: /health
               port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 10
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /health
               port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
           env:
             {{- include "apis.commonEnv" $ | nindent 12 }}
             {{- if $apiConfig.env }}
             {{- toYaml $apiConfig.env | nindent 12 }}
             {{- end }}
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
 {{- end }}
 {{- end }}

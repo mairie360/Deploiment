@@ -39,6 +39,8 @@ app.kubernetes.io/component: bff
   value: "4000"
 - name: NODE_ENV
   value: "production"
+- name: NODE_OPTIONS
+  value: "--max-old-space-size=200"
 
 # Connexion Redis
 - name: REDIS_HOST

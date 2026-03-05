@@ -10,6 +10,11 @@ metadata:
     component: bff
 spec:
   replicas: {{ $bffConfig.replicaCount | default 1 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: {{ $bffName }}
@@ -19,28 +24,9 @@ spec:
         app: {{ $bffName }}
         component: bff
     spec:
-      {{/* Secret pour GHCR */}}
       imagePullSecrets:
         - name: ghcr-secret
-      
-      {{/* Init Container : Attente de TOUTES les dépendances (Redis + APIs) */}}
-      initContainers:
-        - name: wait-for-dependencies
-          image: busybox:1.28
-          command: 
-            - 'sh'
-            - '-c'
-            - >
-              until nc -zv {{ $.Release.Name }}-redis 6379; do echo waiting for redis; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-core-api 3000; do echo waiting for core-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-project-api 3001; do echo waiting for project-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-calendar-api 3002; do echo waiting for calendar-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-message-api 3003; do echo waiting for message-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-email-api 3004; do echo waiting for email-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-files-api 3005; do echo waiting for files-api; sleep 2; done;
-              until nc -zv {{ $.Release.Name }}-elearning-api 3006; do echo waiting for elearning-api; sleep 2; done;
-
-      {{/* Container principal du BFF */}}
+      # Suppression de l'initContainer wait-for-dependencies pour éviter le deadlock
       containers:
         - name: {{ $bffName }}
           image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
@@ -51,18 +37,24 @@ spec:
             {{- if $bffConfig.env }}
             {{- toYaml $bffConfig.env | nindent 12 }}
             {{- end }}
-          resources:
-            limits:
-              memory: "256Mi"
-            requests:
-              memory: "32Mi"
-              cpu: "20m"
-          # Ajout d'une readinessProbe pour sécuriser le trafic
+          # Ajout de la LivenessProbe pour surveiller Node.js
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /health # Ou ton endpoint de check
+              path: /health
               port: 4000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
+          resources:
+            limits:
+              memory: "512Mi"
+            requests:
+              memory: "128Mi" # Augmenté pour éviter le Pending/OOM initial
+              cpu: "20m"
 {{- end }}
 {{- end }}
