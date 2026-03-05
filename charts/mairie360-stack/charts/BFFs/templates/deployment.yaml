@@ -53,9 +53,10 @@ spec:
             {{- end }}
           resources:
             limits:
-              memory: "512Mi"
-            requests:
               memory: "256Mi"
+            requests:
+              memory: "32Mi"
+              cpu: "20m"
           # Ajout d'une readinessProbe pour sécuriser le trafic
           readinessProbe:
             httpGet:
