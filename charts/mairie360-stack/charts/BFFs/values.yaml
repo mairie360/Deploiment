@@ -1,3 +1,10 @@
+resources:
+  requests:
+    memory: "32Mi"
+    cpu: "20m"
+  limits:
+    memory: "256Mi"
+
 instances:
   bff-user:
     enabled: true
