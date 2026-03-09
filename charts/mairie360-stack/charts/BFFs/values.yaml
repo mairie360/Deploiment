@@ -6,43 +6,43 @@ resources:
     memory: "256Mi"
 
 instances:
-  bff-user:
+  user-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-user
       tag: "dev-latest"
         
-  bff-project:
+  project-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-project
       tag: "dev-latest"
 
-  bff-calendar:
+  calendar-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-calendar
       tag: "dev-latest"
 
-  bff-message:
+  message-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-message
       tag: "dev-latest"
 
-  bff-email:
+  email-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-email
       tag: "dev-latest"
 
-  bff-files:
+  files-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-files
       tag: "dev-latest"
 
-  bff-elearning:
+  elearning-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-elearning

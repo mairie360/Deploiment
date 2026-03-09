@@ -104,43 +104,43 @@ APIs:
 # 8. BFFs
 BFFs:
   instances:
-    bff-user:
+    user-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-user
-          
-    bff-project:
-        enabled: true
-        image:
-          tag: "staging-latest"
-          repository: ghcr.io/mairie360/bff-project
         
-    bff-calendar:
+    project-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-project
+        
+    calendar-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-calendar
         
-    bff-message:
+    message-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-message
         
-    bff-email:
+    email-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-email
         
-    bff-files:
+    files-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-files
         
-    bff-elearning:
+    elearning-bff:
       enabled: true
       image:
         tag: "staging-latest"
