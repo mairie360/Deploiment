@@ -7,12 +7,12 @@ spec:
   project: default
   sources:
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-23/set-up-db-deployment
+      targetRevision: mair-30-add-apis-in-helm-config
       path: bootstrap/appsets
       directory:
         recurse: true
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-23/set-up-db-deployment
+      targetRevision: mair-30-add-apis-in-helm-config
       path: configs
   destination:
     server: https://kubernetes.default.svc
