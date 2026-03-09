@@ -7,21 +7,24 @@ spec:
   generators:
     - git:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        revision: mair-30-add-apis-in-helm-config
+        revision: mair-31add-bffs-in-helm-config
         directories:
-          - path: clusters/local/* # Il va trouver dev, staging, prod
-  template:
+          - path: clusters/local/*
+  template: # <--- BIEN ALIGNÉ SOUS "spec" (2 espaces)
     metadata:
-      name: 'local-{{path.basename}}' # Nommera les apps : local-dev, local-prod, etc.
+      name: 'local-{{path.basename}}'
     spec:
       project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        targetRevision: mair-30-add-apis-in-helm-config
-        path: '{{path}}' # Pointe vers clusters/local/dev, etc.
+        targetRevision: mair-31add-bffs-in-helm-config
+        path: charts/mairie360-stack 
+        helm:
+          valueFiles:
+            - "../../{{path}}/values.yaml"
       destination:
         server: https://kubernetes.default.svc
-        namespace: 'mairie360-{{path.basename}}' # Isole chaque env dans son namespace
+        namespace: 'mairie360-{{path.basename}}'
       syncPolicy:
         automated:
           prune: true

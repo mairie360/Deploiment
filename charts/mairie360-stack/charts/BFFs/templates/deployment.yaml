@@ -1,0 +1,49 @@
+{{- range $bffName, $bffConfig := .Values.instances }}
+{{- if $bffConfig.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $bffName }}
+  labels:
+    app: {{ $bffName }}
+    component: bff
+spec:
+  replicas: {{ $bffConfig.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $bffName }}
+  template:
+    metadata:
+      labels:
+        app: {{ $bffName }}
+        component: bff
+    spec:
+      {{/* Ajout du secret pour GHCR */}}
+      imagePullSecrets:
+        - name: ghcr-secret
+      {{/* Init Container pour attendre l'API */}}
+      initContainers:
+        - name: wait-for-api
+          image: busybox:1.28
+          command: 
+            - 'sh'
+            - '-c'
+            - {{ printf "until nc -zv %s-core-api 80; do echo waiting for api; sleep 2; done;" $.Release.Name | quote }}
+      containers:
+        - name: {{ $bffName }}
+          image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
+          ports:
+            - containerPort: 4000
+          env:
+            {{- include "bffs.commonEnv" $ | nindent 12 }}
+            {{- if $bffConfig.env }}
+            {{- toYaml $bffConfig.env | nindent 12 }}
+            {{- end }}
+          resources:
+            limits:
+              memory: "512Mi"
+            requests:
+              memory: "256Mi"
+{{- end }}
+{{- end }}

@@ -1,59 +1,78 @@
-mairie360-stack:
-  # 1. Image
+image:
+  pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
+  repository: ghcr.io/mairie360/core
+  tag: "latest"
+
+# 2. Ingress
+ingress:
+  enabled: true
+  className: "nginx"
+  clusterIssuer: "letsencrypt-local"
+  annotations:
+    kubernetes.io/ingress.allow-http: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: staging.mairie360-eip.fr
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+          serviceName: "local-staging-mairie360-stack-gateway"
+          servicePort: 80
+  tls:
+    - secretName: staging-mairie360-tls
+      hosts:
+        - staging.mairie360-eip.fr
+
+# 3. Service
+service:
+  type: ClusterIP
+  port: 80
+
+# 4. Database
+database:
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+  persistence:
+    size: "2Gi"
+    storageClass: "local-path"
+  env:
+    POSTGRES_USER: "postgres"
+    POSTGRES_PASSWORD: "stagingpassword123"
+    POSTGRES_DB: "mairie_db_staging"
+
+# 5. Liquibase
+liquibase:
   image:
-    pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
-    repository: ghcr.io/mairie360/core
-    tag: "latest"
+    tag: "staging-latest"
+  db:
+    host: "local-staging-database"
+    port: 5432
+    name: "mairie_db_staging"
+  secretName: "local-staging-database-secret"
 
-  # 2. Ingress
-  ingress:
-    enabled: true
-    className: "nginx"
-    clusterIssuer: "letsencrypt-local"
-    annotations:
-      kubernetes.io/ingress.allow-http: "false"
-      nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    hosts:
-      - host: staging.mairie360-eip.fr
-        paths:
-          - path: /
-            pathType: ImplementationSpecific
-            serviceName: "local-staging-mairie360-stack-gateway"
-            servicePort: 80
-    tls:
-      - secretName: staging-mairie360-tls
-        hosts:
-          - staging.mairie360-eip.fr
+# 6. Redis
+redis:
+  enabled: true
+  
+# 7. APIs
+APIs:
+  instances:
+    core-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/core-api
 
-  # 3. Service
-  service:
-    type: ClusterIP
-    port: 80
-
-  # 4. Database
-  database:
-    resources:
-      requests:
-        memory: "512Mi"
-        cpu: "500m"
-    persistence:
-      size: "2Gi"
-      storageClass: "local-path"
-    env:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "stagingpassword123"
-      POSTGRES_DB: "mairie_db_staging"
-
-  # 5. Liquibase
-  liquibase:
-    image:
-      tag: "staging-latest"
-    db:
-      host: "local-staging-database"
-      port: 5432
-      name: "mairie_db_staging"
-    secretName: "local-staging-database-secret"
-
-  # 6. Redis
-  redis:
-    enabled: true
+# 8. BFFs
+BFFs:
+  instances:
+    bff-user:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-user
+      env:
+        - name: APP_NAME
+          value: "BFF User Staging"

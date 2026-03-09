@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "apis.fullname" . }}-access
+  labels:
+    {{- include "apis.labels" . | nindent 4 }}
+spec:
+  # On applique la règle sur les pods de l'API
+  podSelector:
+    matchLabels:
+      component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # On n'autorise que les pods qui ont le label component: bff
+        - podSelector:
+            matchLabels:
+              component: bff
+      ports:
+        - protocol: TCP
+          port: 3000

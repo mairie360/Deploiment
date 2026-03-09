@@ -1,0 +1,10 @@
+# Supprime la ligne "BFFs:" et désindente le reste
+instances:
+  bff-user:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-user
+      tag: "latest"
+    env:
+      - name: APP_NAME
+        value: "BFF User"
