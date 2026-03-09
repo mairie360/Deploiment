@@ -156,8 +156,46 @@ BFFs:
 # 9. Fronts
 Fronts:
   instances:
-    projects-front:
+    login-front:
       enabled: true
       image:
-        repository: ghcr.io/mairie360/projects-front
         tag: "dev-latest"
+        repository: ghcr.io/mairie360/login-front
+        
+    project-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/projects-front
+        
+    calendar-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/calendar-front
+        
+    message-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/message-front
+        
+    email-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/email-front
+        
+    files-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/files-front
+        
+    elearning-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/elearning-front
+        
+    

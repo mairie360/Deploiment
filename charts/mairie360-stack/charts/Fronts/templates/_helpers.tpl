@@ -1,4 +1,4 @@
-{{/* 1. FONCTIONS DE NOMMAGE (Indispensables pour NetworkPolicy et Deployment) */}}
+{{/* 1. FONCTIONS DE NOMMAGE */}}
 
 {{- define "fronts.name" -}}
 {{- default .Chart.Name .Values.nameOverride | lower | trunc 63 | trimSuffix "-" }}
@@ -37,8 +37,8 @@ app.kubernetes.io/component: frontend
 {{/* 2. VARIABLES D'ENVIRONNEMENT COMMUNES */}}
 
 {{- define "fronts.commonEnv" -}}
-- name: PORT
-  value: "3000"  # <--- CHANGÉ : de 80 à 3000
+- name: HOSTNAME
+  value: "0.0.0.0"
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
 - name: USER_BFF_URL
