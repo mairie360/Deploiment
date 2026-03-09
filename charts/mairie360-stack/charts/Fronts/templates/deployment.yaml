@@ -55,10 +55,11 @@ spec:
           {{- else }}
           resources:
             limits:
-              memory: "256Mi"
+              memory: "128Mi"
+              cpu: "200m"
             requests:
               memory: "64Mi"
-              cpu: "10m"
+              cpu: "100m"
           {{- end }}
 {{- end }}
 {{- end }}
