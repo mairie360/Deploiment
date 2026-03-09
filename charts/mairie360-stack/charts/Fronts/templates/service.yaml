@@ -1,0 +1,16 @@
+{{- range $frontName, $frontConfig := .Values.instances }}
+{{- if $frontConfig.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $frontName | lower }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: {{ $frontName | lower }}
+{{- end }}
+{{- end }}

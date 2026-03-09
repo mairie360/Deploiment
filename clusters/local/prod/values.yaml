@@ -78,3 +78,12 @@ BFFs:
       env:
         - name: APP_NAME
           value: "BFF User Production"
+          
+# 9. Fronts
+Fronts:
+  instances:
+    projects-front:
+      enabled: true
+      image:
+        repository: ghcr.io/mairie360/projects-front
+        tag: "latest"

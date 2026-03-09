@@ -1,18 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: bff-security-policy
+  name: {{ include "bffs.fullname" . }}-access
 spec:
   podSelector:
     matchLabels:
-      component: bff
+      app.kubernetes.io/component: bff
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          component: front # Seuls les fronts peuvent appeler le BFF
-    ports:
-    - protocol: TCP
-      port: 4000
+    - from:
+        - podSelector:
+            matchLabels:
+              # On utilise le label exact constaté sur ton pod front
+              app.kubernetes.io/component: frontend 
+      ports:
+        - protocol: TCP
+          port: 4000

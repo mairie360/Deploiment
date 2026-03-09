@@ -1,10 +1,10 @@
-{{/* 1. FONCTIONS DE NOMMAGE (Résout l'erreur "no template bffs.fullname") */}}
+{{/* 1. FONCTIONS DE NOMMAGE (Indispensables pour NetworkPolicy et Deployment) */}}
 
-{{- define "bffs.name" -}}
+{{- define "fronts.name" -}}
 {{- default .Chart.Name .Values.nameOverride | lower | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "bffs.fullname" -}}
+{{- define "fronts.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | lower | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -17,41 +17,30 @@
 {{- end }}
 {{- end }}
 
-{{- define "bffs.labels" -}}
+{{- define "fronts.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{ include "bffs.selectorLabels" . }}
+{{ include "fronts.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "bffs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "bffs.name" . }}
+{{- define "fronts.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "fronts.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: bff
+app.kubernetes.io/component: frontend
 {{- end }}
 
 ---
 
-{{/* 2. VARIABLES D'ENVIRONNEMENT (Ton bloc existant) */}}
+{{/* 2. VARIABLES D'ENVIRONNEMENT COMMUNES */}}
 
-{{- define "bffs.commonEnv" -}}
+{{- define "fronts.commonEnv" -}}
 - name: PORT
-  value: "4000"
-- name: NODE_ENV
-  value: "production"
-
-{{/* URL de l'API Core (interne au cluster) */}}
-- name: CORE_API_URL
-  value: {{ printf "http://%s-core-api:3000" .Release.Name | quote }}
-
-{{/* Connexion Redis (pour les sessions/cache) */}}
+  value: "80"
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
-- name: REDIS_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ printf "%s-redis" .Release.Name }}
-      key: redis-password
+- name: USER_BFF_URL
+  value: {{ printf "http://%s-bff-user:4000" .Release.Name | quote }}
 {{- end -}}
