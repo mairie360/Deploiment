@@ -1,20 +1,27 @@
+{{- range $frontName, $frontConfig := .Values.instances }}
+{{- if $frontConfig.enabled }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "fronts.fullname" . }}-access
+  name: {{ $.Release.Name }}-{{ $frontName | lower }}-access
+  labels:
+    {{- include "fronts.labels" $ | nindent 4 }}
+    app: {{ $frontName | lower }}
 spec:
   podSelector:
     matchLabels:
-      component: frontend
+      {{- include "fronts.selectorLabels" $ | nindent 6 }}
+      app: {{ $frontName | lower }}
   policyTypes:
     - Ingress
   ingress:
-    # Autorise le trafic venant de l'Ingress Controller (Nginx)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
-    # Port standard HTTP
-    - ports:
+      ports:
         - protocol: TCP
-          port: 80
+          port: {{ $frontConfig.port }}
+{{- end }}
+{{- end }}

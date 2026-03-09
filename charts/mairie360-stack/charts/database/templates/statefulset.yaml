@@ -30,6 +30,11 @@ spec:
       containers:
         - name: database
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          args:
+            - "-c"
+            - "max_connections=200"
+            - "-c"
+            - "shared_buffers=128MB"
           securityContext:
             runAsUser: 999
             runAsGroup: 999

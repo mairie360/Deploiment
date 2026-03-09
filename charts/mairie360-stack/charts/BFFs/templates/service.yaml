@@ -11,11 +11,11 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 4000          # Port exposé au sein du cluster
-      targetPort: 4000  # Port réel sur lequel le container écoute
+    - port: {{ if eq $bffName "bff-user" }}4000{{ else if eq $bffName "bff-project" }}4001{{ else if eq $bffName "bff-calendar" }}4002{{ else if eq $bffName "bff-message" }}4003{{ else if eq $bffName "bff-email" }}4004{{ else if eq $bffName "bff-files" }}4005{{ else if eq $bffName "bff-elearning" }}4006{{ else }}4000{{ end }}
+      targetPort: 4000
       protocol: TCP
       name: http
   selector:
-    app: {{ $bffName }} # Doit correspondre exactement au label du Deployment
+    app: {{ $bffName }}
 {{- end }}
 {{- end }}
