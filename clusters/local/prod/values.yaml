@@ -2,8 +2,12 @@ image:
   pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
   repository: ghcr.io/mairie360/core
   tag: "0.1.0"
+  
+# 2. Global
+global:
+  domain: "mairie360-eip.fr"
 
-# 2. Ingress
+# 3. Ingress
 ingress:
   enabled: true
   className: "nginx"
@@ -23,12 +27,12 @@ ingress:
       hosts:
         - prod.mairie360-eip.fr
 
-# 3. Service
+# 4. Service
 service:
   type: ClusterIP
   port: 80
 
-# 4. Database
+# 5. Database
 database:
   resources:
     requests:
@@ -44,7 +48,7 @@ database:
     POSTGRES_PASSWORD: "prod_db_mdp"
     POSTGRES_DB: "mairie_db_prod"
 
-# 5. Liquibase
+# 6. Liquibase
 liquibase:
   image:
     tag: "0.1.0"
@@ -54,11 +58,11 @@ liquibase:
     name: "mairie_db_prod"
   secretName: "local-prod-database-secret"
 
-# 6. Redis
+# 7. Redis
 redis:
   enabled: true
   
-# 7. APIs
+# 8. APIs
 APIs:
   instances:
     core-api:
@@ -103,7 +107,7 @@ APIs:
         tag: "latest"
         repository: ghcr.io/mairie360/elearning-api
 
-# 8. BFFs
+# 9. BFFs
 BFFs:
   instances:
     user-bff:
@@ -148,7 +152,7 @@ BFFs:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-elearning
           
-# 9. Fronts
+# 10. Fronts
 Fronts:
   instances:
     login-front:
