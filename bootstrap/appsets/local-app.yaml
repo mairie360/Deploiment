@@ -10,6 +10,10 @@ spec:
         revision: mair-47-add-missing-services
         directories:
           - path: clusters/local/*
+          - path: clusters/local/staging
+            exclude: true
+          - path: clusters/local/prod
+            exclude: true
   template: # <--- BIEN ALIGNÉ SOUS "spec" (2 espaces)
     metadata:
       name: 'local-{{path.basename}}'
