@@ -66,5 +66,5 @@ spec:
           # --- FIX 4: On retire le / devant changelog.xml s'il est à la racine de /migrations ---
           args:
             - --changelog-file=changelog.xml
-            # - update
-            - drop-all
+            - update
+            # - drop-all
