@@ -1,6 +1,9 @@
+# charts/mairie360-stack/charts/liquibase/templates/job.yaml
+
 apiVersion: batch/v1
 kind: Job
 metadata:
+  # L'ajout de la date est une bonne idée pour pouvoir relancer le job à chaque upgrade
   name: {{ include "liquibase.fullname" . }}-{{ now | date "20060102150405" }}
   labels:
     {{- include "liquibase.labels" . | nindent 4 }}
@@ -20,7 +23,6 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST
-              # Génère dynamiquement "local-dev-database", "local-prod-database", etc.
               value: {{ printf "%s-database" .Release.Name | quote }}
             - name: DB_PORT
               value: "{{ .Values.db.port }}"
@@ -28,22 +30,20 @@ spec:
             - sh
             - -c
             - |
-              echo "Attente de la base de données sur $DB_HOST:$DB_PORT..."
               until pg_isready -h $DB_HOST -p $DB_PORT -U postgres; do
-                echo "La base de données n'est pas encore prête. Nouvelle tentative dans 2 secondes..."
+                echo "Waiting for DB..."
                 sleep 2
               done
-              echo "Base de données prête ! Lancement des migrations Liquibase."
       containers:
         - name: liquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
+          # --- FIX 1: On force le répertoire où on a COPY nos fichiers ---
+          workingDir: /migrations
           env:
-            # 1. URL Dynamique basée sur le nom de la release
             - name: LIQUIBASE_COMMAND_URL
               value: {{ printf "jdbc:postgresql://%s-database:%s/%s" .Release.Name (toString .Values.db.port) .Values.db.name | quote }}
 
-            # 2. Identifiants dynamiques depuis le secret (utilise le secretName configuré ou celui par défaut)
             - name: LIQUIBASE_COMMAND_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -55,11 +55,15 @@ spec:
                   name: {{ .Values.secretName | default (printf "%s-database-secret" .Release.Name) }}
                   key: POSTGRES_PASSWORD
 
-            # 3. Paramètres Liquibase
-            - name: LIQUIBASE_DEFAULTS_FILE
-              value: ""
+            # --- FIX 2: On supprime ou on commente LIQUIBASE_DEFAULTS_FILE s'il est vide ---
+            # - name: LIQUIBASE_DEFAULTS_FILE
+            #   value: "" 
+
+            # --- FIX 3: On pointe sur /migrations (comme dans ton Dockerfile) ---
             - name: LIQUIBASE_SEARCH_PATH
-              value: "/liquibase/changelog"
+              value: "/migrations"
+          
+          # --- FIX 4: On retire le / devant changelog.xml s'il est à la racine de /migrations ---
           args:
             - --changelog-file=changelog.xml
             - update
