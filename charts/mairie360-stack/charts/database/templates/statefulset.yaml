@@ -20,13 +20,13 @@ spec:
       securityContext:
         fsGroup: 999
       initContainers:
-        # This container fixes volume permissions before the main database starts
+        # 1. On change le chemin de l'initContainer
         - name: init-permissions
           image: busybox
-          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql"]
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
       containers:
         - name: database
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -61,7 +61,8 @@ spec:
               value: {{ .Values.env.POSTGRES_DB | quote }}
           volumeMounts:
             - name: data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
+              subPath: postgres-data
       imagePullSecrets:
         - name: ghcr-secret
 
