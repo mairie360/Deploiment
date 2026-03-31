@@ -1,4 +1,10 @@
-# charts/mairie360-stack/charts/APIs/values.yaml
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "256Mi"
+
 instances:
   core-api:
     enabled: true
@@ -8,6 +14,72 @@ instances:
     env:
       - name: PUBLIC_URL
         value: "http://core.development.mairie360.fr"
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  project-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/project-api
+      tag: latest
+    env:
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  calendar-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/calendar-api
+      tag: latest
+    env:
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  message-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/message-api
+      tag: latest
+    env:
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  email-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/email-api
+      tag: latest
+    env:
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  files-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/files-api
+      tag: latest
+    env:
+      - name: JWT_SECRET
+        value: "b\"secret\""
+      - name: JWT_TIMEOUT
+        value: "3600"
+
+  elearning-api:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/elearning-api
+      tag: latest
+    env:
       - name: JWT_SECRET
         value: "b\"secret\""
       - name: JWT_TIMEOUT

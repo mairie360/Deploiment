@@ -4,7 +4,11 @@ image:
   repository: ghcr.io/mairie360/core
   tag: "latest"
 
-# 2. Ingress
+# 2. Global
+global:
+  domain: "dev.mairie360-eip.fr"
+
+# 3. Ingress
 ingress:
   enabled: true
   className: "nginx"
@@ -23,19 +27,19 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
-          serviceName: "local-dev-mairie360-stack-gateway"
+          serviceName: "local-dev-fronts"
           servicePort: 80
   tls:
     - secretName: dev-mairie360-tls
       hosts:
         - dev.mairie360-eip.fr
 
-# 3. Service
+# 4. Service
 service:
   type: ClusterIP
   port: 80
 
-# 4. Database
+# 5. Database
 database:
   resources:
     requests:
@@ -49,7 +53,7 @@ database:
     POSTGRES_PASSWORD: "mysecretpassword"
     POSTGRES_DB: "mairie_db_dev"
 
-# 5. Liquibase
+# 6. Liquibase
 liquibase:
   image:
     tag: "dev-latest"
@@ -59,11 +63,11 @@ liquibase:
     name: "mairie_db_dev"
   secretName: "local-dev-database-secret"
 
-# 6. Redis
+# 7. Redis
 redis:
   enabled: true
-  
-# 7. APIs
+
+# 8. APIs
 APIs:
   instances:
     core-api:
@@ -72,23 +76,128 @@ APIs:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/core-api
 
-# 8. BFFs
+    project-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/project-api
+
+    calendar-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/calendar-api
+
+    message-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/message-api
+
+    email-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/email-api
+
+    files-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/files-api
+
+    elearning-api:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/elearning-api
+
+# 9. BFFs
 BFFs:
   instances:
-    bff-user:
+    user-bff:
       enabled: true
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-user
-      env:
-        - name: APP_NAME
-          value: "BFF User"
-          
-# 9. Fronts
-Fronts:
-  instances:
-    projects-front:
+
+    project-bff:
       enabled: true
       image:
-        repository: ghcr.io/mairie360/projects-front
         tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-project
+
+    calendar-bff:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-calendar
+
+    message-bff:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-message
+
+    email-bff:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-email
+
+    files-bff:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-files
+
+    elearning-bff:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/bff-elearning
+
+# 10. Fronts
+Fronts:
+  instances:
+    login-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/login-front
+
+    project-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/projects-front
+
+    calendar-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/calendar-front
+
+    message-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/message-front
+
+    email-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/email-front
+
+    files-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/files-front
+
+    elearning-front:
+      enabled: true
+      image:
+        tag: "dev-latest"
+        repository: ghcr.io/mairie360/elearning-front

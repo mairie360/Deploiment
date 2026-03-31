@@ -12,8 +12,10 @@ persistence:
 
 resources:
   requests:
-    memory: "256Mi"
-    cpu: "250m"
+    memory: "128Mi" # Divisé par 2
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
 
 # Hardcoded environment variables for local run
 env:

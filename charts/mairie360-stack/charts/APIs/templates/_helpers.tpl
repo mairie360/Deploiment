@@ -48,6 +48,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   value: {{ printf "%s-database" .Release.Name | quote }}
 - name: DB_PORT
   value: "5432"
+- name: TOKIO_WORKER_THREADS
+  value: "2"
 
 {{/* --- POSTGRES SECRETS --- */}}
 - name: DB_NAME
