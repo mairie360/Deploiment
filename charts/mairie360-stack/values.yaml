@@ -1,3 +1,45 @@
+# --- 1. Variables Globales ---
+global:
+  domain: "mairie360-eip.fr"  # Utilisé par l'Ingress pour générer les sous-domaines
+
 image:
   pullSecret: "ghcr-secret"
-  pullSecretData: "" # Laisser vide, sera injecté
+  pullSecretData: "" 
+
+# --- 2. Configuration Ingress ---
+# Ces valeurs alimentent le template ingress.yaml que tu as posté
+ingress:
+  enabled: true
+  className: "nginx"
+  clusterIssuer: "letsencrypt-prod"
+  annotations:
+    # On ajoute des annotations utiles par défaut
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts: [] # À remplir dans les fichiers d'env (dev/prod) si besoin de routes spécifiques
+
+# --- 3. Configuration des Sous-Charts (Fronts & BFFs) ---
+# Note : Les noms ici doivent correspondre EXACTEMENT aux noms dans ton dossier charts/
+Fronts:
+  enabled: true
+  # Ressources par défaut pour TOUS les fronts (standalone)
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  # Cette liste sera surchargée par tes fichiers dev/values.yaml ou prod/values.yaml
+  instances: {}
+
+BFFs:
+  enabled: true
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "20m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+  instances: {}

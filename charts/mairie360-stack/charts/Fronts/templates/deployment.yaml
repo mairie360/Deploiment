@@ -10,8 +10,14 @@ metadata:
     app: {{ $frontName | lower }}
 spec:
   replicas: {{ $frontConfig.replicaCount | default 1 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
+      {{- include "fronts.selectorLabels" $ | nindent 6 }}
       app: {{ $frontName | lower }}
   template:
     metadata:
@@ -21,19 +27,36 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-secret
-      initContainers:
-        - name: wait-for-bff
-          image: busybox:1.28
-          command: ['sh', '-c', {{ printf "until nc -zv %s-bff-user 4000; do echo waiting for bff; sleep 2; done;" $.Release.Name | quote }}]
-      containers:
+      containers: 
         - name: {{ $frontName | lower }}
           image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag | default "latest" }}"
           ports:
-            - containerPort: 80
+            - containerPort: {{ $frontConfig.port }}
           env:
             {{- include "fronts.commonEnv" $ | nindent 12 }}
+            # Écrase dynamiquement le PORT du Dockerfile
+            - name: PORT
+              value: {{ $frontConfig.port | quote }}
             {{- if $frontConfig.env }}
             {{- toYaml $frontConfig.env | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ $frontConfig.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ $frontConfig.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- if $frontConfig.resources }}
+            {{- toYaml $frontConfig.resources | nindent 12 }}
+            {{- else }}
+            {{- toYaml $.Values.resources | nindent 12 }}
             {{- end }}
 {{- end }}
 {{- end }}

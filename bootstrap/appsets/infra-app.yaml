@@ -7,12 +7,12 @@ spec:
   project: default
   sources:
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-32-add-fronts-to-helm-config
+      targetRevision: mair-47-add-missing-services
       path: bootstrap/appsets
       directory:
         recurse: true
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-32-add-fronts-to-helm-config
+      targetRevision: mair-47-add-missing-services
       path: configs
   destination:
     server: https://kubernetes.default.svc

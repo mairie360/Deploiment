@@ -1,10 +1,49 @@
-# Supprime la ligne "BFFs:" et désindente le reste
+resources:
+  requests:
+    memory: "32Mi"
+    cpu: "20m"
+  limits:
+    memory: "256Mi"
+
 instances:
-  bff-user:
+  user-bff:
     enabled: true
     image:
       repository: ghcr.io/mairie360/bff-user
-      tag: "latest"
-    env:
-      - name: APP_NAME
-        value: "BFF User"
+      tag: "dev-latest"
+        
+  project-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-project
+      tag: "dev-latest"
+
+  calendar-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-calendar
+      tag: "dev-latest"
+
+  message-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-message
+      tag: "dev-latest"
+
+  email-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-email
+      tag: "dev-latest"
+
+  files-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-files
+      tag: "dev-latest"
+
+  elearning-bff:
+    enabled: true
+    image:
+      repository: ghcr.io/mairie360/bff-elearning
+      tag: "dev-latest"

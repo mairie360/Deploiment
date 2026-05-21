@@ -1,0 +1,56 @@
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "20m"
+  limits:
+    memory: "256Mi"
+
+instances:
+  login-front:
+    enabled: true
+    port: 5000
+    image:
+      repository: ghcr.io/mairie360/login-front
+      tag: "dev-latest"
+      
+  project-front:
+    enabled: true
+    port: 5001
+    image:
+      repository: ghcr.io/mairie360/project-front
+      tag: "dev-latest"
+
+  calendar-front:
+    enabled: true
+    port: 5002
+    image:
+      repository: ghcr.io/mairie360/calendar-front
+      tag: "dev-latest"
+
+  message-front:
+    enabled: true
+    port: 5003
+    image:
+      repository: ghcr.io/mairie360/message-front
+      tag: "dev-latest"
+
+  email-front:
+    enabled: true
+    port: 5004
+    image:
+      repository: ghcr.io/mairie360/email-front
+      tag: "dev-latest"
+
+  files-front:
+    enabled: true
+    port: 5005
+    image:
+      repository: ghcr.io/mairie360/files-front
+      tag: "dev-latest"
+
+  elearning-front:
+    enabled: true
+    port: 5006
+    image:
+      repository: ghcr.io/mairie360/elearning-front
+      tag: "dev-latest"

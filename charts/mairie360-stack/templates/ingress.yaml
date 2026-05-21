@@ -7,30 +7,29 @@ metadata:
   labels:
     {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
+    kubernetes.io/ingress.class: {{ $ingress.className | default "nginx" | quote }}
+    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | default "letsencrypt-prod" | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
     {{- with $ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- if $ingress.className }}
-    kubernetes.io/ingress.class: {{ $ingress.className | quote }}
-    {{- end }}
-    {{- if $ingress.clusterIssuer }}
-    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | quote }}
-    {{- end }}
 spec:
-  {{- if $ingress.className }}
-  ingressClassName: {{ $ingress.className }}
-  {{- end }}
-  {{- if $ingress.tls }}
+  ingressClassName: {{ $ingress.className | default "nginx" }}
   tls:
-    {{- range $ingress.tls }}
     - hosts:
-        {{- range .hosts }}
-        - {{ . | quote }}
+        {{- /* 1. On génère les hôtes TLS pour les routes manuelles */}}
+        {{- range $ingress.hosts }}
+        - {{ .host | quote }}
         {{- end }}
-      secretName: {{ .secretName }}
-    {{- end }}
-  {{- end }}
+        {{- /* 2. On génère les hôtes TLS pour chaque FRONT activé */}}
+        {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
+        {{- if $frontConfig.enabled }}
+        - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
+        {{- end }}
+        {{- end }}
+      secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
   rules:
+    {{- /* ROUTE MANUELLE (Pour ton API Gateway ou autre) */}}
     {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
@@ -40,9 +39,26 @@ spec:
             pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
-                name: {{ .serviceName | default (printf "%s-gateway" (include "mairie360.fullname" $)) }}
+                name: {{ .serviceName }}
                 port:
                   number: {{ .servicePort | default 80 }}
           {{- end }}
+    {{- end }}
+
+    {{- /* ROUTES AUTOMATIQUES POUR LES FRONTS */}}
+    {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
+    {{- if $frontConfig.enabled }}
+    - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # On pointe vers le service spécifique créé par le chart Fronts
+                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
+                port:
+                  number: 80 # Le service expose toujours le port 80 vers l'Ingress
+    {{- end }}
     {{- end }}
 {{- end }}

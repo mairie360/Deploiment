@@ -2,8 +2,12 @@ image:
   pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
   repository: ghcr.io/mairie360/core
   tag: "latest"
+  
+# 2. Global
+global:
+  domain: "staging.mairie360-eip.fr"
 
-# 2. Ingress
+# 3. Ingress
 ingress:
   enabled: true
   className: "nginx"
@@ -16,19 +20,19 @@ ingress:
       paths:
         - path: /
           pathType: ImplementationSpecific
-          serviceName: "local-staging-mairie360-stack-gateway"
+          serviceName: "local-staging-fronts"
           servicePort: 80
   tls:
     - secretName: staging-mairie360-tls
       hosts:
         - staging.mairie360-eip.fr
 
-# 3. Service
+# 4. Service
 service:
   type: ClusterIP
   port: 80
 
-# 4. Database
+# 5. Database
 database:
   resources:
     requests:
@@ -42,7 +46,7 @@ database:
     POSTGRES_PASSWORD: "stagingpassword123"
     POSTGRES_DB: "mairie_db_staging"
 
-# 5. Liquibase
+# 6. Liquibase
 liquibase:
   image:
     tag: "staging-latest"
@@ -52,11 +56,11 @@ liquibase:
     name: "mairie_db_staging"
   secretName: "local-staging-database-secret"
 
-# 6. Redis
+# 7. Redis
 redis:
   enabled: true
   
-# 7. APIs
+# 8. APIs
 APIs:
   instances:
     core-api:
@@ -64,24 +68,129 @@ APIs:
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/core-api
+        
+    project-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/project-api
+        
+    calendar-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/calendar-api
+        
+    message-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/message-api
+        
+    email-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/email-api
+        
+    files-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/files-api
+        
+    elearning-api:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/elearning-api
 
-# 8. BFFs
+# 9. BFFs
 BFFs:
   instances:
-    bff-user:
+    user-bff:
       enabled: true
       image:
         tag: "staging-latest"
         repository: ghcr.io/mairie360/bff-user
-      env:
-        - name: APP_NAME
-          value: "BFF User Staging"
-          
-# 9. Fronts
-Fronts:
-  instances:
-    projects-front:
+        
+    project-bff:
       enabled: true
       image:
-        repository: ghcr.io/mairie360/projects-front
         tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-project
+        
+    calendar-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-calendar
+        
+    message-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-message
+        
+    email-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-email
+        
+    files-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-files
+        
+    elearning-bff:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/bff-elearning
+          
+# 10. Fronts
+Fronts:
+  instances:
+    login-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/login-front
+        
+    project-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/projects-front
+        
+    calendar-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/calendar-front
+        
+    message-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/message-front
+        
+    email-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/email-front
+        
+    files-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/files-front
+        
+    elearning-front:
+      enabled: true
+      image:
+        tag: "staging-latest"
+        repository: ghcr.io/mairie360/elearning-front
