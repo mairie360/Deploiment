@@ -1,10 +1,11 @@
 # --- 1. Variables Globales ---
 global:
-  domain: "mairie360-eip.fr"  # Utilisé par l'Ingress pour générer les sous-domaines
+  domain: "mairie360-eip.fr" # Utilisé par l'Ingress pour générer les sous-domaines
 
 image:
   pullSecret: "ghcr-secret"
-  pullSecretData: "" 
+  pullSecretData: ""
+  pullPolicy: "Always"
 
 # --- 2. Configuration Ingress ---
 # Ces valeurs alimentent le template ingress.yaml que tu as posté

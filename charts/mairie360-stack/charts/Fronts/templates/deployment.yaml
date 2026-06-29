@@ -27,9 +27,14 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-secret
-      containers: 
+      containers:
+        # FIX : Remplacement de {{ $.Chart.Name }} par $frontName pour donner un nom unique et valide (ex: login-front)
         - name: {{ $frontName | lower }}
-          image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag | default "latest" }}"
+          image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag }}"
+
+          # Vérification sécurisée de l'existence de la clé pour éviter le "nil pointer"
+          imagePullPolicy: {{ if and $frontConfig.image $frontConfig.image.pullPolicy }}{{ $frontConfig.image.pullPolicy | quote }}{{ else }}"Always"{{ end }}
+
           ports:
             - containerPort: {{ $frontConfig.port }}
           env:
