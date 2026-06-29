@@ -7,12 +7,12 @@ spec:
   project: default
   sources:
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-47-add-missing-services
+      targetRevision: main
       path: bootstrap/appsets
       directory:
         recurse: true
     - repoURL: 'https://github.com/mairie360/Deploiment.git'
-      targetRevision: mair-47-add-missing-services
+      targetRevision: main
       path: configs
   destination:
     server: https://kubernetes.default.svc
