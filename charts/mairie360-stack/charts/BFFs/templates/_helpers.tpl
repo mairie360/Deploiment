@@ -51,19 +51,14 @@ app.kubernetes.io/component: bff
       name: {{ printf "%s-redis" .Release.Name }}
       key: redis-password
 
-# Liste des endpoints APIs (Matching les ports du Service API)
-- name: CORE_API_URL
-  value: {{ printf "http://%s-core-api:3000" .Release.Name | quote }}
-- name: PROJECT_API_URL
-  value: {{ printf "http://%s-project-api:3001" .Release.Name | quote }}
-- name: CALENDAR_API_URL
-  value: {{ printf "http://%s-calendar-api:3002" .Release.Name | quote }}
-- name: MESSAGE_API_URL
-  value: {{ printf "http://%s-message-api:3003" .Release.Name | quote }}
-- name: EMAIL_API_URL
-  value: {{ printf "http://%s-email-api:3004" .Release.Name | quote }}
-- name: FILES_API_URL
-  value: {{ printf "http://%s-files-api:3005" .Release.Name | quote }}
-- name: ELEARNING_API_URL
-  value: {{ printf "http://%s-elearning-api:3006" .Release.Name | quote }}
+# Liste dynamique des endpoints APIs
+{{- $apis := dict }}
+{{- if and .Values.global .Values.global.apis .Values.global.apis.instances }}
+  {{- $apis = .Values.global.apis.instances }}
+{{- end }}
+
+{{- range $apiName, $apiConfig := $apis }}
+- name: {{ $apiName | upper | replace "-" "_" }}_URL
+  value: {{ printf "http://%s-%s:%d" $.Release.Name ($apiName | lower) (int $apiConfig.port) | quote }}
+{{- end }}
 {{- end -}}

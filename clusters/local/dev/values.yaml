@@ -7,6 +7,7 @@ image:
 # 2. Global
 global:
   domain: "dev.mairie360-eip.fr"
+  # Configuration des BFFs (ce que vous avez probablement déjà fait)
   bffs:
     instances:
       user-bff: { port: 4000 }
@@ -16,6 +17,17 @@ global:
       email-bff: { port: 4004 }
       files-bff: { port: 4005 }
       elearning-bff: { port: 4006 }
+
+  # Ajoutez ce bloc pour les APIs :
+  apis:
+    instances:
+      core-api: { port: 3000 }
+      project-api: { port: 3001 }
+      calendar-api: { port: 3002 }
+      message-api: { port: 3003 }
+      email-api: { port: 3004 }
+      files-api: { port: 3005 }
+      elearning-api: { port: 3006 }
 
 # 3. Ingress
 ingress:
