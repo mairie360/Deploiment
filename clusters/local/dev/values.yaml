@@ -7,6 +7,15 @@ image:
 # 2. Global
 global:
   domain: "dev.mairie360-eip.fr"
+  bffs:
+    instances:
+      user-bff: { port: 4000 }
+      project-bff: { port: 4001 }
+      calendar-bff: { port: 4002 }
+      message-bff: { port: 4003 }
+      email-bff: { port: 4004 }
+      files-bff: { port: 4005 }
+      elearning-bff: { port: 4006 }
 
 # 3. Ingress
 ingress:
@@ -117,42 +126,49 @@ BFFs:
   instances:
     user-bff:
       enabled: true
+      port: 4000
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-user
 
     project-bff:
       enabled: true
+      port: 4001
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-project
 
     calendar-bff:
       enabled: true
+      port: 4002
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-calendar
 
     message-bff:
       enabled: true
+      port: 4003
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-message
 
     email-bff:
       enabled: true
+      port: 4004
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-email
 
     files-bff:
       enabled: true
+      port: 4005
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-files
 
     elearning-bff:
       enabled: true
+      port: 4006
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-elearning

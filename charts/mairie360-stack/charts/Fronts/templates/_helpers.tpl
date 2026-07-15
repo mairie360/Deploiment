@@ -41,6 +41,27 @@ app.kubernetes.io/component: frontend
   value: "0.0.0.0"
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
-- name: USER_BFF_URL
-  value: {{ printf "http://%s-bff-user:4000" .Release.Name | quote }}
+
+{{/* 1. URLs des Fronts avec port */}}
+{{- range $frontName, $frontConfig := .Values.instances }}
+{{- if $frontConfig.enabled }}
+- name: {{ $frontName | upper | replace "-" "_" }}_URL
+  value: {{ printf "http://%s-%s:%d" $.Release.Name ($frontName | lower) (int $frontConfig.port) | quote }}
+{{- end }}
+{{- end }}
+
+{{/* 2. URLs des BFFs avec port (Approche sécurisée sans dig) */}}
+{{- $bffs := dict }}
+{{- if .Values.global }}
+  {{- if .Values.global.bffs }}
+    {{- if .Values.global.bffs.instances }}
+      {{- $bffs = .Values.global.bffs.instances }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- range $bffName, $bffConfig := $bffs }}
+- name: {{ $bffName | upper | replace "-" "_" }}_URL
+  value: {{ printf "http://%s-%s:%d" $.Release.Name ($bffName | lower) (int $bffConfig.port) | quote }}
+{{- end }}
 {{- end -}}
