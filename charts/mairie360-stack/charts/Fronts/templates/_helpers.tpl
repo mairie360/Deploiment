@@ -46,7 +46,7 @@ app.kubernetes.io/component: frontend
 {{- range $frontName, $frontConfig := .Values.instances }}
 {{- if $frontConfig.enabled }}
 - name: {{ $frontName | upper | replace "-" "_" }}_URL
-  value: {{ printf "http://%s-%s:%d" $.Release.Name ($frontName | lower) (int $frontConfig.port) | quote }}
+  value: {{ printf "https://%s.%s/" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
 {{- end }}
 {{- end }}
 
