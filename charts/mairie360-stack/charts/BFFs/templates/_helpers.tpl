@@ -41,6 +41,31 @@ app.kubernetes.io/component: bff
   value: "production"
 - name: NODE_OPTIONS
   value: "--max-old-space-size=200"
+- name: DB_TYPE
+  value: "postgres"
+- name: DB_HOST
+  value: {{ printf "%s-database" .Release.Name | quote }}
+- name: DB_PORT
+  value: "5432"
+- name: TOKIO_WORKER_THREADS
+  value: "2"
+
+{{/* --- POSTGRES SECRETS --- */}}
+- name: DB_NAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-database-secret" .Release.Name }}
+      key: POSTGRES_DB
+- name: DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-database-secret" .Release.Name }}
+      key: POSTGRES_USER
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-database-secret" .Release.Name }}
+      key: POSTGRES_PASSWORD
 
 # Connexion Redis
 - name: REDIS_HOST

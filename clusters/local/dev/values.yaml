@@ -108,25 +108,25 @@ APIs:
     core-api:
       enabled: true
       image:
-        tag: "dev-4a473ab"
+        tag: "dev-4048375"
         repository: ghcr.io/mairie360/core-api
 
     project-api:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-89c9730"
         repository: ghcr.io/mairie360/project-api
 
     calendar-api:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-d6d05a0"
         repository: ghcr.io/mairie360/calendar-api
 
     message-api:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-37b72aa"
         repository: ghcr.io/mairie360/message-api
 
     email-api:
@@ -144,7 +144,7 @@ APIs:
     elearning-api:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-1054189"
         repository: ghcr.io/mairie360/elearning-api
 
 # 9. BFFs
@@ -154,14 +154,14 @@ BFFs:
       enabled: true
       port: 4000
       image:
-        tag: "dev-a384619"
+        tag: "dev-c505e91"
         repository: ghcr.io/mairie360/bff-user
 
     project-bff:
       enabled: true
       port: 4001
       image:
-        tag: "dev-latest"
+        tag: "dev-f0c70b4"
         repository: ghcr.io/mairie360/bff-project
 
     calendar-bff:
@@ -196,7 +196,7 @@ BFFs:
       enabled: true
       port: 4006
       image:
-        tag: "dev-latest"
+        tag: "dev-7ba7c93"
         repository: ghcr.io/mairie360/bff-elearning
 
 # 10. Fronts
@@ -205,19 +205,19 @@ Fronts:
     login-front:
       enabled: true
       image:
-        tag: "dev-e8b987e"
+        tag: "dev-92ecccb"
         repository: ghcr.io/mairie360/login-front
 
     project-front:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-20c30b1"
         repository: ghcr.io/mairie360/projects-front
 
     calendar-front:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-a49a83b"
         repository: ghcr.io/mairie360/calendar-front
 
     message-front:
@@ -241,11 +241,11 @@ Fronts:
     elearning-front:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-6526eb8"
         repository: ghcr.io/mairie360/elearning-front
 
     admin-front:
       enabled: true
       image:
-        tag: "dev-72a8974"
+        tag: "dev-58b9136"
         repository: ghcr.io/mairie360/administrator-front
