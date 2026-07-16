@@ -1,33 +1,29 @@
-{{- $ingress := .Values.ingress | default dict -}}
-{{- if and .Values.ingress .Values.ingress.enabled -}}
-
-# 1. INGRESS FRONTEND (Sans réécriture)
+# 1. Ingress Frontend (Gère tout le trafic sauf /api)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "mairie360.fullname" . }}-frontend
-  labels: {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
-    kubernetes.io/ingress.class: {{ $ingress.className | default "nginx" | quote }}
-    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | default "letsencrypt-prod" | quote }}
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-local"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    {{- with $ingress.annotations }} {{- toYaml . | nindent 4 }} {{- end }}
 spec:
-  ingressClassName: {{ $ingress.className | default "nginx" }}
+  ingressClassName: "nginx"
   tls:
     - hosts:
-        {{- range $ingress.hosts }} - {{ .host | quote }} {{- end }}
-        {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-        {{- if $frontConfig.enabled }} - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }} {{- end }}
-        {{- end }}
+      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
+      {{- if $frontConfig.enabled }}
+      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
+      {{- end }}
+      {{- end }}
       secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
   rules:
-    {{- /* Routes Frontend */}}
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
     {{- if $frontConfig.enabled }}
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
+          # On ne met PAS /api ici, pour qu'il soit ignoré par cet Ingress
           - path: /
             pathType: Prefix
             backend:
@@ -39,25 +35,25 @@ spec:
 
 ---
 
-# 2. INGRESS API (Avec réécriture)
+# 2. Ingress API (Gère uniquement /api avec réécriture)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "mairie360.fullname" . }}-api
-  labels: {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
-    kubernetes.io/ingress.class: {{ $ingress.className | default "nginx" | quote }}
-    cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | default "letsencrypt-prod" | quote }}
+    kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
-  ingressClassName: {{ $ingress.className | default "nginx" }}
+  ingressClassName: "nginx"
   tls:
     - hosts:
-        {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-        {{- if $frontConfig.enabled }} - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }} {{- end }}
-        {{- end }}
+      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
+      {{- if $frontConfig.enabled }}
+      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
+      {{- end }}
+      {{- end }}
       secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
   rules:
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
@@ -78,4 +74,3 @@ spec:
           {{- end }}
     {{- end }}
     {{- end }}
-{{- end }}
