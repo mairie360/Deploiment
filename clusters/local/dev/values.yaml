@@ -161,7 +161,7 @@ BFFs:
       enabled: true
       port: 4001
       image:
-        tag: "dev-f0c70b4"
+        tag: "dev-c79f0db"
         repository: ghcr.io/mairie360/bff-project
 
     calendar-bff:
