@@ -164,7 +164,7 @@ BFFs:
       enabled: true
       port: 4001
       image:
-        tag: "dev-6d45a5e"
+        tag: "dev-a63e9b2"
         repository: ghcr.io/mairie360/bff-project
         env:
           - name: PORT
