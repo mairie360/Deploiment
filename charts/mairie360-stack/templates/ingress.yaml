@@ -19,11 +19,9 @@ spec:
   ingressClassName: {{ $ingress.className | default "nginx" }}
   tls:
     - hosts:
-        {{- /* 1. Routes manuelles */}}
         {{- range $ingress.hosts }}
         - {{ .host | quote }}
         {{- end }}
-        {{- /* 2. Hôtes pour chaque FRONT activé */}}
         {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
         {{- if $frontConfig.enabled }}
         - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
@@ -31,14 +29,14 @@ spec:
         {{- end }}
       secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
   rules:
-    {{- /* ROUTE MANUELLE */}}
+    {{- /* Routes manuelles */}}
     {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
         paths:
           {{- range .paths }}
           - path: {{ .path }}
-            pathType: {{ .pathType | default "Prefix" }}
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: {{ .serviceName }}
@@ -47,23 +45,26 @@ spec:
           {{- end }}
     {{- end }}
 
-    {{- /* ROUTES AUTOMATIQUES POUR LES FRONTS ET LEURS API/BFF */}}
+    {{- /* Routes automatiques (Pont direct avec réécriture) */}}
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
     {{- if $frontConfig.enabled }}
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
-          {{- /* Route Front */}}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
-                port:
-                  number: 80
-          {{- /* Route API/BFF automatique */}}
+          {{- /* Logique API : "Brut" pour admin/login, Automatique pour les autres */}}
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
-          {{- if and $bffConfig.enabled (contains ($frontName | replace "-front" "") $bffName) }}
+          {{- $isMatch := false }}
+          {{- $frontBase := ($frontName | replace "-front" "") }}
+
+          {{- /* Logique forcée pour admin et login */}}
+          {{- if or (eq $frontBase "login") (eq $frontBase "admin") }}
+            {{- if eq $bffName "user-bff" }} {{- $isMatch = true }} {{- end }}
+          {{- else }}
+            {{- /* Logique automatique pour les autres */}}
+            {{- if and $bffConfig.enabled (contains $frontBase $bffName) }} {{- $isMatch = true }} {{- end }}
+          {{- end }}
+
+          {{- if and $bffConfig.enabled $isMatch }}
           - path: /api(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
@@ -73,6 +74,15 @@ spec:
                   number: {{ $bffConfig.port | default 4000 }}
           {{- end }}
           {{- end }}
+
+          {{- /* 2. Route Frontend (tout le reste) */}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
+                port:
+                  number: 80
     {{- end }}
     {{- end }}
 {{- end }}
