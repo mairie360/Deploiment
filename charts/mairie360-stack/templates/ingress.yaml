@@ -10,6 +10,8 @@ metadata:
     kubernetes.io/ingress.class: {{ $ingress.className | default "nginx" | quote }}
     cert-manager.io/cluster-issuer: {{ $ingress.clusterIssuer | default "letsencrypt-prod" | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
     {{- with $ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -62,8 +64,8 @@ spec:
           {{- /* Route API/BFF automatique */}}
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- if and $bffConfig.enabled (contains ($frontName | replace "-front" "") $bffName) }}
-          - path: /api
-            pathType: Prefix
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: {{ printf "%s-%s" $.Release.Name $bffName }}
