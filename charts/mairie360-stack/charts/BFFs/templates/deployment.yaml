@@ -32,14 +32,13 @@ spec:
           image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
           ports:
             - containerPort: 4000
-            env:
-              {{- include "bffs.commonEnv" $ | nindent 12 }}
-              # Injection dynamique du port spécifique à l'instance
-              - name: PORT
-                value: {{ $bffConfig.port | default 4000 | quote }}
-              {{- if $bffConfig.env }}
-              {{- toYaml $bffConfig.env | nindent 12 }}
-              {{- end }}
+          env:
+            {{- include "bffs.commonEnv" $ | nindent 12 }}
+            - name: PORT
+              value: {{ $bffConfig.port | default 4000 | quote }}
+            {{- if $bffConfig.env }}
+            {{- toYaml $bffConfig.env | nindent 12 }}
+            {{- end }}
           # Ajout de la LivenessProbe pour surveiller Node.js
           livenessProbe:
             httpGet:

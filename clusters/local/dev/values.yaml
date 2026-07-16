@@ -156,6 +156,9 @@ BFFs:
       image:
         tag: "dev-c505e91"
         repository: ghcr.io/mairie360/bff-user
+        env:
+          - name: PORT
+            value: "4000"
 
     project-bff:
       enabled: true
@@ -163,6 +166,9 @@ BFFs:
       image:
         tag: "dev-963bdb9"
         repository: ghcr.io/mairie360/bff-project
+        env:
+          - name: PORT
+            value: "4001"
 
     calendar-bff:
       enabled: true
@@ -170,6 +176,9 @@ BFFs:
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-calendar
+        env:
+          - name: PORT
+            value: "4002"
 
     message-bff:
       enabled: true
@@ -177,6 +186,9 @@ BFFs:
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-message
+        env:
+          - name: PORT
+            value: "4003"
 
     email-bff:
       enabled: true
@@ -184,6 +196,9 @@ BFFs:
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-email
+        env:
+          - name: PORT
+            value: "4004"
 
     files-bff:
       enabled: true
@@ -191,6 +206,9 @@ BFFs:
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/bff-files
+        env:
+          - name: PORT
+            value: "4005"
 
     elearning-bff:
       enabled: true
@@ -198,6 +216,9 @@ BFFs:
       image:
         tag: "dev-7ba7c93"
         repository: ghcr.io/mairie360/bff-elearning
+        env:
+          - name: PORT
+            value: "4006"
 
 # 10. Fronts
 Fronts:
