@@ -108,7 +108,7 @@ APIs:
     core-api:
       enabled: true
       image:
-        tag: "dev-latest"
+        tag: "dev-4a473ab"
         repository: ghcr.io/mairie360/core-api
 
     project-api:
