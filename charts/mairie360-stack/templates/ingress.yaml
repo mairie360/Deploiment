@@ -17,11 +17,11 @@ spec:
   ingressClassName: {{ $ingress.className | default "nginx" }}
   tls:
     - hosts:
-        {{- /* 1. On génère les hôtes TLS pour les routes manuelles */}}
+        {{- /* 1. Routes manuelles */}}
         {{- range $ingress.hosts }}
         - {{ .host | quote }}
         {{- end }}
-        {{- /* 2. On génère les hôtes TLS pour chaque FRONT activé */}}
+        {{- /* 2. Hôtes pour chaque FRONT activé */}}
         {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
         {{- if $frontConfig.enabled }}
         - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
@@ -29,7 +29,7 @@ spec:
         {{- end }}
       secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
   rules:
-    {{- /* ROUTE MANUELLE (Pour ton API Gateway ou autre) */}}
+    {{- /* ROUTE MANUELLE */}}
     {{- range $ingress.hosts }}
     - host: {{ .host | quote }}
       http:
@@ -45,20 +45,32 @@ spec:
           {{- end }}
     {{- end }}
 
-    {{- /* ROUTES AUTOMATIQUES POUR LES FRONTS */}}
+    {{- /* ROUTES AUTOMATIQUES POUR LES FRONTS ET LEURS API/BFF */}}
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
     {{- if $frontConfig.enabled }}
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
+          {{- /* Route Front */}}
           - path: /
             pathType: Prefix
             backend:
               service:
-                # On pointe vers le service spécifique créé par le chart Fronts
                 name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
                 port:
-                  number: 80 # Le service expose toujours le port 80 vers l'Ingress
+                  number: 80
+          {{- /* Route API/BFF automatique */}}
+          {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
+          {{- if and $bffConfig.enabled (contains ($frontName | replace "-front" "") $bffName) }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" $.Release.Name $bffName }}
+                port:
+                  number: {{ $bffConfig.port | default 4000 }}
+          {{- end }}
+          {{- end }}
     {{- end }}
     {{- end }}
 {{- end }}

@@ -60,8 +60,9 @@ app.kubernetes.io/component: frontend
   {{- end }}
 {{- end }}
 
-{{- range $bffName, $bffConfig := $bffs }}
+{{- range $bffName, $bffConfig := .Values.global.bffs.instances }}
 - name: {{ $bffName | upper | replace "-" "_" }}_URL
+  # UTILISE LE NOM DU SERVICE INTERNE (pas l'URL publique)
   value: {{ printf "http://%s-%s:%d" $.Release.Name ($bffName | lower) (int $bffConfig.port) | quote }}
 {{- end }}
 {{- end -}}

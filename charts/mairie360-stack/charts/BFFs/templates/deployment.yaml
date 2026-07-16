@@ -43,13 +43,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 4000
+              port: {{ $bffConfig.port | default 4000 | int }}
             initialDelaySeconds: 20
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /health
-              port: 4000
+              port: {{ $bffConfig.port | default 4000 | int }}
             initialDelaySeconds: 15
             periodSeconds: 10
           resources:
