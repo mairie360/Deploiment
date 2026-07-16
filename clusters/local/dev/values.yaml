@@ -154,7 +154,7 @@ BFFs:
       enabled: true
       port: 4000
       image:
-        tag: "dev-3a14d1d"
+        tag: "dev-673c4b6"
         repository: ghcr.io/mairie360/bff-user
         env:
           - name: PORT
@@ -226,7 +226,7 @@ Fronts:
     login-front:
       enabled: true
       image:
-        tag: "dev-92ecccb"
+        tag: "dev-eb6a40f"
         repository: ghcr.io/mairie360/login-front
 
     project-front:
