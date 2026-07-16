@@ -35,8 +35,10 @@ app.kubernetes.io/component: bff
 
 {{/* 2. VARIABLES D'ENVIRONNEMENT (Le bloc corrigé) */}}
 {{- define "bffs.commonEnv" -}}
-- name: PORT
-  value: "4000"
+- name: HOST
+  value: "0.0.0.0"
+- name: HOSTNAME
+  value: "0.0.0.0"
 - name: NODE_ENV
   value: "production"
 - name: NODE_OPTIONS

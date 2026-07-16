@@ -11,10 +11,10 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: {{ if eq $bffName "user-bff" }}4000{{ else if eq $bffName "project-bff" }}4001{{ else if eq $bffName "calendar-bff" }}4002{{ else if eq $bffName "message-bff" }}4003{{ else if eq $bffName "email-bff" }}4004{{ else if eq $bffName "files-bff" }}4005{{ else if eq $bffName "elearning-bff" }}4006{{ else }}4000{{ end }}
-      targetPort: 4000
-      protocol: TCP
-      name: http
+      - port: {{ $bffConfig.port | default 4000 }}
+        targetPort: 4000
+        protocol: TCP
+        name: http
   selector:
     app: {{ $bffName }}
 {{- end }}
