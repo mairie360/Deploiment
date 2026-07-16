@@ -8,6 +8,20 @@ image:
 global:
   domain: "dev.mairie360-eip.fr"
   # Configuration des BFFs (ce que vous avez probablement déjà fait)
+
+  database:
+    type: "postgres"
+    host: "mairie360-database" # Nom du service Kubernetes
+    port: 5432
+    name: "mairie_db_dev"
+    user: "postgres" # Si vous utilisez des secrets, voir note ci-dessous
+    secretName: "local-dev-database-secret"
+
+  redis:
+    host: "mairie360-redis"
+    port: 6379
+    url: "redis://mairie360-redis:6379"
+
   bffs:
     instances:
       user-bff: { port: 4000 }
