@@ -13,6 +13,9 @@ spec:
     - podSelector:
         matchLabels:
           component: api # Autorise uniquement ce qui a le label "api"
+    - podSelector:
+        matchLabels:
+          component: bff
     ports:
     - protocol: TCP
       port: 5432

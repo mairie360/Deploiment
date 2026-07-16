@@ -11,7 +11,7 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: {{ if eq $bffName "bff-user" }}4000{{ else if eq $bffName "bff-project" }}4001{{ else if eq $bffName "bff-calendar" }}4002{{ else if eq $bffName "bff-message" }}4003{{ else if eq $bffName "bff-email" }}4004{{ else if eq $bffName "bff-files" }}4005{{ else if eq $bffName "bff-elearning" }}4006{{ else }}4000{{ end }}
+    - port: {{ if eq $bffName "user-bff" }}4000{{ else if eq $bffName "project-bff" }}4001{{ else if eq $bffName "calendar-bff" }}4002{{ else if eq $bffName "message-bff" }}4003{{ else if eq $bffName "email-bff" }}4004{{ else if eq $bffName "files-bff" }}4005{{ else if eq $bffName "elearning-bff" }}4006{{ else }}4000{{ end }}
       targetPort: 4000
       protocol: TCP
       name: http
