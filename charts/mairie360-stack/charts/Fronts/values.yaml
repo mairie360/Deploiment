@@ -12,7 +12,7 @@ instances:
     image:
       repository: ghcr.io/mairie360/login-front
       tag: "dev-latest"
-      
+
   project-front:
     enabled: true
     port: 5001
@@ -53,4 +53,11 @@ instances:
     port: 5006
     image:
       repository: ghcr.io/mairie360/elearning-front
+      tag: "dev-latest"
+
+  admin-front:
+    enabled: true
+    port: 5007
+    image:
+      repository: ghcr.io/mairie360/administrator-front
       tag: "dev-latest"

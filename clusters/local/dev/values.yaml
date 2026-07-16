@@ -243,3 +243,9 @@ Fronts:
       image:
         tag: "dev-latest"
         repository: ghcr.io/mairie360/elearning-front
+
+    admin-front:
+      enabled: true
+      image:
+        tag: "dev-72a8974"
+        repository: ghcr.io/mairie360/administrator-front

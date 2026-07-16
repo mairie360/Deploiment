@@ -2,7 +2,7 @@ image:
   pullSecretData: "eyJhdXRocyI6eyJnaGNyLmlvIjp7ImF1dGgiOiJVWFZsYm5ScGJuUnVjbXc2WjJod1gwOUVjVUV5YzJ0dlIwY3diR001UjBSd1VHOUtUV1pGY1VWUVUwZ3pNak4zVHpkS1FnPT0ifX19"
   repository: ghcr.io/mairie360/core
   tag: "0.1.0"
-  
+
 # 2. Global
 global:
   domain: "mairie360-eip.fr"
@@ -61,7 +61,7 @@ liquibase:
 # 7. Redis
 redis:
   enabled: true
-  
+
 # 8. APIs
 APIs:
   instances:
@@ -70,37 +70,37 @@ APIs:
       image:
         tag: "latest" # On utilise l'image stable
         repository: ghcr.io/mairie360/core-api
-        
+
     project-api:
         enabled: true
         image:
           tag: "latest"
           repository: ghcr.io/mairie360/project-api
-        
+
     calendar-api:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/calendar-api
-        
+
     message-api:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/message-api
-        
+
     email-api:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/email-api
-        
+
     files-api:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/files-api
-        
+
     elearning-api:
       enabled: true
       image:
@@ -115,43 +115,43 @@ BFFs:
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-user
-        
+
     project-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-project
-        
+
     calendar-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-calendar
-        
+
     message-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-message
-        
+
     email-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-email
-        
+
     files-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-files
-        
+
     elearning-bff:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/bff-elearning
-          
+
 # 10. Fronts
 Fronts:
   instances:
@@ -160,39 +160,45 @@ Fronts:
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/login-front
-        
+
     project-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/projects-front
-        
+
     calendar-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/calendar-front
-        
+
     message-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/message-front
-        
+
     email-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/email-front
-        
+
     files-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/files-front
-        
+
     elearning-front:
       enabled: true
       image:
         tag: "latest"
         repository: ghcr.io/mairie360/elearning-front
+
+    admin-front:
+      enabled: true
+      image:
+        tag: "latest"
+        repository: ghcr.io/mairie360/administrator-front
