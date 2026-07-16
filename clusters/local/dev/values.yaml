@@ -154,7 +154,7 @@ BFFs:
       enabled: true
       port: 4000
       image:
-        tag: "dev-b0af64c"
+        tag: "dev-a384619"
         repository: ghcr.io/mairie360/bff-user
 
     project-bff:
