@@ -226,7 +226,7 @@ Fronts:
     login-front:
       enabled: true
       image:
-        tag: "dev-eb6a40f"
+        tag: "dev-b7fd912"
         repository: ghcr.io/mairie360/login-front
 
     project-front:
