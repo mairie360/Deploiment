@@ -232,19 +232,19 @@ Fronts:
     project-front:
       enabled: true
       image:
-        tag: "dev-20c30b1"
+        tag: "dev-36144b6"
         repository: ghcr.io/mairie360/projects-front
 
     calendar-front:
       enabled: true
       image:
-        tag: "dev-a49a83b"
+        tag: "dev-678cc96"
         repository: ghcr.io/mairie360/calendar-front
 
     message-front:
       enabled: true
       image:
-        tag: "dev-f82b29e"
+        tag: "dev-4b08255"
         repository: ghcr.io/mairie360/message-front
 
     email-front:
@@ -262,11 +262,11 @@ Fronts:
     elearning-front:
       enabled: true
       image:
-        tag: "dev-6526eb8"
+        tag: "dev-6fd7a62"
         repository: ghcr.io/mairie360/elearning-front
 
     admin-front:
       enabled: true
       image:
-        tag: "dev-58b9136"
+        tag: "dev-6dfe54c"
         repository: ghcr.io/mairie360/administrator-front
