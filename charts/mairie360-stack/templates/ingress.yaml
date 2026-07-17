@@ -22,10 +22,18 @@ spec:
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
-          # On route toutes les requêtes /api vers les BFFs sans réécriture
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- if $bffConfig.enabled }}
+          # Route API vers BFF
           - path: /api/{{ $bffName | replace "-bff" "" }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-%s" $.Release.Name $bffName }}
+                port: { number: {{ $bffConfig.port | default 4000 }} }
+
+          # Route BFF explicite pour éviter le routage vers le Front
+          - path: /bff/{{ $bffName | replace "-bff" "" }}
             pathType: Prefix
             backend:
               service:
