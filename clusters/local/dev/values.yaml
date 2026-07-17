@@ -154,7 +154,7 @@ BFFs:
       enabled: true
       port: 4000
       image:
-        tag: "dev-d9611c2"
+        tag: "dev-4b75c8e"
         repository: ghcr.io/mairie360/bff-user
       env:
         - name: COOKIE_DOMAIN
@@ -226,7 +226,7 @@ Fronts:
     login-front:
       enabled: true
       image:
-        tag: "dev-b7fd912"
+        tag: "dev-08032c2"
         repository: ghcr.io/mairie360/login-front
       env:
         - name: COOKIE_DOMAIN
@@ -235,7 +235,7 @@ Fronts:
     project-front:
       enabled: true
       image:
-        tag: "dev-36144b6"
+        tag: "dev-b867f48"
         repository: ghcr.io/mairie360/projects-front
       env:
         - name: COOKIE_DOMAIN
@@ -244,7 +244,7 @@ Fronts:
     calendar-front:
       enabled: true
       image:
-        tag: "dev-678cc96"
+        tag: "dev-5d37b37"
         repository: ghcr.io/mairie360/calendar-front
       env:
         - name: COOKIE_DOMAIN
@@ -253,7 +253,7 @@ Fronts:
     message-front:
       enabled: true
       image:
-        tag: "dev-4b08255"
+        tag: "dev-c5df260"
         repository: ghcr.io/mairie360/message-front
       env:
         - name: COOKIE_DOMAIN
@@ -274,7 +274,7 @@ Fronts:
     elearning-front:
       enabled: true
       image:
-        tag: "dev-6fd7a62"
+        tag: "dev-df5438b"
         repository: ghcr.io/mairie360/elearning-front
       env:
         - name: COOKIE_DOMAIN
@@ -283,7 +283,7 @@ Fronts:
     admin-front:
       enabled: true
       image:
-        tag: "dev-6dfe54c"
+        tag: "dev-e5db142"
         repository: ghcr.io/mairie360/administrator-front
       env:
         - name: COOKIE_DOMAIN
