@@ -1,39 +1,3 @@
-# 1. Ingress Frontend (Gère tout le trafic sauf /api)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "mairie360.fullname" . }}-frontend
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    cert-manager.io/cluster-issuer: "letsencrypt-local"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: "nginx"
-  tls:
-    - hosts:
-      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-      {{- if $frontConfig.enabled }}
-      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      {{- end }}
-      {{- end }}
-      secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
-  rules:
-    {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-    {{- if $frontConfig.enabled }}
-    - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
-                port: { number: 80 }
-    {{- end }}
-    {{- end }}
-
----
-
 # 2. Ingress API (Gère uniquement /api avec réécriture)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -43,7 +7,7 @@ metadata:
     kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # Retour au rewrite-target /$2
+    # On réécrit l'URL pour transmettre uniquement ce qui suit /api/ au backend
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: "nginx"
@@ -62,8 +26,9 @@ spec:
       http:
         paths:
           # --- PRIORITÉ HAUTE : Routes partagées vers user-bff ---
-          # (?:/bff)? ignore le mot bff. $1 capture le slash, $2 capture auth/user/session
-          - path: /api(?:/bff)?(/)(auth.*|user.*|session.*)
+          # Intercepte strictement /api/auth..., /api/user..., /api/session...
+          # $1 capture "/", $2 capture "auth..." -> transmis au backend en tant que "/auth..."
+          - path: /api(/)(auth.*|user.*|session.*)
             pathType: ImplementationSpecific
             backend:
               service:
@@ -74,8 +39,9 @@ spec:
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- $frontBase := ($frontName | replace "-front" "") }}
           {{- if and $bffConfig.enabled (contains $frontBase $bffName) }}
-          # (?:/bff)? ignore le mot bff. $1 capture le slash (ou fin de ligne), $2 capture la fin de l'URL (ex: projects-page)
-          - path: /api(?:/bff)?(/|$)(.*)
+          # Intercepte tout le reste sous /api/ (ex: /api/admin/users)
+          # $1 capture "/", $2 capture "admin/users" -> transmis au backend en tant que "/admin/users"
+          - path: /api(/)(.*)
             pathType: ImplementationSpecific
             backend:
               service:
