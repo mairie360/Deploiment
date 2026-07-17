@@ -4,7 +4,7 @@ rules:
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
-          {{- # 1. Route pour TOUS les BFFs standards }}
+          # 1. Route pour TOUS les BFFs standards
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- if $bffConfig.enabled }}
           - path: /api/{{ $bffName | replace "-bff" "" }}
@@ -22,7 +22,7 @@ rules:
           {{- end }}
           {{- end }}
 
-          {{- # 2. Route pour user-bff (accessible par TOUS les fronts) }}
+          # 2. Route pour user-bff (accessible par TOUS les fronts)
           - path: /api/user
             pathType: Prefix
             backend:
@@ -36,7 +36,7 @@ rules:
                 name: {{ printf "%s-user-bff" $.Release.Name }}
                 port: { number: 4000 }
 
-          {{- # 3. Routes spécifiques pour Admin/Login }}
+          # 3. Routes spécifiques pour Admin/Login
           {{- if or (contains "admin" $frontName) (contains "login" $frontName) }}
           - path: /bff/admin
             pathType: Prefix
