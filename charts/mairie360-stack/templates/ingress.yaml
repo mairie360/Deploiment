@@ -1,38 +1,18 @@
-# --- 1. Ingress pour les APIs (Direct, sans réécriture) ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "mairie360.fullname" . }}-api
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: "nginx"
-  tls:
-    - hosts:
-      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-      {{- if $frontConfig.enabled }}
-      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      {{- end }}
-      {{- end }}
-      secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
-  rules:
+rules:
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
     {{- if $frontConfig.enabled }}
     - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
       http:
         paths:
+          {{- # 1. Route pour TOUS les BFFs standards }}
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- if $bffConfig.enabled }}
-          # Route API vers BFF
           - path: /api/{{ $bffName | replace "-bff" "" }}
             pathType: Prefix
             backend:
               service:
                 name: {{ printf "%s-%s" $.Release.Name $bffName }}
                 port: { number: {{ $bffConfig.port | default 4000 }} }
-
-          # Route BFF explicite pour éviter le routage vers le Front
           - path: /bff/{{ $bffName | replace "-bff" "" }}
             pathType: Prefix
             backend:
@@ -41,40 +21,35 @@ spec:
                 port: { number: {{ $bffConfig.port | default 4000 }} }
           {{- end }}
           {{- end }}
-    {{- end }}
-    {{- end }}
 
----
-
-# --- 2. Ingress pour les Frontends (Route racine /) ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ include "mairie360.fullname" . }}-fronts
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: "nginx"
-  tls:
-    - hosts:
-      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-      {{- if $frontConfig.enabled }}
-      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      {{- end }}
-      {{- end }}
-      secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
-  rules:
-    {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-    {{- if $frontConfig.enabled }}
-    - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      http:
-        paths:
-          - path: /
+          {{- # 2. Route pour user-bff (accessible par TOUS les fronts) }}
+          - path: /api/user
             pathType: Prefix
             backend:
               service:
-                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
-                port: { number: 80 }
+                name: {{ printf "%s-user-bff" $.Release.Name }}
+                port: { number: 4000 }
+          - path: /bff/user
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-user-bff" $.Release.Name }}
+                port: { number: 4000 }
+
+          {{- # 3. Routes spécifiques pour Admin/Login }}
+          {{- if or (contains "admin" $frontName) (contains "login" $frontName) }}
+          - path: /bff/admin
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-user-bff" $.Release.Name }}
+                port: { number: 4000 }
+          - path: /bff/login
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-user-bff" $.Release.Name }}
+                port: { number: 4000 }
+          {{- end }}
     {{- end }}
     {{- end }}
