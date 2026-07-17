@@ -43,7 +43,8 @@ metadata:
     kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$3
+    # Retour au rewrite-target /$2
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: "nginx"
   tls:
@@ -61,7 +62,8 @@ spec:
       http:
         paths:
           # --- PRIORITÉ HAUTE : Routes partagées vers user-bff ---
-          - path: /api/(auth|user|session)(/|$)(.*)
+          # (?:/bff)? ignore le mot bff. $1 capture le slash, $2 capture auth/user/session
+          - path: /api(?:/bff)?(/)(auth.*|user.*|session.*)
             pathType: ImplementationSpecific
             backend:
               service:
@@ -72,7 +74,8 @@ spec:
           {{- range $bffName, $bffConfig := $.Values.BFFs.instances }}
           {{- $frontBase := ($frontName | replace "-front" "") }}
           {{- if and $bffConfig.enabled (contains $frontBase $bffName) }}
-          - path: /api(/|$)(.*)
+          # (?:/bff)? ignore le mot bff. $1 capture le slash (ou fin de ligne), $2 capture la fin de l'URL (ex: projects-page)
+          - path: /api(?:/bff)?(/|$)(.*)
             pathType: ImplementationSpecific
             backend:
               service:
