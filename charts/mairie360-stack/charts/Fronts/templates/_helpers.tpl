@@ -50,6 +50,10 @@ app.kubernetes.io/component: frontend
 {{- end }}
 {{- end }}
 
+# Alias attendu par les applications pour le module Administration.
+- name: ADMINISTRATION_FRONT_URL
+  value: {{ printf "https://admin.%s/" $.Values.global.domain | quote }}
+
 {{/* 2. URLs des BFFs avec port (Approche sécurisée sans dig) */}}
 {{- $bffs := dict }}
 {{- if .Values.global }}

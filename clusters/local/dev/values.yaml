@@ -159,6 +159,8 @@ BFFs:
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
+        - name: JWT_SECRET
+          value: 'b"secret"'
 
     project-bff:
       enabled: true
