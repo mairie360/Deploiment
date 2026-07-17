@@ -156,9 +156,9 @@ BFFs:
       image:
         tag: "dev-d9611c2"
         repository: ghcr.io/mairie360/bff-user
-        env:
-          - name: PORT
-            value: "4000"
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     project-bff:
       enabled: true
@@ -166,19 +166,19 @@ BFFs:
       image:
         tag: "dev-a63e9b2"
         repository: ghcr.io/mairie360/bff-project
-        env:
-          - name: PORT
-            value: "4001"
+      env:
+        - name: USER_BFF_URL
+          value: "http://local-dev-user-bff:4000"
 
     calendar-bff:
       enabled: true
       port: 4002
       image:
-        tag: "dev-latest"
+        tag: "dev-5d77fae"
         repository: ghcr.io/mairie360/bff-calendar
-        env:
-          - name: PORT
-            value: "4002"
+      env:
+        - name: CALENDAR_API_BASE_PATH
+          value: "http://local-dev-calendar-api:3002/api"
 
     message-bff:
       enabled: true
@@ -186,9 +186,9 @@ BFFs:
       image:
         tag: "dev-bebfa8d"
         repository: ghcr.io/mairie360/bff-message
-        env:
-          - name: PORT
-            value: "4003"
+      env:
+        - name: MESSAGE_API_BASE_PATH
+          value: "http://local-dev-message-api:3003/api"
 
     email-bff:
       enabled: true
@@ -216,9 +216,9 @@ BFFs:
       image:
         tag: "dev-7ba7c93"
         repository: ghcr.io/mairie360/bff-elearning
-        env:
-          - name: PORT
-            value: "4006"
+      env:
+        - name: USER_BFF_URL
+          value: "http://local-dev-user-bff:4000"
 
 # 10. Fronts
 Fronts:
@@ -228,24 +228,36 @@ Fronts:
       image:
         tag: "dev-b7fd912"
         repository: ghcr.io/mairie360/login-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     project-front:
       enabled: true
       image:
         tag: "dev-36144b6"
         repository: ghcr.io/mairie360/projects-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     calendar-front:
       enabled: true
       image:
         tag: "dev-678cc96"
         repository: ghcr.io/mairie360/calendar-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     message-front:
       enabled: true
       image:
         tag: "dev-4b08255"
         repository: ghcr.io/mairie360/message-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     email-front:
       enabled: true
@@ -264,9 +276,15 @@ Fronts:
       image:
         tag: "dev-6fd7a62"
         repository: ghcr.io/mairie360/elearning-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
 
     admin-front:
       enabled: true
       image:
         tag: "dev-6dfe54c"
         repository: ghcr.io/mairie360/administrator-front
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".dev.mairie360-eip.fr"
