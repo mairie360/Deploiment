@@ -228,7 +228,7 @@ Fronts:
     login-front:
       enabled: true
       image:
-        tag: "dev-08032c2"
+        tag: "dev-9b2ea4a"
         repository: ghcr.io/mairie360/login-front
       env:
         - name: COOKIE_DOMAIN
