@@ -178,7 +178,7 @@ BFFs:
       enabled: true
       port: 4002
       image:
-        tag: "dev-d86c41f"
+        tag: "dev-300106e"
         repository: ghcr.io/mairie360/bff-calendar
       env:
         - name: CALENDAR_API_BASE_PATH
