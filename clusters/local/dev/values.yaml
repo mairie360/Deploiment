@@ -237,7 +237,7 @@ Fronts:
     project-front:
       enabled: true
       image:
-        tag: "dev-b867f48"
+        tag: "dev-0a88185"
         repository: ghcr.io/mairie360/projects-front
       env:
         - name: COOKIE_DOMAIN
@@ -246,7 +246,7 @@ Fronts:
     calendar-front:
       enabled: true
       image:
-        tag: "dev-5d37b37"
+        tag: "dev-b3bc020"
         repository: ghcr.io/mairie360/calendar-front
       env:
         - name: COOKIE_DOMAIN
@@ -255,7 +255,7 @@ Fronts:
     message-front:
       enabled: true
       image:
-        tag: "dev-c5df260"
+        tag: "dev-39a9e87"
         repository: ghcr.io/mairie360/message-front
       env:
         - name: COOKIE_DOMAIN
@@ -276,7 +276,7 @@ Fronts:
     elearning-front:
       enabled: true
       image:
-        tag: "dev-df5438b"
+        tag: "dev-7b2585e"
         repository: ghcr.io/mairie360/elearning-front
       env:
         - name: COOKIE_DOMAIN
@@ -285,7 +285,7 @@ Fronts:
     admin-front:
       enabled: true
       image:
-        tag: "dev-e5db142"
+        tag: "dev-1e0bcf0"
         repository: ghcr.io/mairie360/administrator-front
       env:
         - name: COOKIE_DOMAIN
