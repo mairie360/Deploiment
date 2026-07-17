@@ -184,7 +184,7 @@ BFFs:
       enabled: true
       port: 4003
       image:
-        tag: "dev-latest"
+        tag: "dev-bebfa8d"
         repository: ghcr.io/mairie360/bff-message
         env:
           - name: PORT
