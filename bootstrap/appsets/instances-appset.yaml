@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: instances-generator
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        revision: mair-33-clean-helm-config
+        directories:
+          - path: clusters/*/instances/*
+  template:
+    metadata:
+      name: '{{path.path.segments[1]}}-{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        targetRevision: mair-33-clean-helm-config
+        path: charts/mairie360-stack
+        helm:
+          valueFiles:
+            - ../../../{{path}}/values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'mairie360-{{path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hubs-generator
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        revision: mair-33-clean-helm-config
+        directories:
+          - path: clusters/*/argocd
+  template:
+    metadata:
+      name: 'hub-{{path.path.segments[1]}}'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/mairie360/Deploiment.git'
+        targetRevision: mair-33-clean-helm-config
+        path: charts/argocd-hub-chart
+        helm:
+          valueFiles:
+            - ../../{{path}}/values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'argocd'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
