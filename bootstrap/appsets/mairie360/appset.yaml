@@ -24,7 +24,6 @@ spec:
             - ../../{{path}}/values.yaml
       destination:
         name: mairie-staging
-        server: https://212.47.242.79:6443
         namespace: 'mairie360-{{path.basename}}'
       syncPolicy:
         automated:
