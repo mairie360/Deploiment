@@ -1,24 +1,38 @@
 # Configuration globale pour le Hub ArgoCD de Mairie360
 global:
-  domain: "mairie360-eip.fr"
+  domain: "argocd-hub.mairie360-eip.fr"
 
 # Configuration de l'accès et des paramètres du serveur ArgoCD
 server:
-  insecure: true # Mis à true si tu gères la terminaison SSL directement au niveau de ton Ingress Nginx
+  insecure: true  # La terminaison TLS est gérée par l'Ingress Traefik, ArgoCD sert en HTTP en interne
   extraArgs:
     - --insecure
 
-# Configuration de l'Ingress pour exposer ton ArgoCD Hub en HTTPS
-ingress:
-  enabled: true
-  className: "nginx"
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-  hosts:
-    - argocd-hub.mairie360-eip.fr. # Ou ton sous-domaine de transition (ex: argocd-new.mairie360-eip.fr)
-  tls:
-    - secretName: argocd-hub-server-tls
-      hosts:
-        - argocd-hub.mairie360-eip.fr.
+  # Configuration de l'Ingress pour exposer ArgoCD Hub en HTTPS via Traefik
+  ingress:
+    enabled: true
+    ingressClassName: "traefik"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    hosts:
+      - argocd-hub.mairie360-eip.fr
+    tls:
+      - secretName: argocd-server-tls
+        hosts:
+          - argocd-hub.mairie360-eip.fr
+
+# Répliques uniques adaptées à un cluster mono-nœud
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+
+# Composants désactivés pour alléger l'empreinte mémoire du hub
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
