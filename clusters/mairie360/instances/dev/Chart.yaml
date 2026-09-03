@@ -1,0 +1,8 @@
+apiVersion: v2
+name: mairie360-instance-env
+version: 1.0.0
+description: "Chart d'environnement pour une instance Mairie360"
+dependencies:
+  - name: mairie360-stack
+    version: "0.1.0"
+    repository: "file://../../../../charts/mairie360-stack"
