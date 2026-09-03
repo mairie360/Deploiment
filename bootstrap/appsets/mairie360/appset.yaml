@@ -23,7 +23,7 @@ spec:
           valueFiles:
             - ../../{{path}}/values.yaml
       destination:
-        name: mairie-staging
+        name: 'mairie-{{path.basename}}'
         namespace: 'mairie360-{{path.basename}}'
       syncPolicy:
         automated:
