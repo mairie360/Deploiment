@@ -43,30 +43,13 @@ global:
       files-api: { port: 3005 }
       elearning-api: { port: 3006 }
 
-# 3. Ingress
+# 3. Ingress (fronts) — expose https://<front>.staging.mairie360-eip.fr
 ingress:
   enabled: true
   className: "traefik"
-  clusterIssuer: "letsencrypt-local"
+  clusterIssuer: "letsencrypt-prod"
   annotations:
-    # --- FIX POUR LET'S ENCRYPT ---
-    # Autorise le HTTP sur le port 80 pour que le challenge ACME passe
-    kubernetes.io/ingress.allow-http: "true"
-    # Désactive la redirection SSL forcée par Traefik le temps de la validation
-    traefik.ingress.kubernetes.io/router.force-ssl-redirect: "false"
-    # Sécurité et compatibilité
-    traefik.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0"
-  hosts:
-    - host: staging.mairie360-eip.fr
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-          serviceName: "local-staging-latest"
-          servicePort: 80
-  tls:
-    - secretName: staging-latest60-tls
-      hosts:
-        - staging.mairie360-eip.fr
+    traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
 
 # 4. Service
 service:

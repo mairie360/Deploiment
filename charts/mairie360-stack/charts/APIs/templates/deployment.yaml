@@ -75,17 +75,17 @@ spec:
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.global.database.secretName }}
+                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
                   key: POSTGRES_DB
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.global.database.secretName }}
+                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
                   key: POSTGRES_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.global.database.secretName }}
+                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
                   key: POSTGRES_PASSWORD
 
             # 3. Variables dynamiques du values.yaml (JWT_SECRET, JWT_TIMEOUT...)

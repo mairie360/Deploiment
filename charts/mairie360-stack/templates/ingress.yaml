@@ -1,31 +1,43 @@
+{{- if .Values.ingress.enabled }}
+{{- $domain := required "global.domain is required for the fronts Ingress" .Values.global.domain -}}
+{{- $fullname := include "mairie360.fullname" . -}}
+{{- $release := .Release.Name -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "mairie360.fullname" . }}-fronts
+  name: {{ $fullname }}-fronts
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
-  ingressClassName: "nginx"
+  ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
   tls:
     - hosts:
-      {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-      {{- if $frontConfig.enabled }}
-      - {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
-      {{- end }}
-      {{- end }}
-      secretName: {{ printf "%s-tls-secret" (include "mairie360.fullname" .) }}
+        {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
+        {{- if $frontConfig.enabled }}
+        - {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
+        {{- end }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tlsSecretName | default (printf "%s-fronts-tls" $fullname) }}
   rules:
     {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
     {{- if $frontConfig.enabled }}
-    - host: {{ printf "%s.%s" ($frontName | replace "-front" "") $.Values.global.domain | quote }}
+    - host: {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ printf "%s-%s" $.Release.Name ($frontName | lower) }}
-                port: { number: 80 }
+                name: {{ printf "%s-%s" $release ($frontName | lower) }}
+                port:
+                  number: 80
     {{- end }}
     {{- end }}
+{{- end }}

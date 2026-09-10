@@ -7,17 +7,22 @@ image:
   pullSecretData: ""
   pullPolicy: "Always"
 
-# --- 2. Configuration Ingress ---
-# Ces valeurs alimentent le template ingress.yaml que tu as posté
+# --- 2. Configuration Ingress (fronts) ---
+# Consommé par templates/ingress.yaml : un Ingress unique qui expose chaque front
+# activé sur https://<front sans "-front">.<global.domain>, avec un certificat
+# multi-SAN émis par cert-manager (clusterIssuer).
 ingress:
   enabled: true
+  # Doit correspondre au contrôleur présent sur le cluster cible (nginx, traefik…).
   className: "nginx"
+  # ClusterIssuer cert-manager déployé par bootstrap/appsets/cluster-issuer-appset.yaml.
   clusterIssuer: "letsencrypt-prod"
+  # Nom du Secret TLS (défaut : <fullname>-fronts-tls).
+  tlsSecretName: ""
+  # Annotations spécifiques au contrôleur (surchargées par environnement).
   annotations:
-    # On ajoute des annotations utiles par défaut
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  hosts: [] # À remplir dans les fichiers d'env (dev/prod) si besoin de routes spécifiques
 
 # --- 3. Configuration des Sous-Charts (Fronts & BFFs) ---
 # Note : Les noms ici doivent correspondre EXACTEMENT aux noms dans ton dossier charts/

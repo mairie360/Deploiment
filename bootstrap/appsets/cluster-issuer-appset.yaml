@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-issuers
+  namespace: argocd
+spec:
+  # Tous les clusters (argocd + dev + staging + prod). Dépend de cert-manager
+  # (CRD ClusterIssuer) -> la retry policy encaisse le "CRD not found" initial.
+  generators:
+    - clusters: {}
+  template:
+    metadata:
+      name: 'cluster-issuers-{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/mairie360/Deploiment.git
+        targetRevision: mair-33-clean-helm-config
+        path: bootstrap/cluster-addons
+        directory:
+          recurse: false
+      destination:
+        server: '{{server}}'
+        namespace: cert-manager
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 20
+          backoff:
+            duration: 15s
+            maxDuration: 3m
+            factor: 2
+        syncOptions:
+          - ServerSideApply=true

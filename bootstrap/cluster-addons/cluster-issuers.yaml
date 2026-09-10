@@ -1,0 +1,52 @@
+# ClusterIssuer cert-manager, appliqués sur TOUS les clusters par
+# bootstrap/appsets/cluster-issuer-appset.yaml.
+#
+# Le solver HTTP-01 ne fixe pas d'ingressClassName : cert-manager crée l'Ingress
+# de challenge avec l'IngressClass par défaut du cluster. Chaque cluster cible
+# doit donc avoir un contrôleur Ingress marqué classe par défaut
+# (ingressclass.kubernetes.io/is-default-class: "true").
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: quentin.tennerel@epitech.eu
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress: {}
+---
+# Let's Encrypt staging : quota large, certificats non fiables par le navigateur.
+# À utiliser pour valider une nouvelle stack sans épuiser le quota prod.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: quentin.tennerel@epitech.eu
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress: {}
+---
+# Alias conservé pour compatibilité : clusters/local/* référence encore
+# "letsencrypt-local". Même configuration que letsencrypt-prod.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-local
+spec:
+  acme:
+    email: quentin.tennerel@epitech.eu
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-local-account-key
+    solvers:
+      - http01:
+          ingress: {}
