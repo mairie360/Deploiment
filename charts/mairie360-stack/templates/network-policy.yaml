@@ -1,13 +1,91 @@
+{{- /*
+Politique réseau de base du namespace.
+
+Principe : les NetworkPolicy s'ADDITIONNENT. Il n'existe pas de "deny" qui
+prime sur un "allow". On pose donc un default-deny sur tous les pods, puis
+chaque sous-chart ouvre UNIQUEMENT le flux dont il a besoin :
+
+  ingress-controller ─► fronts ─► bffs ─► apis ─► postgres / redis
+                                   └──────────────► redis
+                        (migration liquibase ──────► postgres)
+
+Toute policy permissive (podSelector: {} + namespaceSelector: {}) annulerait
+l'ensemble : ne jamais en rajouter une.
+*/ -}}
+{{- if .Values.global.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ingress-and-internal
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "mairie360.fullname" . }}-default-deny
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
-  podSelector: {} # S'applique à TOUS les pods du namespace
+  podSelector: {}
   policyTypes:
-  - Ingress
+    - Ingress
+    {{- if .Values.global.networkPolicy.egressDefaultDeny }}
+    - Egress
+    {{- end }}
+{{- if .Values.global.networkPolicy.egressDefaultDeny }}
+---
+# Avec un default-deny en sortie, le DNS est la première chose qui casse.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mairie360.fullname" . }}-allow-egress
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS du cluster
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Tout le namespace applicatif (les flux entrants sont déjà filtrés)
+    - to:
+        - podSelector: {}
+    {{- with .Values.global.networkPolicy.egressAllowCIDRs }}
+    # Destinations externes déclarées (SMTP, S3…)
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- if .Values.global.monitoringNamespace }}
+---
+# Prometheus doit pouvoir scraper les pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mairie360.fullname" . }}-allow-monitoring
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
   ingress:
     - from:
-      - podSelector: {} # Autorise tous les pods du namespace
-      - namespaceSelector: {} # Autorise TOUS les namespaces (y compris celui d'ingress-nginx)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.monitoringNamespace }}
+{{- end }}
+{{- end }}

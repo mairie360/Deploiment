@@ -36,6 +36,8 @@ Common labels
 {{- define "liquibase.labels" -}}
 helm.sh/chart: {{ include "liquibase.chart" . }}
 {{ include "liquibase.selectorLabels" . }}
+app.kubernetes.io/component: migration
+app.kubernetes.io/part-of: mairie360
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,4 +50,9 @@ Selector labels
 {{- define "liquibase.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "liquibase.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- define "liquibase.dbSecretName" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $db := $g.database | default dict -}}
+{{- .Values.secretName | default ($db.secretName | default (printf "%s-database-secret" .Release.Name)) -}}
 {{- end }}

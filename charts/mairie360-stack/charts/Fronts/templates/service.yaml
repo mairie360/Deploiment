@@ -1,22 +1,25 @@
 {{- range $frontName, $frontConfig := .Values.instances }}
 {{- if $frontConfig.enabled }}
+{{- $name := $frontName | lower }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $.Release.Name }}-{{ $frontName | lower }}
+  name: {{ $.Release.Name }}-{{ $name }}
   labels:
     {{- include "fronts.labels" $ | nindent 4 }}
-    app: {{ $frontName | lower }}
+    app: {{ $name }}
 spec:
   type: ClusterIP
   ports:
-    - port: 80 # L'Ingress contactera toujours le service sur le port 80
-      targetPort: {{ $frontConfig.port }} # Le service renvoie vers le pod sur son port spécifique
+    # L'Ingress parle toujours au Service sur 80 ; le Service renvoie vers
+    # le port du conteneur.
+    - name: http
+      port: 80
+      targetPort: http
       protocol: TCP
-      name: http
   selector:
     {{- include "fronts.selectorLabels" $ | nindent 4 }}
-    app: {{ $frontName | lower }}
+    app: {{ $name }}
 {{- end }}
 {{- end }}

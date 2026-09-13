@@ -1,0 +1,67 @@
+# Vérifie que le cloisonnement réseau est bien celui attendu :
+#   ingress -> fronts -> bffs -> apis -> data
+suite: network policies
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: pose un default-deny sur tous les pods
+    templates: [templates/network-policy.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+
+  - it: n'a AUCUNE policy permissive (podSelector vide + from tous namespaces)
+    templates: [templates/network-policy.yaml]
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector: {}
+              - namespaceSelector: {}
+
+  - it: les APIs n'acceptent que les BFFs sur 3000
+    templates: [charts/APIs/templates/network-policy.yaml]
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: api
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: bff
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 3000
+
+  - it: les fronts n'acceptent que le namespace du contrôleur d'ingress
+    templates: [charts/Fronts/templates/network-policy.yaml]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ingress-nginx
+
+  - it: la base n'accepte que api, bff et migration
+    templates: [charts/database/templates/network-policy.yaml]
+    asserts:
+      - lengthEqual:
+          path: spec.ingress[0].from
+          count: 3
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 5432
+
+  - it: les sélecteurs des policies correspondent aux labels réellement posés sur les pods
+    templates:
+      - charts/APIs/templates/deployment.yaml
+      - charts/BFFs/templates/deployment.yaml
+      - charts/Fronts/templates/deployment.yaml
+      - charts/database/templates/statefulset.yaml
+      - charts/redis/templates/deployment.yaml
+    asserts:
+      - exists:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]

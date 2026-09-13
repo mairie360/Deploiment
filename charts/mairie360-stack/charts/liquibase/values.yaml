@@ -1,12 +1,29 @@
-# Valeurs par défaut du sous-chart liquibase
+# Sous-chart liquibase — Job de migration de schéma.
+#
+# Sous ArgoCD, le Job est un hook de phase "Sync" en vague 1 : il s'exécute
+# à CHAQUE synchronisation, après que la base (vague 0) est prête, et
+# bloque les vagues suivantes (APIs…) tant qu'il n'a pas réussi. Il est
+# supprimé et recréé à chaque sync (nom stable, pas de timestamp).
+#
+# Avec `helm install` seul, c'est un Job ordinaire : l'initContainer
+# attend la base.
+
+enabled: true
+
 image:
   repository: ghcr.io/mairie360/liquibase-migrations
-  tag: latest
+  tag: "latest"
+  pullPolicy: Always
 
 db:
-  host: "database"
   port: 5432
-  name: "core"
+  name: "mairie_db"
 
-# Ces champs sont optionnels si ton Dockerfile gère déjà le reste
 changelogFile: "changelog.xml"
+backoffLimit: 3
+# Le Job terminé est nettoyé automatiquement (utile hors ArgoCD).
+ttlSecondsAfterFinished: 3600
+
+resources:
+  requests: { memory: "128Mi", cpu: "100m" }
+  limits:   { memory: "512Mi", cpu: "1000m" }

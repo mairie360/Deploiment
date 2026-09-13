@@ -1,7 +1,13 @@
+{{- if (($.Values.global).networkPolicy).enabled }}
+# Les BFFs acceptent le trafic des fronts et des autres BFFs.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "bffs.fullname" . }}-access
+  name: {{ include "bffs.fullname" . }}-allow-from-fronts
+  labels:
+    {{- include "bffs.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   podSelector:
     matchLabels:
@@ -12,5 +18,8 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              # On utilise le label exact constaté sur ton pod front
-              app.kubernetes.io/component: frontend 
+              app.kubernetes.io/component: frontend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bff
+{{- end }}

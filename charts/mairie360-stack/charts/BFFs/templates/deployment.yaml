@@ -1,62 +1,62 @@
 {{- range $bffName, $bffConfig := .Values.instances }}
 {{- if $bffConfig.enabled }}
+{{- $ctx := dict "root" $ "name" $bffName }}
+{{- $port := $bffConfig.port | default 4000 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $.Release.Name }}-{{ $bffName }}
   labels:
+    {{- include "bffs.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $bffName }}
     app: {{ $bffName }}
-    component: bff
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   replicas: {{ $bffConfig.replicaCount | default 1 }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: {{ $.Values.strategy.maxSurge }}
+      maxUnavailable: {{ $.Values.strategy.maxUnavailable }}
   selector:
     matchLabels:
-      app: {{ $bffName }}
+      {{- include "bffs.instanceSelectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ $bffName }}
-        component: bff
+        {{- include "bffs.instancePodLabels" $ctx | nindent 8 }}
     spec:
+      {{- with $.Values.global.imagePullSecret }}
       imagePullSecrets:
-        - name: ghcr-secret
-      # Suppression de l'initContainer wait-for-dependencies pour éviter le deadlock
+        - name: {{ . }}
+      {{- end }}
       containers:
         - name: {{ $bffName }}
-          image: "{{ $bffConfig.image.repository }}:{{ $bffConfig.image.tag | default "latest" }}"
+          image: "{{ $bffConfig.image.repository }}:{{ required (printf "BFFs.instances.%s.image.tag est obligatoire (pas de :latest)" $bffName) $bffConfig.image.tag }}"
+          imagePullPolicy: {{ $bffConfig.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
           ports:
-            - containerPort: {{ $bffConfig.port | default 4000 }}
+            - name: http
+              containerPort: {{ $port }}
           env:
             {{- include "bffs.commonEnv" $ | nindent 12 }}
             - name: PORT
-              value: {{ $bffConfig.port | default 4000 | quote }}
-            {{- if $bffConfig.env }}
-            {{- toYaml $bffConfig.env | nindent 12 }}
+              value: {{ $port | quote }}
+            {{- with $bffConfig.env }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
-          # Ajout de la LivenessProbe pour surveiller Node.js
           livenessProbe:
-            httpGet:
-              path: /health
-              port: {{ $bffConfig.port | default 4000 | int }}
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 20
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /health
-              port: {{ $bffConfig.port | default 4000 | int }}
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 15
             periodSeconds: 10
           resources:
-            limits:
-              memory: "512Mi"
-            requests:
-              memory: "128Mi" # Augmenté pour éviter le Pending/OOM initial
-              cpu: "20m"
+            {{- toYaml ($bffConfig.resources | default $.Values.resources) | nindent 12 }}
 {{- end }}
 {{- end }}

@@ -1,18 +1,31 @@
+{{- if (($.Values.global).networkPolicy).enabled }}
+# Redis n'est joignable que par les APIs, les BFFs et les fronts.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "redis.fullname" . }}-access
+  name: {{ include "redis.fullname" . }}-allow-from-apps
+  labels:
+    {{- include "redis.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: cache
+  policyTypes:
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          component: api # APIs autorisées
-    - podSelector:
-        matchLabels:
-          component: bff # BFFs autorisés (pour plus tard)
-    ports:
-    - port: 6379
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}

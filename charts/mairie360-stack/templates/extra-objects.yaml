@@ -1,0 +1,9 @@
+{{- /*
+Objets rendus tels quels. Sert à embarquer les SealedSecret d'un
+environnement (fichier secrets.yaml à côté de values.yaml).
+Les chaînes passent par `tpl` : {{ .Release.Namespace }} etc. sont utilisables.
+*/ -}}
+{{- range .Values.extraObjects }}
+---
+{{ tpl (toYaml .) $ }}
+{{- end }}

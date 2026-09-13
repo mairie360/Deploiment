@@ -1,30 +1,35 @@
+# `helm test <release>` : vérifie que Redis répond ET qu'il exige un mot de passe.
 apiVersion: v1
 kind: Pod
 metadata:
   name: "{{ include "redis.fullname" . }}-test-connection"
   labels:
-    app: {{ include "redis.name" . }}
+    app.kubernetes.io/component: api   # autorisé par la NetworkPolicy
   annotations:
     "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
 spec:
   restartPolicy: Never
   containers:
     - name: redis-test
-      image: redis:7.2.0
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+      env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "redis.fullname" . }}
+              key: redis-password
+        - name: HOST
+          value: {{ include "redis.fullname" . | quote }}
       command:
         - sh
         - -c
         - |
-          echo "🔍 Starting Redis connection test..."
-          echo "Using host: {{ include "redis.fullname" . }}"
-          COUNT=0
-          until redis-cli -h {{ include "redis.fullname" . }} ping > /dev/null 2>&1; do
-            COUNT=$((COUNT+1))
-            echo "⏳ Waiting for Redis to be ready... ($COUNT)"
-            sleep 2
-            if [ $COUNT -gt 30 ]; then
-              echo "❌ Redis did not become ready in time!"
-              exit 1
-            fi
-          done
-          echo "✅ Redis is reachable!"
+          set -e
+          # 1. Sans mot de passe : doit être refusé
+          if redis-cli -h "$HOST" ping 2>&1 | grep -q PONG; then
+            echo "ECHEC : Redis repond sans mot de passe"; exit 1
+          fi
+          # 2. Avec mot de passe : doit repondre PONG
+          redis-cli -h "$HOST" -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
+          echo "OK : Redis authentifie correctement"
