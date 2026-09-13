@@ -7,7 +7,10 @@ spec:
   # Un générateur "clusters" vide cible TOUS les clusters enregistrés dans
   # Argo CD, y compris le cluster local (in-cluster) : argocd + dev + staging + prod.
   generators:
-    - clusters: {}
+    - clusters:
+      selector:
+        matchLabels:
+          mairie360.fr/role: instance
   template:
     metadata:
       name: 'cert-manager-{{name}}'

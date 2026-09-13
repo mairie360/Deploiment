@@ -1,4 +1,3 @@
-{{/* 1. FONCTIONS DE NOMMAGE ET LABELS */}}
 {{- define "bffs.name" -}}
 {{- default .Chart.Name .Values.nameOverride | lower | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -18,74 +17,98 @@
 
 {{- define "bffs.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{ include "bffs.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: bff
+app.kubernetes.io/part-of: mairie360
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "bffs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "bffs.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: bff
+{{/* Sélecteur immuable d'une instance (inchangé par rapport à la v0.1). */}}
+{{- define "bffs.instanceSelectorLabels" -}}
+app: {{ .name }}
 {{- end }}
 
----
+{{- define "bffs.instancePodLabels" -}}
+{{ include "bffs.instanceSelectorLabels" . }}
+app.kubernetes.io/name: {{ .name }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/component: bff
+app.kubernetes.io/part-of: mairie360
+component: bff
+{{- end }}
 
-{{/* 2. VARIABLES D'ENVIRONNEMENT (Le bloc corrigé) */}}
+{{- define "bffs.dbSecretName" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $db := $g.database | default dict -}}
+{{- $db.secretName | default (printf "%s-database-secret" .Release.Name) -}}
+{{- end }}
+
+{{- define "bffs.appSecretName" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $s := $g.secrets | default dict -}}
+{{- $s.appSecretName | default (printf "%s-app-secrets" .Release.Name) -}}
+{{- end }}
+
+{{/*
+Variables injectées dans TOUS les BFFs.
+Les URLs des APIs et des autres BFFs sont dérivées de global.apis.instances
+et global.bffs.instances : une seule source de vérité pour les ports, et le
+nom de release est toujours correct quel que soit l'environnement.
+*/}}
 {{- define "bffs.commonEnv" -}}
 - name: HOST
   value: "0.0.0.0"
 - name: HOSTNAME
   value: "0.0.0.0"
-- name: NODE_ENV
-  value: "production"
-- name: NODE_OPTIONS
-  value: "--max-old-space-size=200"
 - name: DB_TYPE
   value: "postgres"
 - name: DB_HOST
   value: {{ printf "%s-database" .Release.Name | quote }}
 - name: DB_PORT
   value: "5432"
-- name: TOKIO_WORKER_THREADS
-  value: "2"
-
-{{/* --- POSTGRES SECRETS --- */}}
 - name: DB_NAME
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-database-secret" .Release.Name }}
+      name: {{ include "bffs.dbSecretName" . }}
       key: POSTGRES_DB
 - name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-database-secret" .Release.Name }}
+      name: {{ include "bffs.dbSecretName" . }}
       key: POSTGRES_USER
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-database-secret" .Release.Name }}
+      name: {{ include "bffs.dbSecretName" . }}
       key: POSTGRES_PASSWORD
-
-# Connexion Redis
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .Release.Name | quote }}
+- name: REDIS_PORT
+  value: "6379"
+- name: REDIS_URL
+  value: {{ printf "redis://%s-redis:6379" .Release.Name | quote }}
 - name: REDIS_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ printf "%s-redis" .Release.Name }}
       key: redis-password
-
-# Liste dynamique des endpoints APIs
-{{- $apis := dict }}
-{{- if and .Values.global .Values.global.apis .Values.global.apis.instances }}
-  {{- $apis = .Values.global.apis.instances }}
+- name: JWT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "bffs.appSecretName" . }}
+      key: JWT_SECRET
+{{- with .Values.commonEnv }}
+{{ toYaml . }}
 {{- end }}
-
+{{- $g := .Values.global | default dict }}
+{{- $apis := ((($g.apis) | default dict).instances) | default dict }}
 {{- range $apiName, $apiConfig := $apis }}
 - name: {{ $apiName | upper | replace "-" "_" }}_URL
-  value: {{ printf "http://%s-%s:%d" $.Release.Name ($apiName | lower) (int $apiConfig.port) | quote }}
+  value: {{ printf "http://%s-%s:%d" $.Release.Name ($apiName | lower) (int ($apiConfig.port | default 3000)) | quote }}
+{{- end }}
+{{- $bffs := ((($g.bffs) | default dict).instances) | default dict }}
+{{- range $bffName, $bffConfig := $bffs }}
+- name: {{ $bffName | upper | replace "-" "_" }}_URL
+  value: {{ printf "http://%s-%s:%d" $.Release.Name ($bffName | lower) (int ($bffConfig.port | default 4000)) | quote }}
 {{- end }}
 {{- end -}}

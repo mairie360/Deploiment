@@ -1,0 +1,62 @@
+# ingress-nginx — le SEUL point d'entrée public de chaque instance.
+#
+# k3s est installé avec Traefik désactivé (rôle k8s_node) : il n'y a donc
+# qu'un contrôleur d'ingress, et `ingress.className: nginx` dans les values
+# correspond bien à ce qui tourne. ServiceLB de k3s lie le Service
+# LoadBalancer aux ports 80/443 de la machine.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+      # Sélecteur : uniquement les machines dINSTANCE du groupe.
+      # Ansible les enregistre avec ce label (rôle k8s_instance_link) ; la
+      # machine Argo CD elle-même (in-cluster) ne le porte pas et est donc
+      # exclue — elle na pas besoin dingress public ni de base de données.
+      selector:
+        matchLabels:
+          mairie360.fr/role: instance
+  template:
+    metadata:
+      name: 'ingress-nginx-{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://kubernetes.github.io/ingress-nginx
+        chart: ingress-nginx
+        # Version ÉPINGLÉE : avec '*', une version majeure casserait le cluster
+        # sans qu'aucun commit n'ait changé. Les montées passent par Renovate.
+        targetRevision: 4.11.3
+        helm:
+          releaseName: ingress-nginx
+          values: |
+            controller:
+              ingressClassResource:
+                default: true
+              service:
+                type: LoadBalancer
+                # Préserve l'IP source réelle du client : sans ça, tous les
+                # journaux d'accès affichent l'IP interne du nœud et toute
+                # limitation par IP est inopérante.
+                externalTrafficPolicy: Local
+              config:
+                use-forwarded-headers: "true"
+                ssl-protocols: "TLSv1.2 TLSv1.3"
+                hsts: "true"
+              metrics:
+                enabled: true
+              resources:
+                requests: { memory: 128Mi, cpu: 100m }
+              tolerations:
+                - key: "node-role.kubernetes.io/control-plane"
+                  operator: Exists
+                  effect: NoSchedule
+      destination:
+        server: '{{server}}'
+        namespace: ingress-nginx
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]

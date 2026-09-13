@@ -1,70 +1,71 @@
-# charts/mairie360-stack/charts/liquibase/templates/job.yaml
-
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # L'ajout de la date est une bonne idée pour pouvoir relancer le job à chaque upgrade
-  name: {{ include "liquibase.fullname" . }}-{{ now | date "20060102150405" }}
+  # Nom STABLE. L'ancien suffixe horodaté rendait l'application ArgoCD
+  # perpétuellement OutOfSync et relançait les migrations en boucle.
+  name: {{ include "liquibase.fullname" . }}
   labels:
     {{- include "liquibase.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
 spec:
-  backoffLimit: 3
+  backoffLimit: {{ .Values.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
   template:
     metadata:
       labels:
         {{- include "liquibase.labels" . | nindent 8 }}
     spec:
       restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecret }}
       imagePullSecrets:
-        - name: ghcr-secret
+        - name: {{ . }}
+      {{- end }}
       initContainers:
         - name: wait-for-db
-          image: postgres:15-alpine
+          image: postgres:17-alpine
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST
               value: {{ printf "%s-database" .Release.Name | quote }}
             - name: DB_PORT
-              value: "{{ .Values.db.port }}"
+              value: {{ .Values.db.port | quote }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "liquibase.dbSecretName" . }}
+                  key: POSTGRES_USER
           command:
             - sh
             - -c
             - |
-              until pg_isready -h $DB_HOST -p $DB_PORT -U postgres; do
-                echo "Waiting for DB..."
-                sleep 2
+              until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$PGUSER"; do
+                echo "Waiting for DB..."; sleep 2
               done
       containers:
         - name: liquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: Always
-          # --- FIX 1: On force le répertoire où on a COPY nos fichiers ---
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           workingDir: /migrations
           env:
             - name: LIQUIBASE_COMMAND_URL
               value: {{ printf "jdbc:postgresql://%s-database:%s/%s" .Release.Name (toString .Values.db.port) .Values.db.name | quote }}
-
             - name: LIQUIBASE_COMMAND_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default (printf "%s-database-secret" .Release.Name) }}
+                  name: {{ include "liquibase.dbSecretName" . }}
                   key: POSTGRES_USER
             - name: LIQUIBASE_COMMAND_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secretName | default (printf "%s-database-secret" .Release.Name) }}
+                  name: {{ include "liquibase.dbSecretName" . }}
                   key: POSTGRES_PASSWORD
-
-            # --- FIX 2: On supprime ou on commente LIQUIBASE_DEFAULTS_FILE s'il est vide ---
-            # - name: LIQUIBASE_DEFAULTS_FILE
-            #   value: "" 
-
-            # --- FIX 3: On pointe sur /migrations (comme dans ton Dockerfile) ---
             - name: LIQUIBASE_SEARCH_PATH
               value: "/migrations"
-          
-          # --- FIX 4: On retire le / devant changelog.xml s'il est à la racine de /migrations ---
           args:
-            - --changelog-file=changelog.xml
+            - --changelog-file={{ .Values.changelogFile }}
             - update
-            # - drop-all
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

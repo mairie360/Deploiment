@@ -1,0 +1,15 @@
+suite: redis
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: démarre avec un mot de passe et sa configuration montée
+    templates: [charts/redis/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].command
+          content: --requirepass
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            configMap: { name: RELEASE-NAME-redis }

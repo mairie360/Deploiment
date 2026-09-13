@@ -4,6 +4,7 @@ metadata:
   name: "{{ include "database.fullname" . }}-test"
   labels:
     app: "{{ include "database.name" . }}"
+    app.kubernetes.io/component: migration
     helm.sh/chart: "{{ include "database.chart" . }}"
     app.kubernetes.io/managed-by: "{{ .Release.Service }}"
     app.kubernetes.io/instance: "{{ .Release.Name }}"
@@ -18,17 +19,17 @@ spec:
         - name: PGUSER
           valueFrom:
             secretKeyRef:
-              name: {{ include "database.fullname" . }}-secret
+              name: {{ include "database.secretName" . }}
               key: POSTGRES_USER
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ include "database.fullname" . }}-secret
+              name: {{ include "database.secretName" . }}
               key: POSTGRES_PASSWORD
         - name: PGDATABASE
           valueFrom:
             secretKeyRef:
-              name: {{ include "database.fullname" . }}-secret
+              name: {{ include "database.secretName" . }}
               key: POSTGRES_DB
       command:
         - sh

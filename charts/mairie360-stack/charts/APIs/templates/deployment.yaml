@@ -1,98 +1,60 @@
 {{- range $apiName, $apiConfig := .Values.instances }}
 {{- if $apiConfig.enabled }}
+{{- $ctx := dict "root" $ "name" $apiName }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $.Release.Name }}-{{ $apiName }}
   labels:
+    {{- include "apis.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $apiName }}
     app: {{ $apiName }}
-    component: api
+  annotations:
+    # Les APIs démarrent après la base (wave 0) et les migrations (wave 1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: {{ $apiConfig.replicaCount | default 1 }}
-  # Stratégie pour éviter le blocage de RAM sur petit VPS
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: {{ $.Values.strategy.maxSurge }}
+      maxUnavailable: {{ $.Values.strategy.maxUnavailable }}
   selector:
     matchLabels:
-      app: {{ $apiName }}
+      {{- include "apis.instanceSelectorLabels" $ctx | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ $apiName }}
-        component: api
+        {{- include "apis.instancePodLabels" $ctx | nindent 8 }}
     spec:
+      {{- with $.Values.global.imagePullSecret }}
       imagePullSecrets:
-        - name: ghcr-secret
-      # Suppression de l'initContainer wait-for-db pour accélérer le boot
+        - name: {{ . }}
+      {{- end }}
       containers:
         - name: {{ $apiName }}
-          image: "{{ $apiConfig.image.repository }}:{{ $apiConfig.image.tag | default "latest" }}"
+          image: "{{ $apiConfig.image.repository }}:{{ required (printf "APIs.instances.%s.image.tag est obligatoire (pas de :latest)" $apiName) $apiConfig.image.tag }}"
+          imagePullPolicy: {{ $apiConfig.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 10
             periodSeconds: 20
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 3000
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
-            # 1. Variables système et Redis
-            - name: HOST
-              value: "0.0.0.0"
-            - name: PORT
-              value: "3000"
-            - name: TOKIO_WORKER_THREADS
-              value: "2"
-            - name: REDIS_HOST
-              value: {{ printf "%s-redis" $.Release.Name | quote }}
-            - name: REDIS_PORT
-              value: "6379"
-            - name: REDIS_URL
-              value: {{ printf "redis://%s-redis:6379" $.Release.Name | quote }}
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ printf "%s-redis" $.Release.Name }}
-                  key: redis-password
-
-            # 2. Variables de Base de données (sécurisées via le Secret global)
-            - name: DB_TYPE
-              value: "postgres"
-            - name: DB_HOST
-              value: {{ printf "%s-database" $.Release.Name | quote }}
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
-                  key: POSTGRES_DB
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
-                  key: POSTGRES_USER
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ (default dict $.Values.global.database).secretName | default (printf "%s-database-secret" $.Release.Name) }}
-                  key: POSTGRES_PASSWORD
-
-            # 3. Variables dynamiques du values.yaml (JWT_SECRET, JWT_TIMEOUT...)
-            {{- if $apiConfig.env }}
-            {{- toYaml $apiConfig.env | nindent 12 }}
+            {{- include "apis.commonEnv" $ | nindent 12 }}
+            {{- with $apiConfig.env }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
           resources:
-            {{- toYaml $.Values.resources | nindent 12 }}
+            {{- toYaml ($apiConfig.resources | default $.Values.resources) | nindent 12 }}
 {{- end }}
 {{- end }}

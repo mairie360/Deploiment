@@ -1,27 +1,23 @@
-{{- range $frontName, $frontConfig := .Values.instances }}
-{{- if $frontConfig.enabled }}
----
+{{- if (($.Values.global).networkPolicy).enabled }}
+# Les fronts n'acceptent que le trafic du contrôleur d'ingress.
+# C'est la SEULE porte d'entrée du namespace depuis l'extérieur.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ $.Release.Name }}-{{ $frontName | lower }}-access
+  name: {{ include "fronts.fullname" . }}-allow-from-ingress
   labels:
-    {{- include "fronts.labels" $ | nindent 4 }}
-    app: {{ $frontName | lower }}
+    {{- include "fronts.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   podSelector:
     matchLabels:
-      {{- include "fronts.selectorLabels" $ | nindent 6 }}
-      app: {{ $frontName | lower }}
+      app.kubernetes.io/component: frontend
   policyTypes:
     - Ingress
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-      ports:
-        - protocol: TCP
-          port: {{ $frontConfig.port }}
-{{- end }}
+              kubernetes.io/metadata.name: {{ .Values.global.ingressNamespace | default "ingress-nginx" }}
 {{- end }}

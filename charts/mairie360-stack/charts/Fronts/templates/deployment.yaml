@@ -1,67 +1,63 @@
 {{- range $frontName, $frontConfig := .Values.instances }}
 {{- if $frontConfig.enabled }}
+{{- $name := $frontName | lower }}
+{{- $port := required (printf "Fronts.instances.%s.port est obligatoire" $frontName) $frontConfig.port }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $.Release.Name }}-{{ $frontName | lower }}
+  name: {{ $.Release.Name }}-{{ $name }}
   labels:
     {{- include "fronts.labels" $ | nindent 4 }}
-    app: {{ $frontName | lower }}
+    app: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
 spec:
   replicas: {{ $frontConfig.replicaCount | default 1 }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: {{ $.Values.strategy.maxSurge }}
+      maxUnavailable: {{ $.Values.strategy.maxUnavailable }}
   selector:
     matchLabels:
       {{- include "fronts.selectorLabels" $ | nindent 6 }}
-      app: {{ $frontName | lower }}
+      app: {{ $name }}
   template:
     metadata:
       labels:
         {{- include "fronts.labels" $ | nindent 8 }}
-        app: {{ $frontName | lower }}
+        app: {{ $name }}
     spec:
+      {{- with $.Values.global.imagePullSecret }}
       imagePullSecrets:
-        - name: ghcr-secret
+        - name: {{ . }}
+      {{- end }}
       containers:
-        # FIX : Remplacement de {{ $.Chart.Name }} par $frontName pour donner un nom unique et valide (ex: login-front)
-        - name: {{ $frontName | lower }}
-          image: "{{ $frontConfig.image.repository }}:{{ $frontConfig.image.tag }}"
-
-          # Vérification sécurisée de l'existence de la clé pour éviter le "nil pointer"
-          imagePullPolicy: {{ if and $frontConfig.image $frontConfig.image.pullPolicy }}{{ $frontConfig.image.pullPolicy | quote }}{{ else }}"Always"{{ end }}
-
+        - name: {{ $name }}
+          image: "{{ $frontConfig.image.repository }}:{{ required (printf "Fronts.instances.%s.image.tag est obligatoire (pas de :latest)" $frontName) $frontConfig.image.tag }}"
+          imagePullPolicy: {{ $frontConfig.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
           ports:
-            - containerPort: {{ $frontConfig.port }}
+            - name: http
+              containerPort: {{ $port }}
           env:
             {{- include "fronts.commonEnv" $ | nindent 12 }}
-            # Écrase dynamiquement le PORT du Dockerfile
             - name: PORT
-              value: {{ $frontConfig.port | quote }}
-            {{- if $frontConfig.env }}
-            {{- toYaml $frontConfig.env | nindent 12 }}
+              value: {{ $port | quote }}
+            {{- with $frontConfig.env }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}
           livenessProbe:
-            httpGet:
-              path: /
-              port: {{ $frontConfig.port }}
+            httpGet: { path: /, port: http }
             initialDelaySeconds: 30
             periodSeconds: 30
           readinessProbe:
-            httpGet:
-              path: /
-              port: {{ $frontConfig.port }}
+            httpGet: { path: /, port: http }
             initialDelaySeconds: 15
             periodSeconds: 10
           resources:
-            {{- if $frontConfig.resources }}
-            {{- toYaml $frontConfig.resources | nindent 12 }}
-            {{- else }}
-            {{- toYaml $.Values.resources | nindent 12 }}
-            {{- end }}
+            {{- toYaml ($frontConfig.resources | default $.Values.resources) | nindent 12 }}
 {{- end }}
 {{- end }}

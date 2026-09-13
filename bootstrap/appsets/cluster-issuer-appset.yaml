@@ -7,7 +7,10 @@ spec:
   # Tous les clusters (argocd + dev + staging + prod). Dépend de cert-manager
   # (CRD ClusterIssuer) -> la retry policy encaisse le "CRD not found" initial.
   generators:
-    - clusters: {}
+    - clusters:
+      selector:
+        matchLabels:
+          mairie360.fr/role: instance
   template:
     metadata:
       name: 'cluster-issuers-{{name}}'
@@ -15,7 +18,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/mairie360/Deploiment.git
-        targetRevision: mair-33-clean-helm-config
+        targetRevision: main
         path: bootstrap/cluster-addons
         directory:
           recurse: false
