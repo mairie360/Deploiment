@@ -117,8 +117,8 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
   `frontend` / `database` / `cache` / `migration`) — that is what NetworkPolicies
   select on. The legacy `app: <instance>` label is kept because
   `spec.selector` is immutable on existing Deployments/StatefulSets.
-- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and
-  `redis-password` always come from Secrets. `*.secret.create` /
+- **No secret value lives in the chart.** `JWT_SECRET`, `SMTP_PASSWORD`,
+  `POSTGRES_*` and `redis-password` always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
@@ -155,7 +155,20 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
 Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
-`email-api` (SMTP) and `files-api` (S3) are declared in `egressAllowCIDRs`.
+`core-api` (Resend, `smtp.resend.com:587`), `email-api` (SMTP) and `files-api`
+(S3) are declared in `egressAllowCIDRs`.
+
+### Outbound e-mail (Resend)
+
+`core-api` sends its transactional e-mails (password reset) with `lettre` over
+SMTP. Every instance's `values.yaml` sets `SMTP_HOST=smtp.resend.com`,
+`SMTP_PORT=587`, `SMTP_USERNAME=resend` and `EMAIL_FROM` on `core-api`, and
+reads `SMTP_PASSWORD` from the `SMTP_PASSWORD` key of `<release>-app-secrets`.
+That key is the Resend API key: `scripts/seal-secrets.sh` takes it from the
+`RESEND_API_KEY` env var (otherwise keeps the value already on the cluster,
+otherwise seals it empty and warns). `--rotate` never clears it. The
+`EMAIL_FROM` domain must be verified in the Resend dashboard, and Core API
+only enables STARTTLS + auth when `SMTP_USERNAME` is non-empty.
 
 ### Chart unit tests (`charts/mairie360-stack/tests/`)
 
