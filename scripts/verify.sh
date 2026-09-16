@@ -43,6 +43,11 @@ step 4 "Les secrets attendus existent"
 for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis"; do
   $K get secret "$s" >/dev/null 2>&1 && ok "$s" || ko "$s absent (scripts/seal-secrets.sh ?)"
 done
+if [ -n "$($K get secret "${RELEASE}-app-secrets" -o jsonpath='{.data.SMTP_PASSWORD}' 2>/dev/null)" ]; then
+  ok "SMTP_PASSWORD (Resend API key) is set"
+else
+  ko "SMTP_PASSWORD empty in ${RELEASE}-app-secrets: core-api cannot send e-mails (RESEND_API_KEY=… scripts/seal-secrets.sh)"
+fi
 
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
