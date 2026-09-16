@@ -2,4 +2,4 @@ apiVersion: v2
 name: BFFs
 description: Chart pour les Backend-For-Frontend de Mairie360
 type: application
-version: 0.2.0
+version: 0.3.0

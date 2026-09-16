@@ -54,6 +54,8 @@ Variables injectées dans TOUS les BFFs.
 Les URLs des APIs et des autres BFFs sont dérivées de global.apis.instances
 et global.bffs.instances : une seule source de vérité pour les ports, et le
 nom de release est toujours correct quel que soit l'environnement.
+Prend un contexte { root, name } (name = l'instance courante, ex. "user-bff") :
+c'est aussi le nom du compte ACL Redis dédié à cette instance.
 */}}
 {{- define "bffs.commonEnv" -}}
 - name: HOST
@@ -63,52 +65,54 @@ nom de release est toujours correct quel que soit l'environnement.
 - name: DB_TYPE
   value: "postgres"
 - name: DB_HOST
-  value: {{ printf "%s-database" .Release.Name | quote }}
+  value: {{ printf "%s-database" $.root.Release.Name | quote }}
 - name: DB_PORT
   value: "5432"
 - name: DB_NAME
   valueFrom:
     secretKeyRef:
-      name: {{ include "bffs.dbSecretName" . }}
+      name: {{ include "bffs.dbSecretName" $.root }}
       key: POSTGRES_DB
 - name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ include "bffs.dbSecretName" . }}
+      name: {{ include "bffs.dbSecretName" $.root }}
       key: POSTGRES_USER
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ include "bffs.dbSecretName" . }}
+      name: {{ include "bffs.dbSecretName" $.root }}
       key: POSTGRES_PASSWORD
 - name: REDIS_HOST
-  value: {{ printf "%s-redis" .Release.Name | quote }}
+  value: {{ printf "%s-redis" $.root.Release.Name | quote }}
 - name: REDIS_PORT
   value: "6379"
 - name: REDIS_URL
-  value: {{ printf "redis://%s-redis:6379" .Release.Name | quote }}
+  value: {{ printf "redis://%s-redis:6379" $.root.Release.Name | quote }}
+- name: REDIS_USERNAME
+  value: {{ $.name | quote }}
 - name: REDIS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-redis" .Release.Name }}
-      key: redis-password
+      name: {{ printf "%s-redis" $.root.Release.Name }}
+      key: {{ printf "%s-password" $.name }}
 - name: JWT_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ include "bffs.appSecretName" . }}
+      name: {{ include "bffs.appSecretName" $.root }}
       key: JWT_SECRET
-{{- with .Values.commonEnv }}
+{{- with $.root.Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}
-{{- $g := .Values.global | default dict }}
+{{- $g := $.root.Values.global | default dict }}
 {{- $apis := ((($g.apis) | default dict).instances) | default dict }}
 {{- range $apiName, $apiConfig := $apis }}
 - name: {{ $apiName | upper | replace "-" "_" }}_URL
-  value: {{ printf "http://%s-%s:%d" $.Release.Name ($apiName | lower) (int ($apiConfig.port | default 3000)) | quote }}
+  value: {{ printf "http://%s-%s:%d" $.root.Release.Name ($apiName | lower) (int ($apiConfig.port | default 3000)) | quote }}
 {{- end }}
 {{- $bffs := ((($g.bffs) | default dict).instances) | default dict }}
 {{- range $bffName, $bffConfig := $bffs }}
 - name: {{ $bffName | upper | replace "-" "_" }}_URL
-  value: {{ printf "http://%s-%s:%d" $.Release.Name ($bffName | lower) (int ($bffConfig.port | default 4000)) | quote }}
+  value: {{ printf "http://%s-%s:%d" $.root.Release.Name ($bffName | lower) (int ($bffConfig.port | default 4000)) | quote }}
 {{- end }}
 {{- end -}}

@@ -10,6 +10,7 @@ data:
   redis.conf: |
     maxmemory {{ .Values.config.maxmemory }}
     maxmemory-policy {{ .Values.config.maxmemoryPolicy }}
+    aclfile /acl/users.acl
     {{- if .Values.persistence.enabled }}
     appendonly yes
     dir /data
@@ -17,3 +18,19 @@ data:
     save ""
     appendonly no
     {{- end }}
+  # Génère /acl/users.acl au démarrage à partir des variables d'env du
+  # conteneur : seuls les NOMS de variable sont templatés ici, jamais un mot
+  # de passe (les valeurs viennent de secretKeyRef, cf. deployment.yaml). Le
+  # compte `default` est désactivé ; `admin` sert aux probes et à `helm test`.
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    umask 077
+    {
+      echo "user default off resetkeys resetchannels -@all"
+      echo "user admin on >$REDIS_PASSWORD ~* &* allcommands"
+      {{- range $role := (include "redis.roles" . | fromYamlArray) }}
+      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:* resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}"
+      {{- end }}
+    } > /acl/users.acl
+    exec redis-server /etc/redis/redis.conf

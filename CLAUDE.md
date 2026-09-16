@@ -97,7 +97,7 @@ Traefik disabled) → `cert-manager-appset` → `cluster-issuer-appset`
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
 
-### The umbrella chart: `charts/mairie360-stack` (v0.2.x)
+### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
 
 Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
 `database`, `redis`, `liquibase`, `APIs`, `BFFs`, `Fronts`.
@@ -117,8 +117,8 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
   `frontend` / `database` / `cache` / `migration`) — that is what NetworkPolicies
   select on. The legacy `app: <instance>` label is kept because
   `spec.selector` is immutable on existing Deployments/StatefulSets.
-- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and
-  `redis-password` always come from Secrets. `*.secret.create` /
+- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and the
+  Redis ACL passwords always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
@@ -130,9 +130,13 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
-- `redis` mounts its ConfigMap and passes the password via `--requirepass`
-  (the official image ignores `REDIS_PASSWORD`). `helm test` asserts that an
-  unauthenticated `PING` is refused.
+- `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
+  writes `/acl/users.acl` at container start from per-role env vars
+  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
+  `global.bffs.instances`) and starts `redis-server --aclfile`. The `default`
+  account is disabled; `admin` (Secret key `redis-password`) is for probes and
+  `helm test`. Fronts have no Redis account — they never used it. `helm test`
+  asserts that an unauthenticated `PING` is refused and that `admin` works.
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data →
@@ -213,6 +217,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   replicated one. Leave it at 1.
 - Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): fine
   for a cache, data-losing for sessions.
+- **`scripts/seal-secrets.sh`'s `REDIS_ROLES` list is hand-maintained**, not
+  read from the chart. It must be kept in sync with
+  `global.apis.instances` / `global.bffs.instances` in
+  `charts/mairie360-stack/values.yaml` — add a role there and forget the
+  script, and that API/BFF's pod comes up with no `<ROLE>-password` key to
+  read, `CreateContainerConfigError`.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
 

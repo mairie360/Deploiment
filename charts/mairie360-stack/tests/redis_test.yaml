@@ -2,14 +2,106 @@ suite: redis
 values:
   - ../../../clusters/mairie360/instances/dev/values.yaml
 tests:
-  - it: démarre avec un mot de passe et sa configuration montée
+  - it: démarre via l'entrypoint ACL et sa configuration montée
     templates: [charts/redis/templates/deployment.yaml]
     asserts:
-      - contains:
+      - equal:
           path: spec.template.spec.containers[0].command
-          content: --requirepass
+          value: ["sh", "/etc/redis/entrypoint.sh"]
       - contains:
           path: spec.template.spec.volumes
           content:
             name: config
             configMap: { name: RELEASE-NAME-redis }
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: acl
+            emptyDir: {}
+
+  - it: le compte default est désactivé dans le script ACL
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: "user default off"
+
+  - it: injecte un mot de passe ACL dédié par API/BFF, jamais le compte partagé
+    templates: [charts/redis/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CORE_API_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: core-api-password }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: USER_BFF_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: user-bff-password }
+
+  - it: les probes s'authentifient avec le compte admin, pas le compte default
+    templates: [charts/redis/templates/deployment.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[2]
+          pattern: "--user admin"
+      - matchRegex:
+          path: spec.template.spec.containers[0].livenessProbe.exec.command[2]
+          pattern: "--user admin"
+
+  - it: chaque API reçoit son propre identifiant ACL Redis, pas le mot de passe partagé
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 0 # premier document = "calendar-api" (ordre alphabétique du range)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_USERNAME
+            value: "calendar-api"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-api-password }
+
+  - it: chaque BFF reçoit son propre identifiant ACL Redis, pas le mot de passe partagé
+    templates: [charts/BFFs/templates/deployment.yaml]
+    documentIndex: 0 # premier document = "calendar-bff" (ordre alphabétique du range)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_USERNAME
+            value: "calendar-bff"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-bff-password }
+
+  - it: les fronts n'ont plus d'identifiants Redis
+    templates: [charts/Fronts/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_HOST
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_PASSWORD
+
+  - it: la NetworkPolicy redis n'autorise plus les fronts
+    templates: [charts/redis/templates/network-policy.yaml]
+    asserts:
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: frontend
