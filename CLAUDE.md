@@ -26,7 +26,7 @@ helm unittest ./charts/mairie360-stack
 # Render + schema-validate every instance (this is what CI does)
 for v in clusters/*/instances/*; do
   helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-    | kubeconform -strict -summary -schema-location default || echo "KO: $v"
+    | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy || echo "KO: $v"
 done
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
@@ -156,6 +156,26 @@ Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
 `email-api` (SMTP) and `files-api` (S3) are declared in `egressAllowCIDRs`.
+
+### Network observability (Cilium / Hubble)
+
+The `k3s` machines run Cilium as CNI instead of flannel (installed by the
+`ansible` repo's `k8s_node` role, not by Argo CD — without a CNI no pod
+starts). Cilium enforces the NetworkPolicies above and Hubble records every
+flow, with its verdict, on the hops of the diagram. `scripts/hubble-flows.sh
+<context> <env>` prints them hop by hop from the workstation, through a
+port-forward to `hubble-relay`.
+
+`templates/cilium-l7-visibility.yaml` adds two `CiliumNetworkPolicy` (fronts →
+bffs, bffs → apis) with an L7 HTTP rule, gated by
+`global.networkPolicy.ciliumL7Visibility` (off by default — a cluster without
+the Cilium CRDs cannot sync it; `dev` turns it on). It only adds visibility:
+it allows nothing the Kubernetes NetworkPolicies do not already allow.
+`scripts/verify.sh` step 10 checks the Cilium agent and `hubble-relay` are up.
+`kubeconform`'s default schema store has no schema for `CiliumNetworkPolicy`:
+render+validate commands need `-skip CiliumNetworkPolicy` (see **Common
+commands** above), or `dev` (the only instance with `ciliumL7Visibility: true`)
+reports it as an error.
 
 ### Chart unit tests (`charts/mairie360-stack/tests/`)
 
