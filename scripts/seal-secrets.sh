@@ -18,6 +18,14 @@
 # Prérequis : kubectl, kubeseal, openssl, un contexte kube valide, et le
 # contrôleur sealed-secrets déployé (bootstrap/appsets/sealed-secrets-appset.yaml).
 #
+# Environment variables read by this script:
+#   S3_ACCESS_KEY / S3_SECRET_KEY  Object Storage (Scaleway S3) key pair, stored
+#                   under the same names in <env>-app-secrets (elearning-api
+#                   stores course attachments there). When unset, the values
+#                   already present on the cluster are kept; with neither, the
+#                   keys are sealed empty and elearning-api will not start.
+#   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
+#
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
 # base existante). --rotate régénère tout.
 # ATTENTION : faire tourner POSTGRES_PASSWORD ne change pas le mot de passe
@@ -64,6 +72,28 @@ fi
 [ -n "$PGPASS" ]    || { PGPASS="$(gen)";    echo "  POSTGRES_PASSWORD: généré"; }
 [ -n "$REDISPASS" ] || { REDISPASS="$(gen)"; echo "  redis-password   : généré"; }
 
+# The S3 key pair cannot be generated: it comes from S3_ACCESS_KEY /
+# S3_SECRET_KEY, or is kept from the cluster. --rotate does not clear it (a new
+# pair is issued from the Scaleway console, then passed through those vars).
+S3AK="${S3_ACCESS_KEY:-}"
+S3SK="${S3_SECRET_KEY:-}"
+if [ -n "$S3AK" ] && [ -n "$S3SK" ]; then
+  echo "  S3_ACCESS_KEY    : from S3_ACCESS_KEY"
+  echo "  S3_SECRET_KEY    : from S3_SECRET_KEY"
+elif [ -n "$S3AK" ] || [ -n "$S3SK" ]; then
+  echo "S3_ACCESS_KEY and S3_SECRET_KEY must be set together" >&2
+  exit 1
+else
+  S3AK="$(prev "${RELEASE}-app-secrets" S3_ACCESS_KEY)"
+  S3SK="$(prev "${RELEASE}-app-secrets" S3_SECRET_KEY)"
+  if [ -n "$S3AK" ] && [ -n "$S3SK" ]; then
+    echo "  S3_ACCESS_KEY    : kept from cluster"
+    echo "  S3_SECRET_KEY    : kept from cluster"
+  else
+    echo "  S3_*_KEY         : EMPTY (set S3_ACCESS_KEY and S3_SECRET_KEY) — elearning-api will not start" >&2
+  fi
+fi
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -77,7 +107,10 @@ seal() {
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 kubectl create secret generic "${RELEASE}-app-secrets" \
-  --namespace "$NS" --from-literal=JWT_SECRET="$JWT" \
+  --namespace "$NS" \
+  --from-literal=JWT_SECRET="$JWT" \
+  --from-literal=S3_ACCESS_KEY="$S3AK" \
+  --from-literal=S3_SECRET_KEY="$S3SK" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
@@ -111,6 +144,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
+  echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
+  echo "#   S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do

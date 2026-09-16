@@ -18,8 +18,9 @@ global:
   ingressNamespace: "ingress-nginx"
   networkPolicy:
     enabled: true
-    # Passer à true une fois les destinations externes de email-api (SMTP)
-    # et files-api (S3) déclarées dans egressAllowCIDRs.
+    # Passer à true une fois les destinations externes de elearning-api
+    # (Object Storage S3), email-api (SMTP) et files-api (S3) déclarées dans
+    # egressAllowCIDRs.
     egressDefaultDeny: false
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
@@ -79,6 +80,31 @@ APIs:
     elearning-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-latest" }
+      env:
+        # Course attachments are stored in Scaleway Object Storage (S3 API)
+        # and served through presigned URLs. The access key pair lives in
+        # <release>-app-secrets (scripts/seal-secrets.sh, S3_ACCESS_KEY /
+        # S3_SECRET_KEY). Not optional: elearning-api panics without it, so a
+        # missing key shows up as CreateContainerConfigError instead of a
+        # CrashLoop.
+        - name: S3_BUCKET
+          value: "mairie360-elearning-staging"
+        - name: S3_REGION
+          value: "fr-par"
+        - name: S3_ENDPOINT
+          value: "https://s3.fr-par.scw.cloud"
+        - name: S3_PRESIGN_TTL_SECS
+          value: "900"
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_ACCESS_KEY
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_SECRET_KEY
 
 BFFs:
   instances:
