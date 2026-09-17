@@ -99,8 +99,8 @@ Each instance needs public DNS for every front hostname pointing at its own IP.
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
 
-Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `APIs`, `BFFs`, `Fronts`.
+Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
+`database`, `redis`, `liquibase`, `backup`, `APIs`, `BFFs`, `Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
   `range $name, $cfg := .Values.instances` and emits one Deployment + Service per
@@ -145,9 +145,26 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
   changelog can `CREATE ROLE ... PASSWORD :role_password` and grant it
   table-level access to its module's schema, without the password ever
   appearing in the chart. **Credentials aren't the only boundary**: the
-  `database` NetworkPolicy only admits `app.kubernetes.io/component: api` and
-  `component: migration` pods on 5432 — BFFs and fronts have no network path
-  to Postgres at all, they only ever reach it through an API.
+  `database` NetworkPolicy only admits `app.kubernetes.io/component: api`,
+  `component: migration` and `component: backup` pods on 5432 — BFFs and
+  fronts have no network path to Postgres at all, they only ever reach it
+  through an API.
+- **`backup` (MAIR-119), off by default.** A CronJob that streams
+  `pg_dump -Fc` straight into `restic backup --stdin` against an
+  S3-compatible bucket — restic brings encryption at rest, dedup and
+  retention (`restic forget --prune`), so the dump itself never touches a
+  disk on either side. Authenticates to Postgres as the same superuser as
+  Liquibase (`<release>-database-secret`), because no single per-API role
+  can read every module's schema. `<release>-backup-secret`
+  (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`RESTIC_PASSWORD`) is sealed
+  the same way as the other per-instance secrets, but those AWS keys can't
+  be generated — `scripts/seal-secrets.sh` only writes that Secret when
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are exported before calling
+  it. `templates/restore-job.yaml` (disabled by default, `restore.enabled`)
+  is the disaster-recovery counterpart: no Argo CD hook annotation, run by
+  hand via `helm template … | kubectl apply -f -` (see
+  `charts/backup/README.md`) rather than left enabled in a tracked values
+  file, or Argo CD would recreate it every sync.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
   (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
@@ -158,7 +175,8 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data →
-  `1` migrations → `2` APIs → `3` BFFs → `4` Fronts → `5` Ingress.
+  `1` migrations and the backup CronJob → `2` APIs → `3` BFFs → `4` Fronts →
+  `5` Ingress.
 
 ### Network model
 
@@ -249,11 +267,22 @@ and maintaining a parallel Kind topology is what produced the earlier
   matching `ALTER ROLE ... PASSWORD` run by hand.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
+- **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
+  too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
+  derives its master key from that one password, and nothing here runs the
+  equivalent of `restic key passwd` against the existing repository. Rotate
+  it naively and the *whole* bucket (every past snapshot, not just future
+  ones) becomes permanently unreadable. Run `restic key passwd` with the old
+  and new password first, or don't rotate it at all.
 
 ## Known gaps (not addressed in this chart)
 
-- No database backups. `database` is a plain StatefulSet: no PITR, no failover,
-  no restore procedure. CloudNativePG is the intended replacement.
+- **No PITR, no failover.** `database` is still a plain single-replica
+  StatefulSet — the `backup` subchart (MAIR-119) covers point-in-time
+  snapshots to off-machine S3 storage with a documented restore procedure,
+  but a lost volume means restoring from the last backup, not zero data
+  loss, and there is no automatic failover. CloudNativePG is the intended
+  replacement for both.
 - `runAsNonRoot: false` in every `containerSecurityContext`: the app images do
   not declare a non-root `USER`. Fix the Dockerfiles, then flip the flag and
   make the `trivy config` CI job blocking.

@@ -137,6 +137,10 @@ redis:
   enabled: true
 liquibase:
   enabled: true
+# Off by default: needs a real S3 bucket + sealed backup-secret per instance
+# first. See charts/backup/README.md (MAIR-119).
+backup:
+  enabled: false
 
 APIs:
   enabled: true

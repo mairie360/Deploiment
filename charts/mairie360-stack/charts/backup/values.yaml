@@ -1,0 +1,80 @@
+# backup subchart (MAIR-119) — a CronJob that streams `pg_dump -Fc` straight
+# into `restic backup --stdin`, pointed at an S3-compatible bucket.
+#
+# restic gives us, for free, what a plain pg_dump on the local PVC never had:
+# encryption at rest (RESTIC_PASSWORD), deduplication, and retention/pruning
+# (`restic forget --prune`). The dump never touches disk on either side.
+#
+# Disabled by default: a real S3 bucket, access keys and RESTIC_PASSWORD must
+# exist and be sealed into `<release>-backup-secret` (scripts/seal-secrets.sh)
+# before this can render. See the umbrella chart's instance values files for
+# the per-environment `schedule` / `retention` / `s3.*` overrides.
+enabled: false
+
+# pg_dump must never be older than the Postgres server it talks to (it
+# refuses newer servers). The server image is postgres:18.x — do NOT reuse
+# the liquibase Job's postgres:17-alpine client for this.
+image:
+  repository: postgres
+  tag: "18-alpine"
+  pullPolicy: IfNotPresent
+
+# restic isn't in the postgres:alpine image; installed via `apk` at Job start
+# (see templates/_helpers.tpl "backup.script") rather than maintaining and
+# publishing a bespoke image for a single CronJob container.
+resticVersion: "restic"
+
+# Standard cron expression, evaluated in the cluster's timezone (UTC).
+schedule: "0 3 * * *"
+concurrencyPolicy: Forbid
+successfulJobsHistoryLimit: 3
+failedJobsHistoryLimit: 3
+backoffLimit: 2
+activeDeadlineSeconds: 3600
+
+db:
+  port: 5432
+
+# S3-compatible endpoint holding the restic repository. None of this is
+# secret — the access keys and RESTIC_PASSWORD are (see secret.create below).
+# repository = s3:<endpoint>/<bucket>
+s3:
+  endpoint: ""
+  bucket: ""
+  region: ""
+
+retention:
+  keepDaily: 7
+  keepWeekly: 4
+  keepMonthly: 6
+
+# Secret <release>-backup-secret: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+# RESTIC_PASSWORD. Same model as the app-secrets / database-secret Secrets:
+# create: true  -> built from `env` below (throwaway local cluster only)
+# create: false -> provided by a SealedSecret (scripts/seal-secrets.sh)
+secretName: ""
+secret:
+  create: false
+env:
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  # Losing this is unrecoverable: every existing backup becomes unreadable.
+  # Keep it outside the cluster too, like the sealed-secrets sealing key.
+  RESTIC_PASSWORD: ""
+
+resources:
+  requests: { memory: "128Mi", cpu: "100m" }
+  limits: { memory: "512Mi", cpu: "500m" }
+
+# Disaster-recovery Job, off by default and never part of the normal sync:
+# no Argo CD hook annotation, so an Argo CD app with `restore.enabled: true`
+# left in its values would keep recreating it every sync. Render and apply it
+# by hand instead (see charts/backup/README.md):
+#   helm template <release> ./charts/mairie360-stack -f <instance values> \
+#     -s charts/backup/templates/restore-job.yaml \
+#     --set backup.restore.enabled=true \
+#     --set backup.restore.snapshotId=<snapshot-id-or-latest> \
+#     | kubectl --context <ctx> -n <namespace> apply -f -
+restore:
+  enabled: false
+  snapshotId: "latest"

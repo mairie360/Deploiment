@@ -20,6 +20,13 @@
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
 # base existante). --rotate régénère tout.
+#
+# MAIR-119: if backup (charts/backup) is enabled for this instance, export
+# AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
+# they cannot be generated, they are credentials for the external S3 bucket.
+# RESTIC_PASSWORD is generated like JWT_SECRET / POSTGRES_PASSWORD; LOSING IT
+# MAKES EVERY EXISTING BACKUP UNREADABLE, keep it outside the cluster too,
+# like the sealing key.
 # ATTENTION : faire tourner POSTGRES_PASSWORD ou un <ROLE>_PASSWORD ne change
 # pas le mot de passe d'un rôle déjà créé — Postgres ne lit POSTGRES_PASSWORD
 # qu'au tout premier démarrage, et les <ROLE>_PASSWORD ne sont lus par le job
@@ -72,15 +79,17 @@ prev() {
 gen() { openssl rand -base64 48 | tr -d '\n'; }
 
 if [ "$ROTATE" = "--rotate" ]; then
-  JWT=""; PGPASS=""; ADMINPASS=""
+  JWT=""; PGPASS=""; ADMINPASS=""; RESTICPASS=""
 else
   JWT="$(prev "${RELEASE}-app-secrets" JWT_SECRET)"
   PGPASS="$(prev "${RELEASE}-database-secret" POSTGRES_PASSWORD)"
   ADMINPASS="$(prev "${RELEASE}-redis" redis-password)"
+  RESTICPASS="$(prev "${RELEASE}-backup-secret" RESTIC_PASSWORD)"
 fi
 [ -n "$JWT" ]        || { JWT="$(gen)";        echo "  JWT_SECRET             : généré"; }
 [ -n "$PGPASS" ]     || { PGPASS="$(gen)";     echo "  POSTGRES_PASSWORD      : généré"; }
 [ -n "$ADMINPASS" ]  || { ADMINPASS="$(gen)";  echo "  redis-password (admin) : généré"; }
+[ -n "$RESTICPASS" ] || { RESTICPASS="$(gen)"; echo "  RESTIC_PASSWORD        : generated"; }
 
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
@@ -113,6 +122,12 @@ done
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
+# MAIR-119: unlike the other secrets, these are credentials for an external
+# S3 bucket and can't be generated — only sealed when supplied. Skip the
+# backup-secret entirely if backup isn't provisioned for this instance yet.
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
+AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+
 seal() {
   kubeseal --context "$CTX" \
     --controller-namespace "$CONTROLLER_NS" \
@@ -139,6 +154,17 @@ if [ -n "$GHCR_TOKEN" ]; then
     --namespace "$NS" --docker-server=ghcr.io \
     --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" \
     --dry-run=client -o yaml | seal > "$TMP/ghcr.yaml"
+fi
+
+if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+  kubectl create secret generic "${RELEASE}-backup-secret" \
+    --namespace "$NS" \
+    --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
+    --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
+    --from-literal=RESTIC_PASSWORD="$RESTICPASS" \
+    --dry-run=client -o yaml | seal > "$TMP/backup.yaml"
+else
+  echo "  backup-secret : skipped (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not provided)"
 fi
 
 mkdir -p "$(dirname "$OUT")"

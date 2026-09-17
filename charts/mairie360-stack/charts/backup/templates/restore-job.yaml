@@ -1,0 +1,46 @@
+{{- if .Values.restore.enabled }}
+# Disaster-recovery Job. No Argo CD hook annotation on purpose: this is
+# rendered and applied by hand (see values.yaml `restore` comment / the
+# runbook in charts/backup/README.md), never left enabled in a values file
+# an Argo CD Application tracks, or it would rerun on every sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "backup.fullname" . }}-restore
+  labels:
+    {{- include "backup.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "backup.podLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.global.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: restore
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "backup.env" . | nindent 12 }}
+            - name: SNAPSHOT_ID
+              value: {{ required "backup.restore.snapshotId is required when backup.restore.enabled=true" .Values.restore.snapshotId | quote }}
+          # --clean --if-exists drops existing objects before recreating them
+          # so the restored database matches the dump exactly, including
+          # objects that no longer exist in the dump. --no-owner avoids
+          # failing on role names that differ between environments.
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              apk add --no-cache {{ .Values.resticVersion }} >/dev/null
+              restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" \
+                | pg_restore --clean --if-exists --no-owner --dbname="$PGDATABASE"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}
