@@ -130,6 +130,24 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
+- **Postgres access is per-role (MAIR-114).** `<release>-database-secret`
+  carries `POSTGRES_USER`/`POSTGRES_PASSWORD` (the `postgres` superuser,
+  used only by the `wait-for-db` init container and the Liquibase job to run
+  migrations) plus one `<ROLE>_PASSWORD` key per entry of
+  `global.database.roles` (`core-api`, `project-api`, `calendar-api`,
+  `message-api`, `elearning-api` — the 5 APIs with a schema; `email-api` /
+  `files-api` have no repo yet, so no role). The `APIs` chart gives an
+  instance in that list `DB_USER`/`DB_PASSWORD` from its own role and
+  password; any other instance gets no `DB_USER`/`DB_PASSWORD` at all rather
+  than falling back to the superuser. The Liquibase job additionally reads
+  each `<ROLE>_PASSWORD` and passes it as a changelog parameter
+  (`-D<role>_password`, role name underscored) so the `Devops/Database`
+  changelog can `CREATE ROLE ... PASSWORD :role_password` and grant it
+  table-level access to its module's schema, without the password ever
+  appearing in the chart. **Credentials aren't the only boundary**: the
+  `database` NetworkPolicy only admits `app.kubernetes.io/component: api` and
+  `component: migration` pods on 5432 — BFFs and fronts have no network path
+  to Postgres at all, they only ever reach it through an API.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
   (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
@@ -217,12 +235,18 @@ and maintaining a parallel Kind topology is what produced the earlier
   replicated one. Leave it at 1.
 - Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): fine
   for a cache, data-losing for sessions.
-- **`scripts/seal-secrets.sh`'s `REDIS_ROLES` list is hand-maintained**, not
-  read from the chart. It must be kept in sync with
-  `global.apis.instances` / `global.bffs.instances` in
-  `charts/mairie360-stack/values.yaml` — add a role there and forget the
-  script, and that API/BFF's pod comes up with no `<ROLE>-password` key to
-  read, `CreateContainerConfigError`.
+- **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
+  hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
+  sync with `global.apis.instances` / `global.bffs.instances`; `DB_ROLES`
+  must be kept in sync with the shorter `global.database.roles` (both in
+  `charts/mairie360-stack/values.yaml`) — add a role there and forget the
+  script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)
+  or `<ROLE>_PASSWORD` (Postgres) key to read, `CreateContainerConfigError`.
+- **Rotating `POSTGRES_PASSWORD` or a `<ROLE>_PASSWORD` doesn't rotate the
+  live role.** Postgres only reads `POSTGRES_PASSWORD` on first init, and the
+  Liquibase changelog only reads a `<ROLE>_PASSWORD` changelog parameter on
+  the `CREATE ROLE` changeset, which doesn't rerun. A `--rotate` needs a
+  matching `ALTER ROLE ... PASSWORD` run by hand.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
 

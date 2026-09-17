@@ -23,6 +23,10 @@ env:
   POSTGRES_PASSWORD: ""
   POSTGRES_DB: "mairie_db"
 
+# Per-role Postgres passwords (MAIR-114), keyed by API instance name
+# (global.database.roles). Only used when secret.create=true.
+rolePasswords: {}
+
 persistence:
   size: 2Gi
   # "" = StorageClass par défaut du cluster (local-path sur k3s / Kind).

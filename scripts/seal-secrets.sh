@@ -20,9 +20,11 @@
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
 # base existante). --rotate régénère tout.
-# ATTENTION : faire tourner POSTGRES_PASSWORD ne change pas le mot de passe
-# d'une base déjà initialisée — Postgres ne lit ces variables qu'au premier
-# démarrage. Il faut un ALTER ROLE en parallèle.
+# ATTENTION : faire tourner POSTGRES_PASSWORD ou un <ROLE>_PASSWORD ne change
+# pas le mot de passe d'un rôle déjà créé — Postgres ne lit POSTGRES_PASSWORD
+# qu'au tout premier démarrage, et les <ROLE>_PASSWORD ne sont lus par le job
+# Liquibase (-D<role>_password) que lors du changeset CREATE ROLE, qui ne
+# rejoue pas. Il faut un ALTER ROLE en parallèle.
 # À l'inverse, Redis régénère /acl/users.acl à partir des variables d'env à
 # CHAQUE démarrage (voir charts/.../redis/templates/configmap.yaml) : un
 # simple redémarrage du pod suffit à faire prendre une rotation des mots de
@@ -45,6 +47,13 @@ CONTROLLER_NAME="sealed-secrets-controller"
 # global.apis.instances / global.bffs.instances (charts/mairie360-stack/values.yaml).
 # À TENIR SYNCHRONISÉ avec ce fichier si la liste des instances change.
 REDIS_ROLES="core-api project-api calendar-api message-api email-api files-api elearning-api user-bff project-bff calendar-bff message-bff email-bff files-bff elearning-bff"
+
+# Postgres roles (MAIR-114): one per API that owns a schema, matching
+# global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
+# a SHORTER list than REDIS_ROLES: email-api/files-api have no repo yet, so
+# no role is created for them by Devops/Database's Liquibase changelog.
+# Keep in sync with that values.yaml key.
+DB_ROLES="core-api project-api calendar-api message-api elearning-api"
 
 for bin in kubectl kubeseal openssl; do
   command -v "$bin" >/dev/null || { echo "manquant : $bin"; exit 1; }
@@ -85,6 +94,22 @@ for role in $REDIS_ROLES; do
   redis_args+=(--from-literal="${key}=${val}")
 done
 
+db_args=(
+  --from-literal=POSTGRES_USER=postgres
+  --from-literal=POSTGRES_PASSWORD="${PGPASS}"
+  --from-literal=POSTGRES_DB="mairie_db_${ENV}"
+)
+for role in $DB_ROLES; do
+  key="$(printf '%s' "$role" | tr 'a-z-' 'A-Z_')_PASSWORD"
+  if [ "$ROTATE" = "--rotate" ]; then
+    val=""
+  else
+    val="$(prev "${RELEASE}-database-secret" "$key")"
+  fi
+  [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
+  db_args+=(--from-literal="${key}=${val}")
+done
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -102,10 +127,7 @@ kubectl create secret generic "${RELEASE}-app-secrets" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
-  --namespace "$NS" \
-  --from-literal=POSTGRES_USER=postgres \
-  --from-literal=POSTGRES_PASSWORD="$PGPASS" \
-  --from-literal=POSTGRES_DB="mairie_db_${ENV}" \
+  --namespace "$NS" "${db_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/db.yaml"
 
 kubectl create secret generic "${RELEASE}-redis" \

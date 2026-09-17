@@ -1,0 +1,81 @@
+# MAIR-114: each API connects to Postgres with its own role; the postgres
+# superuser is reserved to Liquibase.
+suite: database access (MAIR-114)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: an API with a Postgres role gets its own DB_USER, not the superuser
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 0 # first document = "calendar-api" (alphabetical range order)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_USER
+            value: "calendar_api"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: CALENDAR_API_PASSWORD }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_USER
+            value: "postgres"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
+
+  - it: an API with no Postgres role (email-api, no repo yet) gets no DB_USER/DB_PASSWORD at all
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 3 # "email-api" (alphabetical range order)
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_USER }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_PASSWORD }
+
+  - it: Liquibase still authenticates as the postgres superuser
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LIQUIBASE_COMMAND_USERNAME
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_USER }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LIQUIBASE_COMMAND_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
+
+  - it: Liquibase forwards each role's password as a changelog parameter, never inlined
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["sh", "-c"]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CORE_API_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: CORE_API_PASSWORD }
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Dcore_api_password="\$CORE_API_PASSWORD"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Delearning_api_password="\$ELEARNING_API_PASSWORD"'
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Demail_api_password'
