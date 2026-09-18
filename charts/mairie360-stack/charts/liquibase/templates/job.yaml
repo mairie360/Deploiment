@@ -77,13 +77,14 @@ spec:
           # :role_password without the values ever appearing in the chart.
           # Needs a shell because changelog params interpolate env vars;
           # the image's entrypoint only forwards args to the liquibase binary.
+          # The -D parameters must come AFTER the command: Liquibase 5 rejects
+          # them before it ("Unexpected argument(s)").
           command: ["sh", "-c"]
           args:
             - |
-              exec liquibase --changelog-file={{ .Values.changelogFile }} \
-                {{- range $role := ($g.database | default dict).roles | default list }}
-                -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}" \
+              exec liquibase --changelog-file={{ .Values.changelogFile }} update
+                {{- range $role := ($g.database | default dict).roles | default list }} \
+                -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}"
                 {{- end }}
-                update
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

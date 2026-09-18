@@ -32,6 +32,10 @@ done
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
 
+# End-to-end test of the Kubernetes layer on a throwaway Kind + Cilium cluster
+# (needs docker, kind, cilium CLI, chainsaw, jq; KEEP=1 keeps the cluster)
+tests/e2e/run.sh
+
 # Generate an instance's SealedSecrets (required before its first sync)
 ./scripts/seal-secrets.sh <kube-context> mairie360 dev
 
@@ -202,6 +206,25 @@ also locks outbound traffic, but stays off until the external destinations of
 `helm unittest` asserts what rendering alone cannot: that policy selectors match
 the labels actually set on pods, that no secret is inlined, that the migration
 Job is Argo-CD-safe, and that an image without an explicit tag fails the render.
+
+### End-to-end tests (`tests/e2e/`)
+
+`run.sh` (also `.github/workflows/k8s-e2e.yaml`) creates a Kind cluster with
+**Cilium**, the CNI of the real machines, installs the umbrella chart with
+`tests/e2e/values.yaml`, then runs `helm test` and the Chainsaw tests. It
+tests the Kubernetes layer, not the apps: every API/BFF/front runs
+`traefik/whoami` (answers on `/health`, port from `WHOAMI_PORT_NUMBER`),
+while Postgres, Redis and Liquibase keep their real public GHCR images.
+
+- `chainsaw/stack`: migration Job done, every Service has ready endpoints,
+  no pod stuck or restarted.
+- `chainsaw/network-policies`: probe pods carrying each
+  `app.kubernetes.io/component` try every hop (`check-flows.sh`). A denied
+  flow must *time out* (Cilium drops silently); a fast failure is reported
+  as an error, so a broken Service can't pass as "deny".
+- `chainsaw/data-access`: Redis ACL (prefix and command restrictions) and
+  the per-API Postgres role logging in with its Secret password. The latter
+  depends on the `Devops/Database` images actually creating those roles.
 
 ### Values layout
 

@@ -1,0 +1,58 @@
+# =============================================================================
+# Overlay for the "real images" mode: `INSTANCE=dev tests/e2e/run.sh`.
+#
+# Applied ON TOP of clusters/<org>/instances/<env>/values.yaml, so the test
+# deploys the images, ports and per-instance env vars of a real instance and
+# nothing else changes. The apps must therefore start, pass their own
+# /health probes and reach Postgres, Redis and each other with the
+# environment the chart gives them — which is what a placeholder image can
+# never prove.
+#
+# This file only overrides what cannot work on a throwaway cluster:
+# credentials (no SealedSecret controller here), the storage class and the
+# GHCR pull secret.
+# =============================================================================
+
+global:
+  # Public images: no ghcr-secret exists in this cluster.
+  imagePullSecret: ""
+
+secrets:
+  create: true
+  jwtSecret: "e2e-jwt-not-a-secret"
+
+database:
+  secret:
+    create: true
+  env:
+    POSTGRES_PASSWORD: "e2e-postgres"
+  rolePasswords:
+    core-api: "e2e-core-api"
+    project-api: "e2e-project-api"
+    calendar-api: "e2e-calendar-api"
+    message-api: "e2e-message-api"
+    elearning-api: "e2e-elearning-api"
+  persistence:
+    size: "1Gi"
+    # The instances ask for k3s's "local-path"; Kind's provisioner is "standard".
+    storageClass: ""
+
+redis:
+  secret:
+    create: true
+  password: "e2e-redis-admin"
+  rolePasswords:
+    core-api: "e2e-core-api"
+    project-api: "e2e-project-api"
+    calendar-api: "e2e-calendar-api"
+    message-api: "e2e-message-api"
+    email-api: "e2e-email-api"
+    files-api: "e2e-files-api"
+    elearning-api: "e2e-elearning-api"
+    user-bff: "e2e-user-bff"
+    project-bff: "e2e-project-bff"
+    calendar-bff: "e2e-calendar-bff"
+    message-bff: "e2e-message-bff"
+    email-bff: "e2e-email-bff"
+    files-bff: "e2e-files-bff"
+    elearning-bff: "e2e-elearning-bff"

@@ -1,0 +1,21 @@
+# Cilium values for the e2e cluster. Mirrors
+# ansible/roles/k8s_node/templates/cilium-values.yaml.j2 for everything that
+# affects policy enforcement; the Hubble relay, UI and metrics are left out
+# (nobody looks at them in CI, the drops are dumped by run.sh on failure).
+operator:
+  replicas: 1
+
+ipam:
+  mode: cluster-pool
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - "10.42.0.0/16"
+
+kubeProxyReplacement: false
+
+hubble:
+  enabled: true
+  relay:
+    enabled: false
+  ui:
+    enabled: false

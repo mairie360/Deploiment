@@ -1,0 +1,21 @@
+# Chainsaw configuration for tests/e2e/run.sh.
+# Every test runs in the namespace the chart was installed into (run.sh
+# creates it; Chainsaw neither creates nor deletes an existing namespace)
+# and one at a time: they share that namespace.
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: mairie360-e2e
+spec:
+  namespace:
+    name: mairie360-e2e
+  execution:
+    parallel: 1
+    failFast: false
+  timeouts:
+    apply: 30s
+    assert: 3m
+    cleanup: 2m
+    delete: 1m
+    error: 30s
+    exec: 2m

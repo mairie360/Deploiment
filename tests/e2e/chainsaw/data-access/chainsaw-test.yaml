@@ -1,0 +1,97 @@
+# Checks the per-service accounts end to end:
+#  - Redis (MAIR-113): the ACL file generated at container start gives each
+#    API/BFF an account restricted to its own key prefix and commands, and
+#    the `default` account is off.
+#  - Postgres (MAIR-114): the role password the chart passes to Liquibase
+#    is the one the API receives, so the API role can log in.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: data-access
+spec:
+  bindings:
+    - name: release
+      value: e2e
+  steps:
+    - name: start the clients
+      try:
+        - apply:
+            file: clients.yaml
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            name: client-redis
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            name: client-postgres
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+
+    - name: redis ACL
+      try:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-redis -- sh -c '
+                FAILED=0
+                role() { redis-cli -h "$REDIS_HOST" --user core-api --pass "$ROLE_PASSWORD" --no-auth-warning "$@" 2>&1; }
+                expect() { # <label> <expected substring> <actual output>
+                  case "$3" in
+                    *"$2"*) echo "ok    $1" ;;
+                    *) echo "FAIL  $1: expected \"$2\", got \"$3\""; FAILED=1 ;;
+                  esac
+                }
+                expect "anonymous access is refused" NOAUTH \
+                  "$(redis-cli -h "$REDIS_HOST" get x 2>&1)"
+                expect "wrong password is refused" WRONGPASS \
+                  "$(redis-cli -h "$REDIS_HOST" --user core-api --pass wrong --no-auth-warning ping 2>&1)"
+                expect "role writes its own prefix" OK "$(role set core-api:e2e 1)"
+                expect "role reads its own prefix" 1 "$(role get core-api:e2e)"
+                expect "role cannot touch another prefix" NOPERM "$(role set user-bff:e2e 1)"
+                expect "role cannot run other commands" NOPERM "$(role flushall)"
+                expect "admin account works" PONG \
+                  "$(redis-cli -h "$REDIS_HOST" --user admin --pass "$ADMIN_PASSWORD" --no-auth-warning ping 2>&1)"
+                exit $FAILED
+              '
+            check:
+              ($error): ~
+
+    - name: postgres role
+      try:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-postgres -- sh -c '
+                FAILED=0
+                if psql -U core_api -tAc "select current_user" | grep -qx core_api; then
+                  echo "ok    core_api logs in with the password from the Secret"
+                else
+                  echo "FAIL  core_api cannot log in"; FAILED=1
+                fi
+                if PGPASSWORD=wrong psql -U core_api -c "select 1" >/dev/null 2>&1; then
+                  echo "FAIL  core_api logs in with a wrong password"; FAILED=1
+                else
+                  echo "ok    wrong password is refused"
+                fi
+                if psql -U core_api -tAc "select rolsuper from pg_roles where rolname = current_user" | grep -qx f; then
+                  echo "ok    core_api is not a superuser"
+                else
+                  echo "FAIL  core_api is a superuser"; FAILED=1
+                fi
+                exit $FAILED
+              '
+            check:
+              ($error): ~
