@@ -98,9 +98,8 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
       key: POSTGRES_DB
 {{- /* MAIR-114: each API connects with its own Postgres role, never the
      postgres superuser (that stays reserved to Liquibase). An instance with
-     no entry in global.database.roles (e.g. email-api, files-api: no repo,
-     no schema yet) gets no DB_USER/DB_PASSWORD at all rather than falling
-     back to the superuser. */ -}}
+     no entry in global.database.roles gets no DB_USER/DB_PASSWORD at all
+     rather than falling back to the superuser. */ -}}
 {{- $dbRoles := ((.root.Values.global).database).roles | default list }}
 {{- if has .name $dbRoles }}
 - name: DB_USER

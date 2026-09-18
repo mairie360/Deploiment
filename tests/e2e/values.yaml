@@ -1,0 +1,112 @@
+# =============================================================================
+# Values for the e2e test cluster (tests/e2e/run.sh). NOT an instance.
+#
+# Goal: test the Kubernetes layer, not the application. Every API, BFF and
+# front runs `traefik/whoami`, a tiny HTTP server that answers 200 on `/` and
+# `/health` on the port given by WHOAMI_PORT_NUMBER. A failure here is always
+# a chart / Kubernetes problem, never an application bug.
+#
+# Postgres, Redis and the Liquibase migrations keep their real images (all
+# public on GHCR): the data layer, the per-role accounts and the migration
+# ordering are part of what is tested.
+#
+# Every password below is a throwaway value for a cluster that lives a few
+# minutes. The chart creates the Secrets itself (`*.secret.create: true`),
+# which is never the case on a real instance (SealedSecrets).
+# =============================================================================
+
+global:
+  domain: "e2e.invalid"
+  # Every image used here is public.
+  imagePullSecret: ""
+  ingressNamespace: "ingress-nginx"
+  networkPolicy:
+    enabled: true
+    egressDefaultDeny: false
+
+secrets:
+  create: true
+  jwtSecret: "e2e-jwt-not-a-secret"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  clusterIssuer: "letsencrypt-staging"
+
+database:
+  # Pinned, not `latest`: the run must fail when a new image breaks the chart,
+  # not silently change under it. 1.3.0 is the first release creating one
+  # Postgres role per API (Devops/Database, MAIR-114), which the data-access
+  # test needs. Bump both images together.
+  image:
+    tag: "1.3.0"
+  secret:
+    create: true
+  env:
+    POSTGRES_PASSWORD: "e2e-postgres"
+  rolePasswords:
+    core-api: "e2e-core-api"
+    project-api: "e2e-project-api"
+    calendar-api: "e2e-calendar-api"
+    message-api: "e2e-message-api"
+    elearning-api: "e2e-elearning-api"
+  persistence:
+    size: "1Gi"
+
+liquibase:
+  image:
+    tag: "1.3.0"
+
+redis:
+  secret:
+    create: true
+  password: "e2e-redis-admin"
+  # One ACL account per key of global.apis.instances / global.bffs.instances.
+  rolePasswords:
+    core-api: "e2e-core-api"
+    project-api: "e2e-project-api"
+    calendar-api: "e2e-calendar-api"
+    message-api: "e2e-message-api"
+    elearning-api: "e2e-elearning-api"
+    user-bff: "e2e-user-bff"
+    project-bff: "e2e-project-bff"
+    calendar-bff: "e2e-calendar-bff"
+    message-bff: "e2e-message-bff"
+    dashboard-bff: "e2e-dashboard-bff"
+    settings-bff: "e2e-settings-bff"
+    elearning-bff: "e2e-elearning-bff"
+
+# Small requests so that the whole stack fits on a CI runner (2 vCPU).
+APIs:
+  resources: &tiny
+    requests: { memory: "16Mi", cpu: "5m" }
+    limits:   { memory: "64Mi", cpu: "100m" }
+  instances:
+    core-api:      { enabled: true, image: &whoami { repository: traefik/whoami, tag: "v1.10.4" }, env: &api-env [{ name: WHOAMI_PORT_NUMBER, value: "3000" }] }
+    project-api:   { enabled: true, image: *whoami, env: *api-env }
+    calendar-api:  { enabled: true, image: *whoami, env: *api-env }
+    message-api:   { enabled: true, image: *whoami, env: *api-env }
+    elearning-api: { enabled: true, image: *whoami, env: *api-env }
+
+BFFs:
+  resources: *tiny
+  instances:
+    user-bff:      { enabled: true, port: 4000, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4000" }] }
+    project-bff:   { enabled: true, port: 4001, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4001" }] }
+    calendar-bff:  { enabled: true, port: 4002, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4002" }] }
+    message-bff:   { enabled: true, port: 4003, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4003" }] }
+    dashboard-bff: { enabled: true, port: 4004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4004" }] }
+    settings-bff:  { enabled: true, port: 4005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4005" }] }
+    elearning-bff: { enabled: true, port: 4006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4006" }] }
+
+Fronts:
+  resources: *tiny
+  instances:
+    login-front:     { enabled: true, port: 5000, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5000" }] }
+    project-front:   { enabled: true, port: 5001, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5001" }] }
+    calendar-front:  { enabled: true, port: 5002, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5002" }] }
+    message-front:   { enabled: true, port: 5003, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5003" }] }
+    dashboard-front: { enabled: true, port: 5004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5004" }] }
+    settings-front:  { enabled: true, port: 5005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5005" }] }
+    elearning-front: { enabled: true, port: 5006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5006" }] }
+    admin-front:     { enabled: true, port: 5007, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5007" }] }

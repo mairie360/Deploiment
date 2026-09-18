@@ -31,9 +31,13 @@ tests:
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
 
-  - it: an API with no Postgres role (email-api, no repo yet) gets no DB_USER/DB_PASSWORD at all
+  - it: an API with no Postgres role gets no DB_USER/DB_PASSWORD at all
     templates: [charts/APIs/templates/deployment.yaml]
-    documentIndex: 3 # "email-api" (alphabetical range order)
+    set:
+      APIs.instances.test-noroles-api:
+        enabled: true
+        image: { repository: ghcr.io/mairie360/test-noroles-api, tag: "1.0.0" }
+    documentIndex: 5 # "test-noroles-api" (alphabetical range order, after the 5 real APIs)
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
@@ -79,3 +83,13 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: '-Demail_api_password'
+
+  - it: Liquibase gets the changelog parameters after the command (Liquibase 5 rejects them before)
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)\bupdate\b.*-Dcore_api_password'
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)-D[a-z_]+_password.*\bupdate\b'

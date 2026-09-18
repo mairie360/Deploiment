@@ -32,10 +32,9 @@ global:
     # NB : sur Kind, le CNI par défaut ignore les NetworkPolicy. Sur k3s
     # elles sont appliquées.
     enabled: true
-    # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à
-    # activer une fois les destinations externes connues et déclarées dans
-    # `egressAllowCIDRs`.
+    # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut ;
+    # à activer une fois les destinations externes de chaque service
+    # connues et déclarées dans `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
 
@@ -52,10 +51,9 @@ global:
     # Postgres roles, one per API that owns a schema (MAIR-114). Deliberately
     # NOT derived from global.apis.instances like redis.roles: only the 5
     # shipped APIs have a role created by the Devops/Database migration.
-    # email-api / files-api have no repo yet, so no role — the APIs chart
-    # gives them no DB_USER/DB_PASSWORD at all rather than falling back to
-    # the postgres superuser. Keep in sync with scripts/seal-secrets.sh's
-    # DB_ROLES.
+    # An API with no entry here gets no DB_USER/DB_PASSWORD at all rather
+    # than falling back to the postgres superuser. Keep in sync with
+    # scripts/seal-secrets.sh's DB_ROLES.
     roles: ["core-api", "project-api", "calendar-api", "message-api", "elearning-api"]
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
@@ -69,8 +67,6 @@ global:
       project-api:   { port: 3001 }
       calendar-api:  { port: 3002 }
       message-api:   { port: 3003 }
-      email-api:     { port: 3004 }
-      files-api:     { port: 3005 }
       elearning-api: { port: 3006 }
   bffs:
     instances:
@@ -78,8 +74,8 @@ global:
       project-bff:   { port: 4001 }
       calendar-bff:  { port: 4002 }
       message-bff:   { port: 4003 }
-      email-bff:     { port: 4004 }
-      files-bff:     { port: 4005 }
+      dashboard-bff: { port: 4004 }
+      settings-bff:  { port: 4005 }
       elearning-bff: { port: 4006 }
 
 # -----------------------------------------------------------------------------

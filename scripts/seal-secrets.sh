@@ -53,13 +53,14 @@ CONTROLLER_NAME="sealed-secrets-controller"
 # Rôles ACL Redis : un compte par API et par BFF déclarée dans
 # global.apis.instances / global.bffs.instances (charts/mairie360-stack/values.yaml).
 # À TENIR SYNCHRONISÉ avec ce fichier si la liste des instances change.
-REDIS_ROLES="core-api project-api calendar-api message-api email-api files-api elearning-api user-bff project-bff calendar-bff message-bff email-bff files-bff elearning-bff"
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api user-bff project-bff calendar-bff message-bff elearning-bff dashboard-bff settings-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
-# a SHORTER list than REDIS_ROLES: email-api/files-api have no repo yet, so
-# no role is created for them by Devops/Database's Liquibase changelog.
-# Keep in sync with that values.yaml key.
+# a SHORTER list than REDIS_ROLES: dashboard-bff/settings-bff have no
+# database of their own, so no role is created for them by
+# Devops/Database's Liquibase changelog. Keep in sync with that values.yaml
+# key.
 DB_ROLES="core-api project-api calendar-api message-api elearning-api"
 
 for bin in kubectl kubeseal openssl; do
