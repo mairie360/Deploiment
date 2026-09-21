@@ -11,12 +11,21 @@ image:
   tag: "7.4-alpine"
   pullPolicy: IfNotPresent
 
-# Secret <release>-redis, clé redis-password.
-# create: true  -> créé depuis `password` (cluster local UNIQUEMENT)
+# Secret <release>-redis.
+#   redis-password  -> compte "admin" (ACL, utilisé par les probes et `helm test`)
+#   <role>-password -> un compte ACL par rôle (API/BFF), rôles = clés de
+#                       global.apis.instances / global.bffs.instances
+# create: true  -> créé depuis `password` / `rolePasswords` (cluster local UNIQUEMENT)
 # create: false -> fourni par un SealedSecret
 secret:
   create: false
 password: ""
+rolePasswords: {}
+
+# Commandes ACL accordées à chaque rôle, restreintes à ce qui est
+# effectivement utilisé par le cache-aside de API_lib. Le compte `default`
+# est désactivé (voir templates/configmap.yaml : entrypoint.sh).
+aclCommands: ["get", "set", "del", "exists", "expire"]
 
 # Persistance. false = emptyDir : les données sont perdues à chaque
 # redémarrage du pod. Suffisant pour un cache, pas pour des sessions.

@@ -26,3 +26,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: cache
 app.kubernetes.io/part-of: mairie360
 {{- end -}}
+
+{{/*
+Rôles ACL Redis : un compte par API et par BFF, dérivé de
+global.apis.instances / global.bffs.instances — la même source unique que
+les Services/URLs de ces charts, pour ne jamais désynchroniser la liste des
+comptes ACL de la liste réelle des instances. Renvoie une liste YAML triée.
+*/}}
+{{- define "redis.roles" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $apis := (($g.apis | default dict).instances) | default dict -}}
+{{- $bffs := (($g.bffs | default dict).instances) | default dict -}}
+{{- merge (dict) $apis $bffs | keys | sortAlpha | toYaml -}}
+{{- end -}}
+
+{{/* Nom de la variable d'env portant le mot de passe ACL d'un rôle. */}}
+{{- define "redis.roleEnvVar" -}}
+{{- printf "%s_REDIS_PASSWORD" (. | upper | replace "-" "_") -}}
+{{- end -}}
+
+{{/* Clé, dans le Secret <release>-redis, du mot de passe ACL d'un rôle. */}}
+{{- define "redis.rolePasswordKey" -}}
+{{- printf "%s-password" . -}}
+{{- end -}}

@@ -2,19 +2,19 @@ apiVersion: v2
 name: mairie360-stack
 description: Umbrella chart Mairie360 — Postgres, Redis, migrations, APIs, BFFs, Fronts
 type: application
-version: 0.2.1
-appVersion: "0.2.1"
+version: 0.3.0
+appVersion: "0.3.0"
 
 dependencies:
   - name: database
     version: "0.2.0"
   - name: redis
-    version: "0.2.0"
+    version: "0.3.0"
   - name: liquibase
     version: "0.2.0"
   - name: APIs
-    version: "0.2.0"
+    version: "0.3.0"
   - name: BFFs
-    version: "0.2.0"
+    version: "0.3.0"
   - name: Fronts
-    version: "0.2.0"
+    version: "0.3.0"

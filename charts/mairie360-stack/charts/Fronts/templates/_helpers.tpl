@@ -40,13 +40,6 @@ Variables injectées dans TOUS les fronts :
 {{- define "fronts.commonEnv" -}}
 - name: HOSTNAME
   value: "0.0.0.0"
-- name: REDIS_HOST
-  value: {{ printf "%s-redis" .Release.Name | quote }}
-- name: REDIS_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ printf "%s-redis" .Release.Name }}
-      key: redis-password
 {{- with .Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}

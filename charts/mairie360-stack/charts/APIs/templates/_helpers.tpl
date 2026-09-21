@@ -67,6 +67,8 @@ component: api
 {{/*
 Variables d'environnement injectées dans TOUTES les APIs.
 Tous les secrets viennent de Secrets Kubernetes, jamais des values.
+Prend un contexte { root, name } (name = l'instance courante, ex. "core-api") :
+c'est aussi le nom du compte ACL Redis dédié à cette instance.
 */}}
 {{- define "apis.commonEnv" -}}
 - name: HOST
@@ -76,41 +78,43 @@ Tous les secrets viennent de Secrets Kubernetes, jamais des values.
 - name: DB_TYPE
   value: "postgres"
 - name: DB_HOST
-  value: {{ printf "%s-database" .Release.Name | quote }}
+  value: {{ printf "%s-database" .root.Release.Name | quote }}
 - name: DB_PORT
   value: "5432"
 - name: DB_NAME
   valueFrom:
     secretKeyRef:
-      name: {{ include "apis.dbSecretName" . }}
+      name: {{ include "apis.dbSecretName" .root }}
       key: POSTGRES_DB
 - name: DB_USER
   valueFrom:
     secretKeyRef:
-      name: {{ include "apis.dbSecretName" . }}
+      name: {{ include "apis.dbSecretName" .root }}
       key: POSTGRES_USER
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ include "apis.dbSecretName" . }}
+      name: {{ include "apis.dbSecretName" .root }}
       key: POSTGRES_PASSWORD
 - name: REDIS_HOST
-  value: {{ printf "%s-redis" .Release.Name | quote }}
+  value: {{ printf "%s-redis" .root.Release.Name | quote }}
 - name: REDIS_PORT
   value: "6379"
 - name: REDIS_URL
-  value: {{ printf "redis://%s-redis:6379" .Release.Name | quote }}
+  value: {{ printf "redis://%s-redis:6379" .root.Release.Name | quote }}
+- name: REDIS_USERNAME
+  value: {{ .name | quote }}
 - name: REDIS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ printf "%s-redis" .Release.Name }}
-      key: redis-password
+      name: {{ printf "%s-redis" .root.Release.Name }}
+      key: {{ printf "%s-password" .name }}
 - name: JWT_SECRET
   valueFrom:
     secretKeyRef:
-      name: {{ include "apis.appSecretName" . }}
+      name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
-{{- with .Values.commonEnv }}
+{{- with .root.Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}
 {{- end -}}

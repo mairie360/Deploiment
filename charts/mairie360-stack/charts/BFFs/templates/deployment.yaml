@@ -42,7 +42,7 @@ spec:
             - name: http
               containerPort: {{ $port }}
           env:
-            {{- include "bffs.commonEnv" $ | nindent 12 }}
+            {{- include "bffs.commonEnv" $ctx | nindent 12 }}
             - name: PORT
               value: {{ $port | quote }}
             {{- with $bffConfig.env }}

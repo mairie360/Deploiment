@@ -50,7 +50,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
-            {{- include "apis.commonEnv" $ | nindent 12 }}
+            {{- include "apis.commonEnv" $ctx | nindent 12 }}
             {{- with $apiConfig.env }}
             {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}

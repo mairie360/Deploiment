@@ -49,16 +49,23 @@ spec:
         - name: redis
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # L'image officielle redis n'exploite PAS la variable REDIS_PASSWORD :
-          # le mot de passe doit être passé à redis-server. $(VAR) est
-          # substitué par Kubernetes à partir de `env`.
-          command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "$(REDIS_PASSWORD)"]
+          # entrypoint.sh écrit /acl/users.acl à partir des variables d'env
+          # (une par rôle ACL) puis lance redis-server avec --aclfile. Aucun
+          # mot de passe ne transite jamais par le ConfigMap.
+          command: ["sh", "/etc/redis/entrypoint.sh"]
           env:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "redis.fullname" . }}
                   key: redis-password
+            {{- range $role := (include "redis.roles" . | fromYamlArray) }}
+            - name: {{ include "redis.roleEnvVar" $role }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "redis.fullname" $ }}
+                  key: {{ include "redis.rolePasswordKey" $role }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -70,18 +77,20 @@ spec:
               containerPort: 6379
           readinessProbe:
             exec:
-              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+              command: ["sh", "-c", "redis-cli --user admin -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+              command: ["sh", "-c", "redis-cli --user admin -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:
             - name: config
               mountPath: /etc/redis
               readOnly: true
+            - name: acl
+              mountPath: /acl
             - name: data
               mountPath: /data
           resources:
@@ -90,6 +99,8 @@ spec:
         - name: config
           configMap:
             name: {{ include "redis.fullname" . }}
+        - name: acl
+          emptyDir: {}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
