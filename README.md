@@ -30,7 +30,7 @@ Le provisionnement des machines est dans le dépôt
 | `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, 7 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
 | `bootstrap/` | Amorçage Argo CD (voir `bootstrap/README.md`) |
-| `scripts/` | Préparation d'un nœud, scellement des secrets, recette |
+| `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
 
 ## Ajouter une instance
 
@@ -54,7 +54,7 @@ helm lint ./charts/mairie360-stack
 helm unittest ./charts/mairie360-stack
 helm template r ./charts/mairie360-stack \
   -f ./clusters/mairie360/instances/dev/values.yaml \
-  | kubeconform -strict -summary -schema-location default
+  | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy
 ```
 
 C'est exactement ce que fait la CI. Un rendu qui réussit ne garantit pas que
@@ -66,6 +66,22 @@ Kubernetes réels.
 ```bash
 ./scripts/verify.sh <contexte-kube> dev dev.mairie360-eip.fr
 ```
+
+## Network traffic (Cilium / Hubble)
+
+Every machine runs Cilium as CNI (Ansible role `k8s_node`), which enforces
+the `NetworkPolicy` objects below and lets Hubble record every flow with its
+verdict — `ingress -> fronts -> bffs -> apis -> postgres / redis`.
+
+```bash
+./scripts/hubble-flows.sh <contexte-kube> dev
+```
+
+prints the last flows of each hop, the dropped ones, and HTTP requests
+(method, path, status) once `global.networkPolicy.ciliumL7Visibility` is on
+for that instance. See `charts/mairie360-stack/templates/cilium-l7-visibility.yaml`
+and the "Network observability" section of the `ansible` repo's `README.md`
+for how the CNI itself is installed.
 
 ## Principes
 

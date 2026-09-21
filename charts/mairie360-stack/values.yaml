@@ -38,6 +38,13 @@ global:
     # `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
+    # Cilium only. Mirrors the HTTP hops (fronts -> bffs, bffs -> apis) as
+    # CiliumNetworkPolicies with an L7 rule so that Hubble records method,
+    # path and status code of every request (`hubble observe --protocol http`,
+    # scripts/hubble-flows.sh). Purely for visibility: it allows nothing the
+    # NetworkPolicies do not. Needs the Cilium CNI (Ansible role k8s_node);
+    # a cluster without its CRDs cannot sync it. templates/cilium-l7-visibility.yaml
+    ciliumL7Visibility: false
 
   secrets:
     # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
