@@ -30,14 +30,25 @@ jobs:
         # le rendu par env ci-dessous valide les subcharts avec de vraies valeurs.
         run: helm lint ./charts/mairie360-stack
 
-      # ✨ LE TEST CRUCIAL : Simulation de rendu pour chaque env
-      - name: Validate Template Rendering (Dry-Run)
+      # Render every instance and validate it against the Kubernetes schemas.
+      # CiliumNetworkPolicy has no schema in kubeconform's default store.
+      - name: Install kubeconform
         run: |
-          for env in dev staging prod; do
-            echo "Testing rendering for $env"
-            helm template test ./charts/mairie360-stack \
-              -f ./clusters/local/$env/values.yaml > dry-run-$env.yaml
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Render and validate every instance
+        run: |
+          for v in clusters/*/instances/*; do
+            echo "Rendering $v"
+            helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
+              | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy
           done
+
+      - name: Helm unit tests
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2
+          helm unittest ./charts/mairie360-stack
 
   # # ================================
   # # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
