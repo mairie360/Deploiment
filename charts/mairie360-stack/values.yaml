@@ -33,14 +33,15 @@ global:
     # elles sont appliquées.
     enabled: true
     # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à
-    # activer une fois les destinations externes connues et déclarées dans
-    # `egressAllowCIDRs`.
+    # car core-api (Resend, smtp.resend.com:587), email-api (SMTP) et
+    # files-api (S3) ont besoin d'Internet ; à activer une fois les
+    # destinations externes connues et déclarées dans `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
 
   secrets:
-    # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
+    # Secret contenant les secrets applicatifs partagés : JWT_SECRET (toutes
+    # les APIs/BFFs) et SMTP_PASSWORD (clé API Resend, lue par core-api).
     # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
     appSecretName: ""
 
@@ -93,6 +94,9 @@ image:
 secrets:
   create: false
   jwtSecret: ""
+  # Resend API key (SMTP password of core-api). Optional: empty means core-api
+  # starts but cannot send e-mails.
+  smtpPassword: ""
 
 # -----------------------------------------------------------------------------
 # Ingress unique pour tous les fronts activés (templates/ingress.yaml)

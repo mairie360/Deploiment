@@ -18,6 +18,13 @@
 # Prérequis : kubectl, kubeseal, openssl, un contexte kube valide, et le
 # contrôleur sealed-secrets déployé (bootstrap/appsets/sealed-secrets-appset.yaml).
 #
+# Environment variables read by this script:
+#   RESEND_API_KEY  Resend API key, stored as SMTP_PASSWORD in <env>-app-secrets
+#                   (core-api sends its e-mails through smtp.resend.com). When
+#                   unset, the value already present on the cluster is kept;
+#                   with neither, the key is sealed empty and e-mails will fail.
+#   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
+#
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
 # base existante). --rotate régénère tout.
 # ATTENTION : faire tourner POSTGRES_PASSWORD ne change pas le mot de passe
@@ -64,6 +71,21 @@ fi
 [ -n "$PGPASS" ]    || { PGPASS="$(gen)";    echo "  POSTGRES_PASSWORD: généré"; }
 [ -n "$REDISPASS" ] || { REDISPASS="$(gen)"; echo "  redis-password   : généré"; }
 
+# The Resend API key cannot be generated: it comes from RESEND_API_KEY, or is
+# kept from the cluster. --rotate does not clear it (a new key is issued from
+# the Resend dashboard, then passed through RESEND_API_KEY).
+SMTPPASS="${RESEND_API_KEY:-}"
+if [ -n "$SMTPPASS" ]; then
+  echo "  SMTP_PASSWORD    : from RESEND_API_KEY"
+else
+  SMTPPASS="$(prev "${RELEASE}-app-secrets" SMTP_PASSWORD)"
+  if [ -n "$SMTPPASS" ]; then
+    echo "  SMTP_PASSWORD    : kept from cluster"
+  else
+    echo "  SMTP_PASSWORD    : EMPTY (set RESEND_API_KEY) — core-api cannot send e-mails" >&2
+  fi
+fi
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -77,7 +99,9 @@ seal() {
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 kubectl create secret generic "${RELEASE}-app-secrets" \
-  --namespace "$NS" --from-literal=JWT_SECRET="$JWT" \
+  --namespace "$NS" \
+  --from-literal=JWT_SECRET="$JWT" \
+  --from-literal=SMTP_PASSWORD="$SMTPPASS" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
@@ -111,6 +135,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
+  echo "# Change the Resend API key (SMTP_PASSWORD of core-api):"
+  echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do
