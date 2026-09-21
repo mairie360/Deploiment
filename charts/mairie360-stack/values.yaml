@@ -33,17 +33,22 @@ global:
     # elles sont appliquées.
     enabled: true
     # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car elearning-api (Scaleway Object Storage, s3.<region>.scw.cloud),
-    # email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à activer une
-    # fois les destinations externes connues et déclarées dans
+    # car email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à
+    # activer une fois les destinations externes connues et déclarées dans
     # `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
+    # Cilium only. Mirrors the HTTP hops (fronts -> bffs, bffs -> apis) as
+    # CiliumNetworkPolicies with an L7 rule so that Hubble records method,
+    # path and status code of every request (`hubble observe --protocol http`,
+    # scripts/hubble-flows.sh). Purely for visibility: it allows nothing the
+    # NetworkPolicies do not. Needs the Cilium CNI (Ansible role k8s_node);
+    # a cluster without its CRDs cannot sync it. templates/cilium-l7-visibility.yaml
+    ciliumL7Visibility: false
 
   secrets:
-    # Secret contenant les secrets applicatifs partagés : JWT_SECRET (toutes
-    # les APIs/BFFs) et S3_ACCESS_KEY / S3_SECRET_KEY (Object Storage, lus par
-    # elearning-api). Défaut : <release>-app-secrets. Voir `secrets.create`.
+    # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
+    # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
     appSecretName: ""
 
   database:
@@ -95,10 +100,6 @@ image:
 secrets:
   create: false
   jwtSecret: ""
-  # Object Storage (S3) access key pair read by elearning-api. Required when
-  # create=true: the API refuses to start without them.
-  s3AccessKey: ""
-  s3SecretKey: ""
 
 # -----------------------------------------------------------------------------
 # Ingress unique pour tous les fronts activés (templates/ingress.yaml)

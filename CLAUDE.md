@@ -26,16 +26,14 @@ helm unittest ./charts/mairie360-stack
 # Render + schema-validate every instance (this is what CI does)
 for v in clusters/*/instances/*; do
   helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-    | kubeconform -strict -summary -schema-location default || echo "KO: $v"
+    | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy || echo "KO: $v"
 done
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
 
-# Generate an instance's SealedSecrets (required before its first sync).
-# S3_ACCESS_KEY / S3_SECRET_KEY: Scaleway Object Storage key pair read by
-# elearning-api (kept from the cluster when unset, never generated).
-S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... ./scripts/seal-secrets.sh <kube-context> mairie360 dev
+# Generate an instance's SealedSecrets (required before its first sync)
+./scripts/seal-secrets.sh <kube-context> mairie360 dev
 
 # Acceptance test of a deployed instance
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
@@ -119,20 +117,10 @@ Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
   `frontend` / `database` / `cache` / `migration`) — that is what NetworkPolicies
   select on. The legacy `app: <instance>` label is kept because
   `spec.selector` is immutable on existing Deployments/StatefulSets.
-- **No secret value lives in the chart.** `JWT_SECRET`, `S3_ACCESS_KEY`,
-  `S3_SECRET_KEY`, `POSTGRES_*` and `redis-password` always come from Secrets.
-  `*.secret.create` / `secrets.create` default to `false` (SealedSecret
-  expected) and are only set to `true` for the throwaway local cluster.
-- **`elearning-api` needs Object Storage.** It stores course attachments in a
-  Scaleway S3 bucket and panics at startup without `S3_BUCKET`, `S3_REGION`,
-  `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` (`S3_PRESIGN_TTL_SECS` is
-  optional, 900 s). Bucket/region/endpoint are plain `env` entries on the
-  `elearning-api` instance of each `values.yaml` (one bucket per instance:
-  `mairie360-elearning-<env>`); the key pair is read from
-  `<release>-app-secrets`, sealed by `scripts/seal-secrets.sh` from the
-  `S3_ACCESS_KEY` / `S3_SECRET_KEY` variables (kept from the cluster on re-run,
-  never cleared by `--rotate`). The bucket must exist in the Scaleway project
-  the key pair belongs to.
+- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and
+  `redis-password` always come from Secrets. `*.secret.create` /
+  `secrets.create` default to `false` (SealedSecret expected) and are only set
+  to `true` for the throwaway local cluster.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
@@ -168,6 +156,26 @@ Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
 `email-api` (SMTP) and `files-api` (S3) are declared in `egressAllowCIDRs`.
+
+### Network observability (Cilium / Hubble)
+
+The `k3s` machines run Cilium as CNI instead of flannel (installed by the
+`ansible` repo's `k8s_node` role, not by Argo CD — without a CNI no pod
+starts). Cilium enforces the NetworkPolicies above and Hubble records every
+flow, with its verdict, on the hops of the diagram. `scripts/hubble-flows.sh
+<context> <env>` prints them hop by hop from the workstation, through a
+port-forward to `hubble-relay`.
+
+`templates/cilium-l7-visibility.yaml` adds two `CiliumNetworkPolicy` (fronts →
+bffs, bffs → apis) with an L7 HTTP rule, gated by
+`global.networkPolicy.ciliumL7Visibility` (off by default — a cluster without
+the Cilium CRDs cannot sync it; `dev` turns it on). It only adds visibility:
+it allows nothing the Kubernetes NetworkPolicies do not already allow.
+`scripts/verify.sh` step 10 checks the Cilium agent and `hubble-relay` are up.
+`kubeconform`'s default schema store has no schema for `CiliumNetworkPolicy`:
+render+validate commands need `-skip CiliumNetworkPolicy` (see **Common
+commands** above), or `dev` (the only instance with `ciliumL7Visibility: true`)
+reports it as an error.
 
 ### Chart unit tests (`charts/mairie360-stack/tests/`)
 
@@ -206,9 +214,6 @@ and maintaining a parallel Kind topology is what produced the earlier
   makes that instance's committed secrets permanently undecryptable.
 - **First sync of a new environment will fail until its secrets.yaml exists**:
   pods stay in `CreateContainerConfigError` with no Secret to mount. Expected.
-  `elearning-api` stays there too when `secrets.yaml` was sealed before the
-  `S3_*` keys existed: re-run `seal-secrets.sh` with `S3_ACCESS_KEY` /
-  `S3_SECRET_KEY` set (`scripts/verify.sh` step 4 reports empty keys).
 - **The GHCR PAT leaked into git history.** `configs/ghcr-registry-secret.yaml`
   and every `image.pullSecretData` have been removed, but the token is still
   readable in past commits: rotate it, then purge history (`git filter-repo`).

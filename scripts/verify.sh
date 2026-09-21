@@ -43,11 +43,6 @@ step 4 "Les secrets attendus existent"
 for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis"; do
   $K get secret "$s" >/dev/null 2>&1 && ok "$s" || ko "$s absent (scripts/seal-secrets.sh ?)"
 done
-for k in S3_ACCESS_KEY S3_SECRET_KEY; do
-  V=$($K get secret "${RELEASE}-app-secrets" -o jsonpath="{.data.$k}" 2>/dev/null | base64 -d 2>/dev/null || true)
-  [ -n "$V" ] && ok "${RELEASE}-app-secrets/$k renseigné" \
-    || ko "${RELEASE}-app-secrets/$k vide : elearning-api ne démarre pas (S3_ACCESS_KEY=… S3_SECRET_KEY=… scripts/seal-secrets.sh)"
-done
 
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
@@ -93,8 +88,21 @@ else
   ko "un pod bff n'atteint pas core-api (policy trop stricte ou API KO)"
 fi
 
+step 10 "Cilium enforces the policies and Hubble records the flows"
+KS="kubectl --context ${CTX} -n kube-system"
+if $KS rollout status daemonset/cilium --timeout=10s >/dev/null 2>&1; then
+  ok "cilium agent Ready (NetworkPolicies enforced, flows recorded)"
+else
+  ko "cilium agent not Ready: CNI still flannel? (Ansible role k8s_node)"
+fi
+if $KS rollout status deployment/hubble-relay --timeout=10s >/dev/null 2>&1; then
+  ok "hubble-relay available (scripts/hubble-flows.sh ${CTX} ${ENV})"
+else
+  ko "hubble-relay unavailable"
+fi
+
 if [ -n "$DOMAIN" ]; then
-  step 10 "Certificat TLS vérifié sur https://login.${DOMAIN}"
+  step 11 "Certificat TLS vérifié sur https://login.${DOMAIN}"
   ISSUER=$(echo | openssl s_client -connect "login.${DOMAIN}:443" \
              -servername "login.${DOMAIN}" 2>/dev/null \
            | openssl x509 -noout -issuer 2>/dev/null || true)
@@ -104,11 +112,11 @@ if [ -n "$DOMAIN" ]; then
     *) ko "certificat inattendu : ${ISSUER:-aucun}" ;;
   esac
 
-  step 11 "Le HTTP redirige vers le HTTPS"
+  step 12 "Le HTTP redirige vers le HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
   case "$CODE" in 301|302|308) ok "redirection $CODE" ;; *) ko "code $CODE" ;; esac
 
-  step 12 "Seuls les fronts sont exposés (6443 doit être sur le VPN, pas public)"
+  step 13 "Seuls les fronts sont exposés (6443 doit être sur le VPN, pas public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
   for p in 3000 4000 5432 6379 6443; do
     if timeout 3 bash -c "</dev/tcp/${IP}/${p}" 2>/dev/null; then
