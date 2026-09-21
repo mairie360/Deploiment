@@ -1,8 +1,8 @@
 # Sous-chart database — PostgreSQL en StatefulSet mono-instance.
 #
-# Known limits: no failover, no replication (see the ../backup subchart,
-# MAIR-119, for off-machine snapshots — it doesn't give PITR or failover).
-# CloudNativePG is the target; this chart is a clean intermediate step.
+# Limites connues (voir docs/ARCHITECTURE) : pas de sauvegarde, pas de
+# bascule, pas de réplication. Le passage à CloudNativePG est la cible ;
+# ce chart est une étape intermédiaire propre.
 
 enabled: true
 

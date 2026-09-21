@@ -18,8 +18,8 @@ global:
   ingressNamespace: "ingress-nginx"
   networkPolicy:
     enabled: true
-    # Passer à true une fois les destinations externes connues et déclarées
-    # dans egressAllowCIDRs.
+    # Passer à true une fois les destinations externes de email-api (SMTP)
+    # et files-api (S3) déclarées dans egressAllowCIDRs.
     egressDefaultDeny: false
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
@@ -37,8 +37,6 @@ ingress:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
 database:
-  image:
-    tag: "staging-latest"
   secret:
     create: false
   persistence:
@@ -72,6 +70,12 @@ APIs:
     message-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/message-api, tag: "staging-latest" }
+    email-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/email-api, tag: "staging-latest" }
+    files-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/files-api, tag: "staging-latest" }
     elearning-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-latest" }
@@ -103,14 +107,14 @@ BFFs:
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003/api"
-    dashboard-bff:
+    email-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-latest" }
-    settings-bff:
+      image: { repository: ghcr.io/mairie360/bff-email, tag: "staging-latest" }
+    files-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-latest" }
+      image: { repository: ghcr.io/mairie360/bff-files, tag: "staging-latest" }
     elearning-bff:
       enabled: true
       port: 4006
@@ -146,14 +150,20 @@ Fronts:
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
-    dashboard-front:
+    email-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-latest" }
-    settings-front:
+      image: { repository: ghcr.io/mairie360/email-front, tag: "staging-latest" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".staging.mairie360-eip.fr"
+    files-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-latest" }
+      image: { repository: ghcr.io/mairie360/files-front, tag: "staging-latest" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".staging.mairie360-eip.fr"
     elearning-front:
       enabled: true
       port: 5006
