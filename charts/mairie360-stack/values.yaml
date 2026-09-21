@@ -33,9 +33,10 @@ global:
     # elles sont appliquées.
     enabled: true
     # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à
-    # activer une fois les destinations externes connues et déclarées dans
-    # `egressAllowCIDRs`.
+    # car core-api (Resend, smtp.resend.com:587), elearning-api (Scaleway
+    # Object Storage, s3.<region>.scw.cloud) et le CronJob backup (bucket S3)
+    # ont besoin d'Internet ; à activer une fois ces destinations déclarées
+    # dans `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
     # Cilium only. Mirrors the HTTP hops (fronts -> bffs, bffs -> apis) as
@@ -47,14 +48,24 @@ global:
     ciliumL7Visibility: false
 
   secrets:
-    # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
+    # Secret contenant les secrets applicatifs partagés : JWT_SECRET (toutes
+    # les APIs/BFFs), SMTP_PASSWORD (clé API Resend, lue par core-api) et
+    # S3_ACCESS_KEY / S3_SECRET_KEY (Object Storage, lus par elearning-api).
     # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
     appSecretName: ""
 
   database:
     # Nom du Secret Postgres (clés POSTGRES_USER / POSTGRES_PASSWORD /
-    # POSTGRES_DB). Défaut : <release>-database-secret.
+    # POSTGRES_DB, réservées à Liquibase, + une clé <ROLE>_PASSWORD par rôle
+    # ci-dessous). Défaut : <release>-database-secret.
     secretName: ""
+    # Postgres roles, one per API that owns a schema (MAIR-114). Deliberately
+    # NOT derived from global.apis.instances like redis.roles: only the 5
+    # shipped APIs have a role created by the Devops/Database migration.
+    # An API with no entry here gets no DB_USER/DB_PASSWORD at all rather
+    # than falling back to the postgres superuser. Keep in sync with
+    # scripts/seal-secrets.sh's DB_ROLES.
+    roles: ["core-api", "project-api", "calendar-api", "message-api", "elearning-api"]
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans
@@ -67,8 +78,6 @@ global:
       project-api:   { port: 3001 }
       calendar-api:  { port: 3002 }
       message-api:   { port: 3003 }
-      email-api:     { port: 3004 }
-      files-api:     { port: 3005 }
       elearning-api: { port: 3006 }
   bffs:
     instances:
@@ -76,8 +85,8 @@ global:
       project-bff:   { port: 4001 }
       calendar-bff:  { port: 4002 }
       message-bff:   { port: 4003 }
-      email-bff:     { port: 4004 }
-      files-bff:     { port: 4005 }
+      dashboard-bff: { port: 4004 }
+      settings-bff:  { port: 4005 }
       elearning-bff: { port: 4006 }
 
 # -----------------------------------------------------------------------------
@@ -100,6 +109,13 @@ image:
 secrets:
   create: false
   jwtSecret: ""
+  # Resend API key (SMTP password of core-api). Optional: empty means core-api
+  # starts but cannot send e-mails.
+  smtpPassword: ""
+  # Object Storage (S3) access key pair read by elearning-api. Required when
+  # create=true: the API refuses to start without them.
+  s3AccessKey: ""
+  s3SecretKey: ""
 
 # -----------------------------------------------------------------------------
 # Ingress unique pour tous les fronts activés (templates/ingress.yaml)
@@ -135,6 +151,10 @@ redis:
   enabled: true
 liquibase:
   enabled: true
+# Off by default: needs a real S3 bucket + sealed backup-secret per instance
+# first. See charts/backup/README.md (MAIR-119).
+backup:
+  enabled: false
 
 APIs:
   enabled: true

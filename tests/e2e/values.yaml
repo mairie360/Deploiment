@@ -27,6 +27,9 @@ global:
 secrets:
   create: true
   jwtSecret: "e2e-jwt-not-a-secret"
+  # Placeholders: app-secrets requires the S3 pair when create=true.
+  s3AccessKey: "e2e-s3-access-not-a-secret"
+  s3SecretKey: "e2e-s3-secret-not-a-secret"
 
 ingress:
   enabled: true

@@ -1,0 +1,13 @@
+# Throwaway cluster for tests/e2e/run.sh. Single node, like every machine of
+# the platform. The default CNI (kindnet) is disabled: Cilium is installed
+# instead, the CNI the real machines run (ansible role k8s_node), so
+# NetworkPolicies are enforced by the same engine as in production.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  # Same CIDRs as k3s on the real machines (ansible group_vars/all.yml).
+  podSubnet: "10.42.0.0/16"
+  serviceSubnet: "10.43.0.0/16"
+nodes:
+  - role: control-plane

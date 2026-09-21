@@ -1,0 +1,56 @@
+name: Kubernetes e2e
+
+# Deploys the umbrella chart on a throwaway Kind + Cilium cluster and checks
+# the Kubernetes layer: install order, Services, NetworkPolicies, Redis ACL,
+# Postgres roles. Application images are replaced by a placeholder, see
+# tests/e2e/values.yaml. Same script as locally: tests/e2e/run.sh.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    paths:
+      - "charts/**"
+      - "tests/e2e/**"
+      - ".github/workflows/k8s-e2e.yaml"
+
+concurrency:
+  group: k8s-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  KIND_VERSION: v0.33.0
+  CILIUM_CLI_VERSION: v0.20.0
+  CHAINSAW_VERSION: v0.2.15
+
+jobs:
+  e2e:
+    name: Chart on Kind + Cilium
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Install kind, cilium CLI and chainsaw
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          curl -sSfLo kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind
+          curl -sSfL "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-amd64.tar.gz" \
+            | tar xz cilium
+          curl -sSfL "https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz" \
+            | tar xz chainsaw
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run the e2e suite
+        run: tests/e2e/run.sh

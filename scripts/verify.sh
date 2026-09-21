@@ -44,6 +44,19 @@ for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis
   $K get secret "$s" >/dev/null 2>&1 && ok "$s" || ko "$s absent (scripts/seal-secrets.sh ?)"
 done
 
+if [ -n "$($K get secret "${RELEASE}-app-secrets" -o jsonpath='{.data.SMTP_PASSWORD}' 2>/dev/null)" ]; then
+  ok "SMTP_PASSWORD (Resend API key) is set"
+else
+  ko "SMTP_PASSWORD empty in ${RELEASE}-app-secrets: core-api cannot send e-mails (RESEND_API_KEY=… scripts/seal-secrets.sh)"
+fi
+for k in S3_ACCESS_KEY S3_SECRET_KEY; do
+  if [ -n "$($K get secret "${RELEASE}-app-secrets" -o jsonpath="{.data.$k}" 2>/dev/null)" ]; then
+    ok "$k is set"
+  else
+    ko "$k empty in ${RELEASE}-app-secrets: elearning-api cannot start (S3_ACCESS_KEY=… S3_SECRET_KEY=… scripts/seal-secrets.sh)"
+  fi
+done
+
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
   ko "JWT_SECRET en clair détecté"
@@ -101,8 +114,22 @@ else
   ko "hubble-relay unavailable"
 fi
 
+step 11 "MAIR-119: the latest backup Job succeeded"
+if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
+  LATEST=$($K get jobs -l app.kubernetes.io/component=backup \
+             --sort-by=.status.startTime -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
+  if [ -z "$LATEST" ]; then
+    ok "backup CronJob present, no Job has run yet"
+  else
+    S=$($K get job "$LATEST" -o jsonpath='{.status.succeeded}' 2>/dev/null)
+    [ "${S:-0}" -ge 1 ] && ok "backup $LATEST succeeded" || ko "backup $LATEST failed or still running"
+  fi
+else
+  ok "backup not enabled for this instance"
+fi
+
 if [ -n "$DOMAIN" ]; then
-  step 11 "Certificat TLS vérifié sur https://login.${DOMAIN}"
+  step 12 "Certificat TLS vérifié sur https://login.${DOMAIN}"
   ISSUER=$(echo | openssl s_client -connect "login.${DOMAIN}:443" \
              -servername "login.${DOMAIN}" 2>/dev/null \
            | openssl x509 -noout -issuer 2>/dev/null || true)
@@ -112,11 +139,11 @@ if [ -n "$DOMAIN" ]; then
     *) ko "certificat inattendu : ${ISSUER:-aucun}" ;;
   esac
 
-  step 12 "Le HTTP redirige vers le HTTPS"
+  step 13 "Le HTTP redirige vers le HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
   case "$CODE" in 301|302|308) ok "redirection $CODE" ;; *) ko "code $CODE" ;; esac
 
-  step 13 "Seuls les fronts sont exposés (6443 doit être sur le VPN, pas public)"
+  step 14 "Seuls les fronts sont exposés (6443 doit être sur le VPN, pas public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
   for p in 3000 4000 5432 6379 6443; do
     if timeout 3 bash -c "</dev/tcp/${IP}/${p}" 2>/dev/null; then

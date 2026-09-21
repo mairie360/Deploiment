@@ -1,0 +1,52 @@
+# Client pods labelled as an API (the only component allowed to reach both
+# Postgres and Redis), each reading core-api's credentials from the Secrets
+# the chart wires into the real core-api Deployment.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-redis
+  labels: { app.kubernetes.io/component: api }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: redis
+      image: redis:7.4-alpine
+      command: ["sleep", "3600"]
+      env:
+        - name: REDIS_HOST
+          value: (join('-', [$release, 'redis']))
+        - name: ROLE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'redis']))
+              key: core-api-password
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'redis']))
+              key: redis-password
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-postgres
+  labels: { app.kubernetes.io/component: api }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: postgres
+      image: postgres:17-alpine
+      command: ["sleep", "3600"]
+      env:
+        - name: PGHOST
+          value: (join('-', [$release, 'database']))
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'database-secret']))
+              key: POSTGRES_DB
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'database-secret']))
+              key: CORE_API_PASSWORD

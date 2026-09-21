@@ -1,4 +1,15 @@
-{{- if .Values.ingress.enabled }}
+{{- /*
+With no front enabled, an Ingress with neither rules nor defaultBackend is
+rejected by the API server ("either `defaultBackend` or `rules` must be
+specified"), so it is simply not rendered.
+*/ -}}
+{{- $enabledFronts := dict -}}
+{{- range $frontName, $frontConfig := .Values.Fronts.instances -}}
+{{- if $frontConfig.enabled -}}
+{{- $_ := set $enabledFronts $frontName $frontConfig -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled $enabledFronts }}
 {{- $domain := required "global.domain est obligatoire pour l'Ingress des fronts" .Values.global.domain -}}
 {{- $fullname := include "mairie360.fullname" . -}}
 {{- $release := .Release.Name -}}
@@ -23,15 +34,12 @@ spec:
   ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
   tls:
     - hosts:
-        {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-        {{- if $frontConfig.enabled }}
+        {{- range $frontName, $frontConfig := $enabledFronts }}
         - {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
-        {{- end }}
         {{- end }}
       secretName: {{ .Values.ingress.tlsSecretName | default (printf "%s-fronts-tls" $fullname) }}
   rules:
-    {{- range $frontName, $frontConfig := .Values.Fronts.instances }}
-    {{- if $frontConfig.enabled }}
+    {{- range $frontName, $frontConfig := $enabledFronts }}
     - host: {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
       http:
         paths:
@@ -42,6 +50,5 @@ spec:
                 name: {{ printf "%s-%s" $release ($frontName | lower) }}
                 port:
                   number: 80
-    {{- end }}
     {{- end }}
 {{- end }}

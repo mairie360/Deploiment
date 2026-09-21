@@ -18,8 +18,8 @@ global:
   ingressNamespace: "ingress-nginx"
   networkPolicy:
     enabled: true
-    # Passer à true une fois les destinations externes de email-api (SMTP)
-    # et files-api (S3) déclarées dans egressAllowCIDRs.
+    # Passer à true une fois les destinations externes connues et déclarées
+    # dans egressAllowCIDRs.
     egressDefaultDeny: false
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
@@ -37,6 +37,8 @@ ingress:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
 database:
+  image:
+    tag: "staging-latest"
   secret:
     create: false
   persistence:
@@ -53,6 +55,23 @@ liquibase:
   db:
     name: "mairie_db_staging"
 
+# Off-machine encrypted Postgres backups (MAIR-119, charts/backup/README.md).
+# Turn `enabled` on once the bucket below exists and <release>-backup-secret
+# is sealed (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY exported when running
+# scripts/seal-secrets.sh). Schedule and retention are applied by Argo CD on
+# the next sync.
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  retention:
+    keepDaily: 7
+    keepWeekly: 4
+    keepMonthly: 6
+  s3:
+    endpoint: "https://s3.fr-par.scw.cloud"
+    bucket: "mairie360-backup-staging"
+    region: "fr-par"
+
 APIs:
   instances:
     core-api:
@@ -61,6 +80,26 @@ APIs:
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
+        # Transactional e-mails (password reset) go through Resend's SMTP relay.
+        # The Resend API key is the SMTP password: it lives in
+        # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).
+        # `optional` keeps core-api starting on a cluster whose Secret was
+        # sealed before that key existed (scripts/verify.sh reports it).
+        # The EMAIL_FROM domain must be verified in the Resend dashboard.
+        - name: SMTP_HOST
+          value: "smtp.resend.com"
+        - name: SMTP_PORT
+          value: "587"
+        - name: SMTP_USERNAME
+          value: "resend"
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: SMTP_PASSWORD
+              optional: true
+        - name: EMAIL_FROM
+          value: "Mairie360 (staging) <noreply@mairie360-eip.fr>"
     project-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/project-api, tag: "staging-latest" }
@@ -70,15 +109,34 @@ APIs:
     message-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/message-api, tag: "staging-latest" }
-    email-api:
-      enabled: true
-      image: { repository: ghcr.io/mairie360/email-api, tag: "staging-latest" }
-    files-api:
-      enabled: true
-      image: { repository: ghcr.io/mairie360/files-api, tag: "staging-latest" }
     elearning-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-latest" }
+      env:
+        # Course attachments are stored in Scaleway Object Storage (S3 API)
+        # and served through presigned URLs. The access key pair lives in
+        # <release>-app-secrets (scripts/seal-secrets.sh, S3_ACCESS_KEY /
+        # S3_SECRET_KEY). Not optional: elearning-api panics without it, so a
+        # missing key shows up as CreateContainerConfigError instead of a
+        # CrashLoop.
+        - name: S3_BUCKET
+          value: "mairie360-elearning-staging"
+        - name: S3_REGION
+          value: "fr-par"
+        - name: S3_ENDPOINT
+          value: "https://s3.fr-par.scw.cloud"
+        - name: S3_PRESIGN_TTL_SECS
+          value: "900"
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_ACCESS_KEY
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_SECRET_KEY
 
 BFFs:
   instances:
@@ -107,14 +165,14 @@ BFFs:
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003/api"
-    email-bff:
+    dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-email, tag: "staging-latest" }
-    files-bff:
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-latest" }
+    settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-files, tag: "staging-latest" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-latest" }
     elearning-bff:
       enabled: true
       port: 4006
@@ -150,20 +208,14 @@ Fronts:
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
-    email-front:
+    dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/email-front, tag: "staging-latest" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
-    files-front:
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-latest" }
+    settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/files-front, tag: "staging-latest" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-latest" }
     elearning-front:
       enabled: true
       port: 5006

@@ -32,3 +32,19 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "image.tag est obligatoire"
+
+  - it: ne rend aucun Ingress quand aucun front n'est activé (un Ingress sans rules est refusé par l'API server)
+    set:
+      Fronts.instances: null
+    templates: [templates/ingress.yaml]
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: l'Ingress ne liste que les fronts activés
+    set:
+      Fronts.instances.admin-front.enabled: false
+    templates: [templates/ingress.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.rules[*].host
+          pattern: '^admin\.'

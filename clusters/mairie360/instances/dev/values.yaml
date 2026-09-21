@@ -18,8 +18,8 @@ global:
   ingressNamespace: "ingress-nginx"
   networkPolicy:
     enabled: true
-    # Passer à true une fois les destinations externes de email-api (SMTP)
-    # et files-api (S3) déclarées dans egressAllowCIDRs.
+    # Passer à true une fois les destinations externes connues et déclarées
+    # dans egressAllowCIDRs.
     egressDefaultDeny: false
     # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
     # Requires the Cilium CNI installed by the Ansible role k8s_node.
@@ -40,6 +40,8 @@ ingress:
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
 database:
+  image:
+    tag: "dev-latest"
   secret:
     create: false
   persistence:
@@ -56,128 +58,178 @@ liquibase:
   db:
     name: "mairie_db_dev"
 
+# Off-machine encrypted Postgres backups (MAIR-119, charts/backup/README.md).
+# Turn `enabled` on once the bucket below exists and <release>-backup-secret
+# is sealed (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY exported when running
+# scripts/seal-secrets.sh). Schedule and retention are applied by Argo CD on
+# the next sync.
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  retention:
+    keepDaily: 7
+    keepWeekly: 4
+    keepMonthly: 6
+  s3:
+    endpoint: "https://s3.fr-par.scw.cloud"
+    bucket: "mairie360-backup-dev"
+    region: "fr-par"
+
 APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-4048375" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-latest" }
       env:
         - name: PUBLIC_URL
           value: "https://login.dev.mairie360-eip.fr"
+        # Transactional e-mails (password reset) go through Resend's SMTP relay.
+        # The Resend API key is the SMTP password: it lives in
+        # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).
+        # `optional` keeps core-api starting on a cluster whose Secret was
+        # sealed before that key existed (scripts/verify.sh reports it).
+        # The EMAIL_FROM domain must be verified in the Resend dashboard.
+        - name: SMTP_HOST
+          value: "smtp.resend.com"
+        - name: SMTP_PORT
+          value: "587"
+        - name: SMTP_USERNAME
+          value: "resend"
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: SMTP_PASSWORD
+              optional: true
+        - name: EMAIL_FROM
+          value: "Mairie360 (dev) <noreply@mairie360-eip.fr>"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-89c9730" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-latest" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-d6d05a0" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-latest" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-37b72aa" }
-    email-api:
-      enabled: true
-      image: { repository: ghcr.io/mairie360/email-api, tag: "dev-latest" }
-    files-api:
-      enabled: true
-      image: { repository: ghcr.io/mairie360/files-api, tag: "dev-latest" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-latest" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-1054189" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-latest" }
+      env:
+        # Course attachments are stored in Scaleway Object Storage (S3 API)
+        # and served through presigned URLs. The access key pair lives in
+        # <release>-app-secrets (scripts/seal-secrets.sh, S3_ACCESS_KEY /
+        # S3_SECRET_KEY). Not optional: elearning-api panics without it, so a
+        # missing key shows up as CreateContainerConfigError instead of a
+        # CrashLoop.
+        - name: S3_BUCKET
+          value: "mairie360-elearning-dev"
+        - name: S3_REGION
+          value: "fr-par"
+        - name: S3_ENDPOINT
+          value: "https://s3.fr-par.scw.cloud"
+        - name: S3_PRESIGN_TTL_SECS
+          value: "900"
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_ACCESS_KEY
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: S3_SECRET_KEY
 
 BFFs:
   instances:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-4b75c8e" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-a63e9b2" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-latest" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-300106e" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-latest" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002/api"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-bebfa8d" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-latest" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003/api"
-    email-bff:
+    dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-email, tag: "dev-latest" }
-    files-bff:
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "dev-latest" }
+    settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-files, tag: "dev-latest" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "dev-latest" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-7ba7c93" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-latest" }
 
 Fronts:
   instances:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-9b2ea4a" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-0a88185" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-b3bc020" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-39a9e87" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
-    email-front:
+    dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/email-front, tag: "dev-latest" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
-    files-front:
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-latest" }
+    settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/files-front, tag: "dev-latest" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-latest" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-7b2585e" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-1e0bcf0" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-latest" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"

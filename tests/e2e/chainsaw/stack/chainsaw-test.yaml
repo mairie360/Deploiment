@@ -1,0 +1,70 @@
+# Checks that the chart produced a coherent running stack: the migration Job
+# finished, the data layer is up, every Service selects at least one ready
+# pod (a wrong selector or port name shows up here) and no pod is stuck.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: stack
+spec:
+  bindings:
+    - name: release
+      value: e2e
+  steps:
+    - name: data layer and migrations
+      try:
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: (join('-', [$release, 'liquibase']))
+              status:
+                succeeded: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: (join('-', [$release, 'database']))
+              status:
+                readyReplicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: (join('-', [$release, 'redis']))
+              status:
+                readyReplicas: 1
+
+    - name: every Service has ready endpoints and no pod is stuck
+      try:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              FAILED=0
+              for svc in $(kubectl -n "$NAMESPACE" get svc -o name | cut -d/ -f2); do
+                ready=$(kubectl -n "$NAMESPACE" get endpointslices \
+                  -l kubernetes.io/service-name="$svc" \
+                  -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}x{end}')
+                if [ -n "$ready" ]; then
+                  echo "ok    $svc"
+                else
+                  echo "FAIL  $svc has no ready endpoint"; FAILED=1
+                fi
+              done
+              stuck=$(kubectl -n "$NAMESPACE" get pods --no-headers \
+                | grep -vE ' (Running|Completed) ' || true)
+              if [ -n "$stuck" ]; then
+                echo "FAIL  pods not Running/Completed:"; echo "$stuck"; FAILED=1
+              fi
+              restarts=$(kubectl -n "$NAMESPACE" get pods --no-headers | awk '$4 > 0 {print $1, $4}')
+              if [ -n "$restarts" ]; then
+                echo "FAIL  pods restarted (probe or crash):"; echo "$restarts"; FAILED=1
+              fi
+              exit $FAILED
+            check:
+              ($error): ~

@@ -27,7 +27,7 @@ Le provisionnement des machines est dans le dépôt
 
 | Chemin | Rôle |
 |---|---|
-| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, 7 APIs, 7 BFFs, 8 fronts |
+| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), 5 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
 | `bootstrap/` | Amorçage Argo CD (voir `bootstrap/README.md`) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
@@ -39,7 +39,13 @@ Le provisionnement des machines est dans le dépôt
 3. Générer ses secrets et pousser :
 
 ```bash
-./scripts/seal-secrets.sh <contexte-kube> <org> <env>
+# RESEND_API_KEY : clé API Resend, scellée comme SMTP_PASSWORD (e-mails de core-api)
+# S3_ACCESS_KEY / S3_SECRET_KEY : couple de clés Object Storage (Scaleway)
+# lu par elearning-api. Sans elles, elearning-api ne démarre pas.
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY : bucket des sauvegardes
+# (charts/mairie360-stack/charts/backup/README.md), uniquement si backup.enabled.
+RESEND_API_KEY=re_xxx S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... \
+  ./scripts/seal-secrets.sh <contexte-kube> <org> <env>
 git add clusters/<org>/instances/<env>/secrets.yaml
 git commit -m "chore(<org>/<env>): secrets scellés" && git push
 ```

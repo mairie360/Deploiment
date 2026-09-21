@@ -1,0 +1,54 @@
+# Checks, on a cluster that enforces them (Cilium), that the NetworkPolicies
+# really allow each hop of
+#   ingress-controller -> fronts -> bffs -> apis -> postgres / redis
+# and refuse everything else. `helm unittest` only proves the selectors are
+# written as intended; this proves the traffic actually follows them.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: network-policies
+spec:
+  bindings:
+    - name: release
+      value: e2e
+  steps:
+    - name: start the probe pods
+      try:
+        - apply:
+            file: probes.yaml
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            namespace: ($namespace)
+            selector: mairie360.fr/e2e-probe=true
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            namespace: ingress-nginx
+            name: probe-ingress
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+
+    - name: check every allowed and denied flow
+      try:
+        - script:
+            timeout: 5m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+              - name: RELEASE
+                value: ($release)
+            content: ./check-flows.sh
+            check:
+              ($error): ~
+      catch:
+        - script:
+            content: |
+              kubectl -n kube-system exec ds/cilium -c cilium-agent -- \
+                hubble observe --verdict DROPPED --last 50 || true
