@@ -1,4 +1,4 @@
-# ClusterIssuer cert-manager, appliqués sur TOUS les clusters par
+# cert-manager ClusterIssuers, applied to every INSTANCE cluster by
 # bootstrap/appsets/cluster-issuer-appset.yaml.
 #
 # Le solver HTTP-01 cible explicitement la classe "nginx", installée par

@@ -4,9 +4,14 @@
 #
 #   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate]
 #
-# Exemples :
-#   ./scripts/seal-secrets.sh mairie360-dev  mairie360      dev
-#   ./scripts/seal-secrets.sh paris-prod     client-paris   prod
+# Normally run by ansible (playbooks/secrets.yml, role k8s_instance_secrets),
+# on the group's Argo CD machine: it is the only one that reaches the instance
+# API server, through the WireGuard tunnel. The role prompts for the external
+# keys below, then copies secrets.yaml back to the workstation to be committed.
+# By hand, from /opt/Deploiment on that machine (the kubeconfig written by
+# role k8s_instance_link names its context after the environment):
+#
+#   KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
 #
 # -> clusters/<org>/instances/<env>/secrets.yaml
 #

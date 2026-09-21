@@ -4,8 +4,9 @@ metadata:
   name: cluster-issuers
   namespace: argocd
 spec:
-  # Tous les clusters (argocd + dev + staging + prod). Dépend de cert-manager
-  # (CRD ClusterIssuer) -> la retry policy encaisse le "CRD not found" initial.
+  # Instance clusters only (mairie360.fr/role=instance). Depends on
+  # cert-manager (ClusterIssuer CRD): the retry policy absorbs the initial
+  # "CRD not found".
   generators:
     - clusters:
       selector:

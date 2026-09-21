@@ -39,8 +39,12 @@ helm dependency build ./charts/mairie360-stack
 # (needs docker, kind, cilium CLI, chainsaw, jq; KEEP=1 keeps the cluster)
 tests/e2e/run.sh
 
-# Generate an instance's SealedSecrets (required before its first sync)
-./scripts/seal-secrets.sh <kube-context> mairie360 dev
+# Generate an instance's SealedSecrets (required before its first sync).
+# Normally done by ansible's playbooks/secrets.yml (phase 4 of site.yml), which
+# runs this on the group's Argo CD machine — the only one reaching the instance
+# API server — and prompts for RESEND_API_KEY / S3_* / AWS_* when missing.
+# By hand, from /opt/Deploiment on that machine:
+KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
 
 # Acceptance test of a deployed instance
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
@@ -70,7 +74,8 @@ group. Isolation comes from the topology, not from a naming convention — which
 is why a client env named `prod` cannot collide with mairie360's `prod`.
 
 Machine provisioning lives in the `mairie360/ansible` repo (roles `k8s_node`,
-`k8s_argocd`, `k8s_instance_link`). This repo only describes desired state.
+`k8s_argocd`, `k8s_instance_link`, `k8s_instance_secrets`). This repo only
+describes desired state.
 
 ### Argo CD bootstrap chain
 
@@ -81,6 +86,12 @@ Machine provisioning lives in the `mairie360/ansible` repo (roles `k8s_node`,
 3. Ansible also renders and applies the **instances ApplicationSet** from
    `roles/k8s_argocd/templates/instances-appset.yaml.j2` — it is not in this
    repo because it depends on `org_id` (which `clusters/<org>/` to scan).
+4. Same for **argocd-image-updater's configuration**: the chart installed by
+   `image-updater-app.yaml` is v1, driven by `ImageUpdater` resources (one per
+   instance, tag policy per env name), rendered by Ansible from
+   `roles/k8s_argocd/templates/image-updaters.yaml.j2`. The GHCR credentials
+   it reads (`argocd/ghcr-secret`) are written by the same role from
+   `GHCR_USER` / `GHCR_TOKEN`; nothing in this repo creates them.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
@@ -103,6 +114,13 @@ Traefik disabled) → `cert-manager-appset` → `cluster-issuer-appset`
 → the `cert-manager.io/cluster-issuer` annotation on the fronts Ingress.
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
+**`cert-manager-appset.yaml` must stay free of any domain or IP** (MAIR-157):
+it is shared by every group. The HTTP-01 self-check goes through public DNS;
+it works from inside the cluster because the instance's public IP is on its
+interface, so ServiceLB publishes it as the ingress-nginx LoadBalancer IP and
+kube-proxy short-circuits pod traffic to it. A provider that NATs the public
+IP instead would need k3s `node-external-ip` (ansible, `k8s_node`), not
+`hostAliases` here.
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
 

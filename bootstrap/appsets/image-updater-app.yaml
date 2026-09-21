@@ -20,9 +20,12 @@ spec:
 
         config:
           log.level: info
-          # Accès en lecture à GHCR pour lire les tags et leurs dates de build
-          # (stratégie newest-build). Le secret est créé par
-          # configs/ghcr-registry-secret.yaml.
+          # Read access to GHCR, to list tags and their build dates
+          # (newest-build strategy). argocd/ghcr-secret is written by ansible
+          # (role k8s_argocd, from GHCR_USER / GHCR_TOKEN), never committed.
+          # What to update is not configured here either: v1 reads
+          # ImageUpdater resources, one per instance, rendered by the same
+          # role (templates/image-updaters.yaml.j2).
           registries:
             - name: GitHub Container Registry
               api_url: https://ghcr.io

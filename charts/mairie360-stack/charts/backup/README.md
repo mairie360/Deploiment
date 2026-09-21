@@ -12,15 +12,24 @@ target).
 1. Create an S3-compatible bucket for that instance (provider and bucket
    naming are an infra decision, not part of this repo) and an access-key
    pair scoped to it.
-2. Pick a `RESTIC_PASSWORD` (the repository encryption key) and store it
-   outside the cluster, the same way as the sealed-secrets sealing key —
-   losing it makes every existing backup permanently unreadable.
-3. Seal those three values into `<release>-backup-secret`:
+2. Seal `<release>-backup-secret` with the ansible repo (phase 4, which runs
+   `scripts/seal-secrets.sh` on the group's Argo CD machine), then commit the
+   `secrets.yaml` it writes into this checkout:
    ```bash
-   AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... RESTIC_PASSWORD=... \
-     ./scripts/seal-secrets.sh <kube-context> <org> <env>
+   AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
+     ansible-playbook playbooks/secrets.yml --limit <instance host>
    ```
-4. In `clusters/<org>/instances/<env>/values.yaml`:
+   Once `backup.enabled` is true (step 3), later runs prompt for the key pair
+   instead when it is neither exported nor already sealed.
+   `RESTIC_PASSWORD` (the repository encryption key) is not an input: the
+   script generates it on the first run, then keeps it. Copy it outside the
+   cluster, the same way as the sealed-secrets sealing key — losing it makes
+   every existing backup permanently unreadable:
+   ```bash
+   kubectl -n mairie360-<env> get secret <env>-backup-secret \
+     -o jsonpath='{.data.RESTIC_PASSWORD}' | base64 -d
+   ```
+3. In `clusters/<org>/instances/<env>/values.yaml`:
    ```yaml
    backup:
      enabled: true
@@ -34,7 +43,7 @@ target).
        keepWeekly: 4
        keepMonthly: 6
    ```
-5. Once `egressDefaultDeny` is turned on for that instance, add the S3
+4. Once `egressDefaultDeny` is turned on for that instance, add the S3
    endpoint to `global.networkPolicy.egressAllowCIDRs` — the backup pod's
    only network need besides Postgres (already allowed by
    `charts/database/templates/network-policy.yaml`) is that bucket.

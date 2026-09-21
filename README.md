@@ -35,19 +35,23 @@ Le provisionnement des machines est dans le dépôt
 ## Ajouter une instance
 
 1. Créer `clusters/<org>/instances/<env>/values.yaml` (copier un existant).
-2. Déclarer la machine dans l'inventaire Ansible, lancer `site.yml`.
-3. Générer ses secrets et pousser :
+2. Declare the machine in the Ansible inventory and run `site.yml`. Its
+   phase 4 seals the instance secrets with `scripts/seal-secrets.sh` on the
+   group's Argo CD machine (the only one that reaches the instance API server)
+   and asks for the external keys it cannot find:
+   - `RESEND_API_KEY`: Resend API key, sealed as `SMTP_PASSWORD` (core-api e-mails);
+   - `S3_ACCESS_KEY` / `S3_SECRET_KEY`: Object Storage key pair (Scaleway) read
+     by elearning-api, which does not start without it;
+   - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: backup bucket
+     (`charts/mairie360-stack/charts/backup/README.md`), only when `backup.enabled`.
+
+   It then writes `clusters/<org>/instances/<env>/secrets.yaml` into this
+   checkout.
+3. Commit and push it:
 
 ```bash
-# RESEND_API_KEY : clé API Resend, scellée comme SMTP_PASSWORD (e-mails de core-api)
-# S3_ACCESS_KEY / S3_SECRET_KEY : couple de clés Object Storage (Scaleway)
-# lu par elearning-api. Sans elles, elearning-api ne démarre pas.
-# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY : bucket des sauvegardes
-# (charts/mairie360-stack/charts/backup/README.md), uniquement si backup.enabled.
-RESEND_API_KEY=re_xxx S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... \
-  ./scripts/seal-secrets.sh <contexte-kube> <org> <env>
 git add clusters/<org>/instances/<env>/secrets.yaml
-git commit -m "chore(<org>/<env>): secrets scellés" && git push
+git commit -m "chore(<org>/<env>): seal secrets" && git push
 ```
 
 L'Argo CD du groupe détecte le nouveau dossier et synchronise tout seul.
