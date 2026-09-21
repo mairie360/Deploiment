@@ -1,0 +1,60 @@
+{{- if .Values.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "backup.fullname" . }}
+  labels:
+    {{- include "backup.labels" . | nindent 4 }}
+  annotations:
+    # Ordinary resource, not an Argo CD Sync hook: it must persist across
+    # syncs (a CronJob, not a one-shot Job) and only needs the database
+    # (wave 0) to exist before its first scheduled run fires.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ required "backup.schedule is required when backup.enabled=true" .Values.schedule | quote }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "backup.podLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.global.imagePullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          containers:
+            - name: backup
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                {{- include "backup.env" . | nindent 16 }}
+              # restic isn't in the postgres:alpine image, so it's installed
+              # at Job start (see charts/backup/values.yaml resticVersion).
+              # A stable dump filename lets `restic dump <snapshot> <path>`
+              # in the restore Job address it without listing the snapshot's
+              # contents first; restic's own content-defined chunking still
+              # deduplicates unchanged data across runs.
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  apk add --no-cache {{ .Values.resticVersion }} >/dev/null
+                  restic snapshots --host "$PGDATABASE" >/dev/null 2>&1 || restic init
+                  pg_dump -Fc "$PGDATABASE" \
+                    | restic backup --stdin --stdin-filename "${PGDATABASE}.dump" --host "$PGDATABASE" --tag scheduled
+                  restic forget --host "$PGDATABASE" \
+                    --keep-daily {{ .Values.retention.keepDaily }} \
+                    --keep-weekly {{ .Values.retention.keepWeekly }} \
+                    --keep-monthly {{ .Values.retention.keepMonthly }} \
+                    --prune
+                  restic check --read-data-subset=5%
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+{{- end }}
