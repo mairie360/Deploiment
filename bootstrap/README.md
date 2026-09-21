@@ -14,9 +14,16 @@ Ansible (rôle k8s_argocd) sur la machine Argo CD du groupe
   │           ├── ingress-nginx-appset    ┘ → uniquement les instances
   │           └── image-updater-app         → in-cluster (machine Argo CD)
   │
-  └── kubectl apply <instances-appset rendu>   ← templates/ du dépôt ansible
-        └── une Application par clusters/<org>/instances/*
+  ├── kubectl apply <instances-appset rendu>   ← templates/ du dépôt ansible
+  │     └── une Application par clusters/<org>/instances/*
+  ├── argocd/ghcr-secret                       ← GHCR_USER / GHCR_TOKEN, never committed
+  └── kubectl apply <image-updaters rendus>    ← one ImageUpdater per instance
 ```
+
+`argocd-image-updater` v1 is configured by `ImageUpdater` resources, not by
+Application annotations. They depend on the group's instances (one per
+environment, tag policy per environment name), so Ansible renders them too,
+from `roles/k8s_argocd/templates/image-updaters.yaml.j2`.
 
 ## Pourquoi l'ApplicationSet des instances n'est pas ici
 
@@ -38,8 +45,9 @@ d'ingress public, ni de cert-manager, ni de base de données.
 
 ## Ordre de la première mise en route
 
-1. `sealed-secrets` doit être `Healthy` **avant** `scripts/seal-secrets.sh` :
-   `kubeseal` interroge le contrôleur pour récupérer sa clé publique.
+1. `sealed-secrets` must be `Healthy` **before** `scripts/seal-secrets.sh`:
+   `kubeseal` asks the controller for its public key. Ansible's phase 4
+   (`k8s_instance_secrets`) waits for it before sealing.
 2. `cert-manager` avant `cluster-issuers` — la politique de reprise encaisse le
    « CRD not found » initial, mais la première synchronisation apparaîtra en
    erreur une minute ou deux.

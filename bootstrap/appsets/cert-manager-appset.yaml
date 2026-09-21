@@ -4,8 +4,8 @@ metadata:
   name: cert-manager
   namespace: argocd
 spec:
-  # Un générateur "clusters" vide cible TOUS les clusters enregistrés dans
-  # Argo CD, y compris le cluster local (in-cluster) : argocd + dev + staging + prod.
+  # Instance clusters only (label set by ansible, role k8s_instance_link): the
+  # Argo CD machine itself (in-cluster, unlabelled) serves no public host.
   generators:
     - clusters:
       selector:
@@ -26,14 +26,13 @@ spec:
             crds:
               enabled: true
               keep: true
-            # Résolution forcée des sous-domaines vers l'IP publique
-            # (checks HTTP-01 / self-check depuis les pods cert-manager).
-            hostAliases:
-              - ip: "51.158.96.108"
-                hostnames:
-                  - dev.mairie360-eip.fr
-                  - staging.mairie360-eip.fr
-                  - prod.mairie360-eip.fr
+            # Shared by every group and every instance: nothing here may name
+            # a domain or an IP (MAIR-157). The HTTP-01 self-check resolves
+            # the front hosts through public DNS. On the instance machines the
+            # public IP sits on the interface, so ServiceLB publishes it as
+            # the ingress-nginx LoadBalancer IP and kube-proxy routes the
+            # pod's request to that IP straight to ingress-nginx: no hairpin
+            # through the provider, no hostAliases needed.
       destination:
         server: '{{server}}'
         namespace: cert-manager
