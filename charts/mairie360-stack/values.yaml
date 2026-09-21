@@ -38,6 +38,13 @@ global:
     # `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
+    # Cilium only. Mirrors the HTTP hops (fronts -> bffs, bffs -> apis) as
+    # CiliumNetworkPolicies with an L7 rule so that Hubble records method,
+    # path and status code of every request (`hubble observe --protocol http`,
+    # scripts/hubble-flows.sh). Purely for visibility: it allows nothing the
+    # NetworkPolicies do not. Needs the Cilium CNI (Ansible role k8s_node);
+    # a cluster without its CRDs cannot sync it. templates/cilium-l7-visibility.yaml
+    ciliumL7Visibility: false
 
   secrets:
     # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
@@ -46,17 +53,8 @@ global:
 
   database:
     # Nom du Secret Postgres (clés POSTGRES_USER / POSTGRES_PASSWORD /
-    # POSTGRES_DB, réservées à Liquibase, + une clé <ROLE>_PASSWORD par rôle
-    # ci-dessous). Défaut : <release>-database-secret.
+    # POSTGRES_DB). Défaut : <release>-database-secret.
     secretName: ""
-    # Postgres roles, one per API that owns a schema (MAIR-114). Deliberately
-    # NOT derived from global.apis.instances like redis.roles: only the 5
-    # shipped APIs have a role created by the Devops/Database migration.
-    # email-api / files-api have no repo yet, so no role — the APIs chart
-    # gives them no DB_USER/DB_PASSWORD at all rather than falling back to
-    # the postgres superuser. Keep in sync with scripts/seal-secrets.sh's
-    # DB_ROLES.
-    roles: ["core-api", "project-api", "calendar-api", "message-api", "elearning-api"]
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans

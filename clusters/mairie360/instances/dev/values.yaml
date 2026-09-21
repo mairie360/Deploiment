@@ -21,6 +21,9 @@ global:
     # Passer à true une fois les destinations externes de email-api (SMTP)
     # et files-api (S3) déclarées dans egressAllowCIDRs.
     egressDefaultDeny: false
+    # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
+    # Requires the Cilium CNI installed by the Ansible role k8s_node.
+    ciliumL7Visibility: true
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
