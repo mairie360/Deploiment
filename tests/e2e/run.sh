@@ -136,6 +136,13 @@ helm --kube-context "$CTX" upgrade "$RELEASE" "$ROOT/charts/mairie360-stack" \
   -n "$NAMESPACE" \
   "${VALUES[@]}" \
   --wait --wait-for-jobs --timeout "$INSTALL_TIMEOUT"
+# `helm --wait` is not enough: with replicaCount 1 and maxUnavailable 1 it
+# accepts a Deployment with zero ready pods (replicas - maxUnavailable = 0), so
+# on a slow runner the tests below started before the BFFs and fronts were
+# Ready. `rollout status` waits for every replica to be available.
+for d in $($K -n "$NAMESPACE" get deploy -o name); do
+  $K -n "$NAMESPACE" rollout status "$d" --timeout "$INSTALL_TIMEOUT"
+done
 
 step "helm test"
 helm --kube-context "$CTX" test "$RELEASE" -n "$NAMESPACE" --logs --timeout 3m
