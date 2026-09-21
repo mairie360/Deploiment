@@ -36,3 +36,13 @@ app.kubernetes.io/part-of: mairie360
 {{- $db := $g.database | default dict -}}
 {{- $db.secretName | default (printf "%s-secret" (include "database.fullname" .)) -}}
 {{- end -}}
+
+{{/* Postgres role name for an API instance key, e.g. "core-api" -> "core_api". */}}
+{{- define "database.roleName" -}}
+{{- . | replace "-" "_" -}}
+{{- end -}}
+
+{{/* Secret key holding a role's password, e.g. "core-api" -> "CORE_API_PASSWORD". */}}
+{{- define "database.rolePasswordKey" -}}
+{{- printf "%s_PASSWORD" (include "database.roleName" . | upper) -}}
+{{- end -}}

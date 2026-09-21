@@ -56,3 +56,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $db := $g.database | default dict -}}
 {{- .Values.secretName | default ($db.secretName | default (printf "%s-database-secret" .Release.Name)) -}}
 {{- end }}
+
+{{/* Postgres role name for an API instance key, e.g. "core-api" -> "core_api". */}}
+{{- define "liquibase.roleName" -}}
+{{- . | replace "-" "_" -}}
+{{- end }}
+
+{{/* Secret key holding a role's password, e.g. "core-api" -> "CORE_API_PASSWORD". */}}
+{{- define "liquibase.rolePasswordKey" -}}
+{{- printf "%s_PASSWORD" (include "liquibase.roleName" . | upper) -}}
+{{- end }}

@@ -1,5 +1,8 @@
 {{- if (($.Values.global).networkPolicy).enabled }}
-# Postgres n'est joignable que par les APIs, les BFFs et le Job de migration.
+# MAIR-114: Postgres is only reachable from APIs (each with its own role) and
+# the Liquibase migration Job (the postgres superuser). BFFs and fronts never
+# talk to Postgres directly — they go through an API, which is also the only
+# place Postgres RBAC has to hold.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -19,9 +22,6 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: api
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: bff
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: migration

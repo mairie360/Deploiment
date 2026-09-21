@@ -64,8 +64,26 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: LIQUIBASE_SEARCH_PATH
               value: "/migrations"
+            {{- $g := .Values.global | default dict }}
+            {{- range $role := ($g.database | default dict).roles | default list }}
+            - name: {{ include "liquibase.rolePasswordKey" $role }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "liquibase.dbSecretName" $ }}
+                  key: {{ include "liquibase.rolePasswordKey" $role }}
+            {{- end }}
+          # Per-role passwords are passed as Liquibase changelog parameters
+          # (-D<role>_password) so the changelog can CREATE ROLE ... PASSWORD
+          # :role_password without the values ever appearing in the chart.
+          # Needs a shell because changelog params interpolate env vars;
+          # the image's entrypoint only forwards args to the liquibase binary.
+          command: ["sh", "-c"]
           args:
-            - --changelog-file={{ .Values.changelogFile }}
-            - update
+            - |
+              exec liquibase --changelog-file={{ .Values.changelogFile }} \
+                {{- range $role := ($g.database | default dict).roles | default list }}
+                -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}" \
+                {{- end }}
+                update
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
