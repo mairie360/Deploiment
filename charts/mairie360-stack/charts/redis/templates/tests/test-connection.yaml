@@ -8,7 +8,10 @@ metadata:
     app.kubernetes.io/component: api   # autorisé par la NetworkPolicy
   annotations:
     "helm.sh/hook": test
-    "helm.sh/hook-delete-policy": hook-succeeded
+    # Not hook-succeeded: `helm test --logs` reads the pod logs AFTER the hook
+    # completes, and fails with "pods not found" if the pod is already gone.
+    # The pod is replaced at the next `helm test` instead.
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   restartPolicy: Never
   containers:
