@@ -64,16 +64,6 @@ component: api
 {{- $s.appSecretName | default (printf "%s-app-secrets" .Release.Name) -}}
 {{- end }}
 
-{{/* Postgres role name for an API instance key, e.g. "core-api" -> "core_api". */}}
-{{- define "apis.dbRole" -}}
-{{- . | replace "-" "_" -}}
-{{- end }}
-
-{{/* Secret key holding a role's password, e.g. "core-api" -> "CORE_API_PASSWORD". */}}
-{{- define "apis.dbRolePasswordKey" -}}
-{{- printf "%s_PASSWORD" (include "apis.dbRole" . | upper) -}}
-{{- end }}
-
 {{/*
 Variables d'environnement injectées dans TOUTES les APIs.
 Tous les secrets viennent de Secrets Kubernetes, jamais des values.
@@ -96,21 +86,16 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
     secretKeyRef:
       name: {{ include "apis.dbSecretName" .root }}
       key: POSTGRES_DB
-{{- /* MAIR-114: each API connects with its own Postgres role, never the
-     postgres superuser (that stays reserved to Liquibase). An instance with
-     no entry in global.database.roles (e.g. email-api, files-api: no repo,
-     no schema yet) gets no DB_USER/DB_PASSWORD at all rather than falling
-     back to the superuser. */ -}}
-{{- $dbRoles := ((.root.Values.global).database).roles | default list }}
-{{- if has .name $dbRoles }}
 - name: DB_USER
-  value: {{ include "apis.dbRole" .name | quote }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "apis.dbSecretName" .root }}
+      key: POSTGRES_USER
 - name: DB_PASSWORD
   valueFrom:
     secretKeyRef:
       name: {{ include "apis.dbSecretName" .root }}
-      key: {{ include "apis.dbRolePasswordKey" .name }}
-{{- end }}
+      key: POSTGRES_PASSWORD
 - name: REDIS_HOST
   value: {{ printf "%s-redis" .root.Release.Name | quote }}
 - name: REDIS_PORT

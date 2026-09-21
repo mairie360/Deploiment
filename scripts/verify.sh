@@ -88,18 +88,17 @@ else
   ko "un pod bff n'atteint pas core-api (policy trop stricte ou API KO)"
 fi
 
-step 10 "MAIR-119: the latest backup Job succeeded"
-if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
-  LATEST=$($K get jobs -l app.kubernetes.io/component=backup \
-             --sort-by=.status.startTime -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
-  if [ -z "$LATEST" ]; then
-    ok "backup CronJob present, no Job has run yet"
-  else
-    S=$($K get job "$LATEST" -o jsonpath='{.status.succeeded}' 2>/dev/null)
-    [ "${S:-0}" -ge 1 ] && ok "backup $LATEST succeeded" || ko "backup $LATEST failed or still running"
-  fi
+step 10 "Cilium enforces the policies and Hubble records the flows"
+KS="kubectl --context ${CTX} -n kube-system"
+if $KS rollout status daemonset/cilium --timeout=10s >/dev/null 2>&1; then
+  ok "cilium agent Ready (NetworkPolicies enforced, flows recorded)"
 else
-  ok "backup not enabled for this instance"
+  ko "cilium agent not Ready: CNI still flannel? (Ansible role k8s_node)"
+fi
+if $KS rollout status deployment/hubble-relay --timeout=10s >/dev/null 2>&1; then
+  ok "hubble-relay available (scripts/hubble-flows.sh ${CTX} ${ENV})"
+else
+  ko "hubble-relay unavailable"
 fi
 
 if [ -n "$DOMAIN" ]; then

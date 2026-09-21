@@ -1,9 +1,8 @@
 {{- if (($.Values.global).networkPolicy).enabled }}
-# MAIR-114: Postgres is only reachable from APIs (each with its own role),
-# the Liquibase migration Job and the backup CronJob (MAIR-119) — all three
-# authenticate as the postgres superuser via <release>-database-secret. BFFs
-# and fronts never talk to Postgres directly — they go through an API, which
-# is also the only place Postgres RBAC has to hold.
+# MAIR-114: Postgres is only reachable from APIs (each with its own role) and
+# the Liquibase migration Job (the postgres superuser). BFFs and fronts never
+# talk to Postgres directly — they go through an API, which is also the only
+# place Postgres RBAC has to hold.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -26,9 +25,6 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: migration
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: backup
       ports:
         - protocol: TCP
           port: 5432

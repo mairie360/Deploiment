@@ -1,0 +1,71 @@
+{{- /*
+L7 visibility for Hubble (Cilium only).
+
+The Kubernetes NetworkPolicies decide WHO may talk to whom, at L4. Cilium
+only records HTTP details (method, path, status code) on a port once a policy
+with an L7 rule covers it. These two CiliumNetworkPolicies add such a rule,
+allowing every HTTP request ({} = no restriction), on the two HTTP hops:
+
+  fronts / bffs ─► bffs   (ports of global.bffs.instances)
+  bffs          ─► apis   (container port 3000)
+
+They only add visibility: what they allow is already allowed by the
+NetworkPolicies of the BFFs and APIs subcharts. Postgres and Redis stay at L4
+(Hubble still shows every connection and its verdict). The price is an Envoy
+hop on those ports.
+
+Off by default: a cluster without the Cilium CRDs cannot apply them.
+*/ -}}
+{{- if and .Values.global.networkPolicy.enabled .Values.global.networkPolicy.ciliumL7Visibility }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "mairie360.fullname" . }}-l7-bffs
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: bff
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+        - matchLabels:
+            app.kubernetes.io/component: bff
+      toPorts:
+        - ports:
+            {{- range $name, $cfg := .Values.global.bffs.instances }}
+            - port: {{ $cfg.port | quote }}
+              protocol: TCP
+            {{- end }}
+          rules:
+            http:
+              - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "mairie360.fullname" . }}-l7-apis
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: bff
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+          rules:
+            http:
+              - {}
+{{- end }}

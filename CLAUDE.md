@@ -26,15 +26,11 @@ helm unittest ./charts/mairie360-stack
 # Render + schema-validate every instance (this is what CI does)
 for v in clusters/*/instances/*; do
   helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-    | kubeconform -strict -summary -schema-location default || echo "KO: $v"
+    | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy || echo "KO: $v"
 done
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
-
-# End-to-end test of the Kubernetes layer on a throwaway Kind + Cilium cluster
-# (needs docker, kind, cilium CLI, chainsaw, jq; KEEP=1 keeps the cluster)
-tests/e2e/run.sh
 
 # Generate an instance's SealedSecrets (required before its first sync)
 ./scripts/seal-secrets.sh <kube-context> mairie360 dev
@@ -101,10 +97,10 @@ Traefik disabled) → `cert-manager-appset` → `cluster-issuer-appset`
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
 
-### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
+### The umbrella chart: `charts/mairie360-stack` (v0.2.x)
 
-Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `backup`, `APIs`, `BFFs`, `Fronts`.
+Umbrella `type: application` chart with 6 local subcharts (`file://` deps):
+`database`, `redis`, `liquibase`, `APIs`, `BFFs`, `Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
   `range $name, $cfg := .Values.instances` and emits one Deployment + Service per
@@ -121,8 +117,8 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   `frontend` / `database` / `cache` / `migration`) — that is what NetworkPolicies
   select on. The legacy `app: <instance>` label is kept because
   `spec.selector` is immutable on existing Deployments/StatefulSets.
-- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and the
-  Redis ACL passwords always come from Secrets. `*.secret.create` /
+- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and
+  `redis-password` always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
@@ -134,53 +130,13 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
-- **Postgres access is per-role (MAIR-114).** `<release>-database-secret`
-  carries `POSTGRES_USER`/`POSTGRES_PASSWORD` (the `postgres` superuser,
-  used only by the `wait-for-db` init container and the Liquibase job to run
-  migrations) plus one `<ROLE>_PASSWORD` key per entry of
-  `global.database.roles` (`core-api`, `project-api`, `calendar-api`,
-  `message-api`, `elearning-api` — the 5 APIs with a schema; `email-api` /
-  `files-api` have no repo yet, so no role). The `APIs` chart gives an
-  instance in that list `DB_USER`/`DB_PASSWORD` from its own role and
-  password; any other instance gets no `DB_USER`/`DB_PASSWORD` at all rather
-  than falling back to the superuser. The Liquibase job additionally reads
-  each `<ROLE>_PASSWORD` and passes it as a changelog parameter
-  (`-D<role>_password`, role name underscored) so the `Devops/Database`
-  changelog can `CREATE ROLE ... PASSWORD :role_password` and grant it
-  table-level access to its module's schema, without the password ever
-  appearing in the chart. **Credentials aren't the only boundary**: the
-  `database` NetworkPolicy only admits `app.kubernetes.io/component: api`,
-  `component: migration` and `component: backup` pods on 5432 — BFFs and
-  fronts have no network path to Postgres at all, they only ever reach it
-  through an API.
-- **`backup` (MAIR-119), off by default.** A CronJob that streams
-  `pg_dump -Fc` straight into `restic backup --stdin` against an
-  S3-compatible bucket — restic brings encryption at rest, dedup and
-  retention (`restic forget --prune`), so the dump itself never touches a
-  disk on either side. Authenticates to Postgres as the same superuser as
-  Liquibase (`<release>-database-secret`), because no single per-API role
-  can read every module's schema. `<release>-backup-secret`
-  (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`RESTIC_PASSWORD`) is sealed
-  the same way as the other per-instance secrets, but those AWS keys can't
-  be generated — `scripts/seal-secrets.sh` only writes that Secret when
-  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are exported before calling
-  it. `templates/restore-job.yaml` (disabled by default, `restore.enabled`)
-  is the disaster-recovery counterpart: no Argo CD hook annotation, run by
-  hand via `helm template … | kubectl apply -f -` (see
-  `charts/backup/README.md`) rather than left enabled in a tracked values
-  file, or Argo CD would recreate it every sync.
-- `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
-  writes `/acl/users.acl` at container start from per-role env vars
-  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
-  `global.bffs.instances`) and starts `redis-server --aclfile`. The `default`
-  account is disabled; `admin` (Secret key `redis-password`) is for probes and
-  `helm test`. Fronts have no Redis account — they never used it. `helm test`
-  asserts that an unauthenticated `PING` is refused and that `admin` works.
+- `redis` mounts its ConfigMap and passes the password via `--requirepass`
+  (the official image ignores `REDIS_PASSWORD`). `helm test` asserts that an
+  unauthenticated `PING` is refused.
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data →
-  `1` migrations and the backup CronJob → `2` APIs → `3` BFFs → `4` Fronts →
-  `5` Ingress.
+  `1` migrations → `2` APIs → `3` BFFs → `4` Fronts → `5` Ingress.
 
 ### Network model
 
@@ -201,30 +157,31 @@ ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
 `email-api` (SMTP) and `files-api` (S3) are declared in `egressAllowCIDRs`.
 
+### Network observability (Cilium / Hubble)
+
+The `k3s` machines run Cilium as CNI instead of flannel (installed by the
+`ansible` repo's `k8s_node` role, not by Argo CD — without a CNI no pod
+starts). Cilium enforces the NetworkPolicies above and Hubble records every
+flow, with its verdict, on the hops of the diagram. `scripts/hubble-flows.sh
+<context> <env>` prints them hop by hop from the workstation, through a
+port-forward to `hubble-relay`.
+
+`templates/cilium-l7-visibility.yaml` adds two `CiliumNetworkPolicy` (fronts →
+bffs, bffs → apis) with an L7 HTTP rule, gated by
+`global.networkPolicy.ciliumL7Visibility` (off by default — a cluster without
+the Cilium CRDs cannot sync it; `dev` turns it on). It only adds visibility:
+it allows nothing the Kubernetes NetworkPolicies do not already allow.
+`scripts/verify.sh` step 10 checks the Cilium agent and `hubble-relay` are up.
+`kubeconform`'s default schema store has no schema for `CiliumNetworkPolicy`:
+render+validate commands need `-skip CiliumNetworkPolicy` (see **Common
+commands** above), or `dev` (the only instance with `ciliumL7Visibility: true`)
+reports it as an error.
+
 ### Chart unit tests (`charts/mairie360-stack/tests/`)
 
 `helm unittest` asserts what rendering alone cannot: that policy selectors match
 the labels actually set on pods, that no secret is inlined, that the migration
 Job is Argo-CD-safe, and that an image without an explicit tag fails the render.
-
-### End-to-end tests (`tests/e2e/`)
-
-`run.sh` (also `.github/workflows/k8s-e2e.yaml`) creates a Kind cluster with
-**Cilium**, the CNI of the real machines, installs the umbrella chart with
-`tests/e2e/values.yaml`, then runs `helm test` and the Chainsaw tests. It
-tests the Kubernetes layer, not the apps: every API/BFF/front runs
-`traefik/whoami` (answers on `/health`, port from `WHOAMI_PORT_NUMBER`),
-while Postgres, Redis and Liquibase keep their real public GHCR images.
-
-- `chainsaw/stack`: migration Job done, every Service has ready endpoints,
-  no pod stuck or restarted.
-- `chainsaw/network-policies`: probe pods carrying each
-  `app.kubernetes.io/component` try every hop (`check-flows.sh`). A denied
-  flow must *time out* (Cilium drops silently); a fast failure is reported
-  as an error, so a broken Service can't pass as "deny".
-- `chainsaw/data-access`: Redis ACL (prefix and command restrictions) and
-  the per-API Postgres role logging in with its Secret password. The latter
-  depends on the `Devops/Database` images actually creating those roles.
 
 ### Values layout
 
@@ -276,36 +233,13 @@ and maintaining a parallel Kind topology is what produced the earlier
   replicated one. Leave it at 1.
 - Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): fine
   for a cache, data-losing for sessions.
-- **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
-  hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
-  sync with `global.apis.instances` / `global.bffs.instances`; `DB_ROLES`
-  must be kept in sync with the shorter `global.database.roles` (both in
-  `charts/mairie360-stack/values.yaml`) — add a role there and forget the
-  script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)
-  or `<ROLE>_PASSWORD` (Postgres) key to read, `CreateContainerConfigError`.
-- **Rotating `POSTGRES_PASSWORD` or a `<ROLE>_PASSWORD` doesn't rotate the
-  live role.** Postgres only reads `POSTGRES_PASSWORD` on first init, and the
-  Liquibase changelog only reads a `<ROLE>_PASSWORD` changelog parameter on
-  the `CREATE ROLE` changeset, which doesn't rerun. A `--rotate` needs a
-  matching `ALTER ROLE ... PASSWORD` run by hand.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
-- **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
-  too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
-  derives its master key from that one password, and nothing here runs the
-  equivalent of `restic key passwd` against the existing repository. Rotate
-  it naively and the *whole* bucket (every past snapshot, not just future
-  ones) becomes permanently unreadable. Run `restic key passwd` with the old
-  and new password first, or don't rotate it at all.
 
 ## Known gaps (not addressed in this chart)
 
-- **No PITR, no failover.** `database` is still a plain single-replica
-  StatefulSet — the `backup` subchart (MAIR-119) covers point-in-time
-  snapshots to off-machine S3 storage with a documented restore procedure,
-  but a lost volume means restoring from the last backup, not zero data
-  loss, and there is no automatic failover. CloudNativePG is the intended
-  replacement for both.
+- No database backups. `database` is a plain StatefulSet: no PITR, no failover,
+  no restore procedure. CloudNativePG is the intended replacement.
 - `runAsNonRoot: false` in every `containerSecurityContext`: the app images do
   not declare a non-root `USER`. Fix the Dockerfiles, then flip the flag and
   make the `trivy config` CI job blocking.
