@@ -39,8 +39,10 @@ Le provisionnement des machines est dans le dépôt
 3. Générer ses secrets et pousser :
 
 ```bash
-# RESEND_API_KEY : clé API Resend, scellée comme SMTP_PASSWORD (e-mails de core-api)
-RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh <contexte-kube> <org> <env>
+# S3_ACCESS_KEY / S3_SECRET_KEY : couple de clés Object Storage (Scaleway)
+# lu par elearning-api. Sans elles, elearning-api ne démarre pas.
+S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... \
+  ./scripts/seal-secrets.sh <contexte-kube> <org> <env>
 git add clusters/<org>/instances/<env>/secrets.yaml
 git commit -m "chore(<org>/<env>): secrets scellés" && git push
 ```

@@ -19,10 +19,11 @@
 # contrôleur sealed-secrets déployé (bootstrap/appsets/sealed-secrets-appset.yaml).
 #
 # Environment variables read by this script:
-#   RESEND_API_KEY  Resend API key, stored as SMTP_PASSWORD in <env>-app-secrets
-#                   (core-api sends its e-mails through smtp.resend.com). When
-#                   unset, the value already present on the cluster is kept;
-#                   with neither, the key is sealed empty and e-mails will fail.
+#   S3_ACCESS_KEY / S3_SECRET_KEY  Object Storage (Scaleway S3) key pair, stored
+#                   under the same names in <env>-app-secrets (elearning-api
+#                   stores course attachments there). When unset, the values
+#                   already present on the cluster are kept; with neither, the
+#                   keys are sealed empty and elearning-api will not start.
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
@@ -71,18 +72,25 @@ fi
 [ -n "$PGPASS" ]    || { PGPASS="$(gen)";    echo "  POSTGRES_PASSWORD: généré"; }
 [ -n "$REDISPASS" ] || { REDISPASS="$(gen)"; echo "  redis-password   : généré"; }
 
-# The Resend API key cannot be generated: it comes from RESEND_API_KEY, or is
-# kept from the cluster. --rotate does not clear it (a new key is issued from
-# the Resend dashboard, then passed through RESEND_API_KEY).
-SMTPPASS="${RESEND_API_KEY:-}"
-if [ -n "$SMTPPASS" ]; then
-  echo "  SMTP_PASSWORD    : from RESEND_API_KEY"
+# The S3 key pair cannot be generated: it comes from S3_ACCESS_KEY /
+# S3_SECRET_KEY, or is kept from the cluster. --rotate does not clear it (a new
+# pair is issued from the Scaleway console, then passed through those vars).
+S3AK="${S3_ACCESS_KEY:-}"
+S3SK="${S3_SECRET_KEY:-}"
+if [ -n "$S3AK" ] && [ -n "$S3SK" ]; then
+  echo "  S3_ACCESS_KEY    : from S3_ACCESS_KEY"
+  echo "  S3_SECRET_KEY    : from S3_SECRET_KEY"
+elif [ -n "$S3AK" ] || [ -n "$S3SK" ]; then
+  echo "S3_ACCESS_KEY and S3_SECRET_KEY must be set together" >&2
+  exit 1
 else
-  SMTPPASS="$(prev "${RELEASE}-app-secrets" SMTP_PASSWORD)"
-  if [ -n "$SMTPPASS" ]; then
-    echo "  SMTP_PASSWORD    : kept from cluster"
+  S3AK="$(prev "${RELEASE}-app-secrets" S3_ACCESS_KEY)"
+  S3SK="$(prev "${RELEASE}-app-secrets" S3_SECRET_KEY)"
+  if [ -n "$S3AK" ] && [ -n "$S3SK" ]; then
+    echo "  S3_ACCESS_KEY    : kept from cluster"
+    echo "  S3_SECRET_KEY    : kept from cluster"
   else
-    echo "  SMTP_PASSWORD    : EMPTY (set RESEND_API_KEY) — core-api cannot send e-mails" >&2
+    echo "  S3_*_KEY         : EMPTY (set S3_ACCESS_KEY and S3_SECRET_KEY) — elearning-api will not start" >&2
   fi
 fi
 
@@ -101,7 +109,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 kubectl create secret generic "${RELEASE}-app-secrets" \
   --namespace "$NS" \
   --from-literal=JWT_SECRET="$JWT" \
-  --from-literal=SMTP_PASSWORD="$SMTPPASS" \
+  --from-literal=S3_ACCESS_KEY="$S3AK" \
+  --from-literal=S3_SECRET_KEY="$S3SK" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
@@ -135,8 +144,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
-  echo "# Change the Resend API key (SMTP_PASSWORD of core-api):"
-  echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
+  echo "#   S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do
