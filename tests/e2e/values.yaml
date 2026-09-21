@@ -27,6 +27,9 @@ global:
 secrets:
   create: true
   jwtSecret: "e2e-jwt-not-a-secret"
+  # Placeholders: app-secrets requires the S3 pair when create=true.
+  s3AccessKey: "e2e-s3-access-not-a-secret"
+  s3SecretKey: "e2e-s3-secret-not-a-secret"
 
 ingress:
   enabled: true
@@ -67,15 +70,13 @@ redis:
     project-api: "e2e-project-api"
     calendar-api: "e2e-calendar-api"
     message-api: "e2e-message-api"
-    email-api: "e2e-email-api"
-    files-api: "e2e-files-api"
     elearning-api: "e2e-elearning-api"
     user-bff: "e2e-user-bff"
     project-bff: "e2e-project-bff"
     calendar-bff: "e2e-calendar-bff"
     message-bff: "e2e-message-bff"
-    email-bff: "e2e-email-bff"
-    files-bff: "e2e-files-bff"
+    dashboard-bff: "e2e-dashboard-bff"
+    settings-bff: "e2e-settings-bff"
     elearning-bff: "e2e-elearning-bff"
 
 # Small requests so that the whole stack fits on a CI runner (2 vCPU).
@@ -88,8 +89,6 @@ APIs:
     project-api:   { enabled: true, image: *whoami, env: *api-env }
     calendar-api:  { enabled: true, image: *whoami, env: *api-env }
     message-api:   { enabled: true, image: *whoami, env: *api-env }
-    email-api:     { enabled: true, image: *whoami, env: *api-env }
-    files-api:     { enabled: true, image: *whoami, env: *api-env }
     elearning-api: { enabled: true, image: *whoami, env: *api-env }
 
 BFFs:
@@ -99,8 +98,8 @@ BFFs:
     project-bff:   { enabled: true, port: 4001, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4001" }] }
     calendar-bff:  { enabled: true, port: 4002, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4002" }] }
     message-bff:   { enabled: true, port: 4003, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4003" }] }
-    email-bff:     { enabled: true, port: 4004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4004" }] }
-    files-bff:     { enabled: true, port: 4005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4005" }] }
+    dashboard-bff: { enabled: true, port: 4004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4004" }] }
+    settings-bff:  { enabled: true, port: 4005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4005" }] }
     elearning-bff: { enabled: true, port: 4006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "4006" }] }
 
 Fronts:
@@ -110,7 +109,7 @@ Fronts:
     project-front:   { enabled: true, port: 5001, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5001" }] }
     calendar-front:  { enabled: true, port: 5002, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5002" }] }
     message-front:   { enabled: true, port: 5003, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5003" }] }
-    email-front:     { enabled: true, port: 5004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5004" }] }
-    files-front:     { enabled: true, port: 5005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5005" }] }
+    dashboard-front: { enabled: true, port: 5004, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5004" }] }
+    settings-front:  { enabled: true, port: 5005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5005" }] }
     elearning-front: { enabled: true, port: 5006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5006" }] }
     admin-front:     { enabled: true, port: 5007, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5007" }] }
