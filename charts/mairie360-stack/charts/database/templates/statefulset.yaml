@@ -1,79 +1,103 @@
 apiVersion: apps/v1
-kind: StatefulSet # Recommended for databases to ensure stable network IDs and persistent storage binding
+kind: StatefulSet
 metadata:
   name: {{ include "database.fullname" . }}
   labels:
-    app: {{ include "database.name" . }}
+    {{- include "database.labels" . | nindent 4 }}
+  annotations:
+    # Couche de données : première à démarrer.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
-  # serviceName is required for StatefulSets to manage the DNS identity of the pods
-  serviceName: {{ include "database.fullname" . }}
-  replicas: 1 # Single node for solo cluster setup
+  serviceName: {{ include "database.fullname" . }}-hl
+  replicas: 1
   selector:
     matchLabels:
-      app: {{ include "database.name" . }}
+      {{- include "database.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: {{ include "database.name" . }}
+        {{- include "database.podLabels" . | nindent 8 }}
     spec:
-      # fsGroup ensures that the mounted volume is owned by the group 999 (postgres)
+      {{- with .Values.global.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
       securityContext:
         fsGroup: 999
+      {{- if .Values.initChown.enabled }}
       initContainers:
-        # 1. On change le chemin de l'initContainer
         - name: init-permissions
-          image: busybox
+          image: busybox:1.36
           command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql"]
+          securityContext:
+            runAsUser: 0
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
+      {{- end }}
       containers:
         - name: database
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - "-c"
-            - "max_connections=200"
+            - "max_connections={{ .Values.postgresql.maxConnections }}"
             - "-c"
-            - "shared_buffers=128MB"
+            - "shared_buffers={{ .Values.postgresql.sharedBuffers }}"
           securityContext:
             runAsUser: 999
             runAsGroup: 999
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           ports:
-            - containerPort: 5432
-          # Readiness probe ensures the DB is ready to accept connections before other services (like Liquibase) try to connect
+            - name: postgres
+              containerPort: 5432
+          env:
+            # Une seule source de vérité : le Secret. Jamais les values.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "database.secretName" . }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "database.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "database.secretName" . }}
+                  key: POSTGRES_DB
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
             initialDelaySeconds: 5
             periodSeconds: 10
-          # Liveness probe restarts the container if the database process hangs
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
-            initialDelaySeconds: 15
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
+            initialDelaySeconds: 30
             periodSeconds: 20
-          env:
-            - name: POSTGRES_USER
-              value: {{ .Values.env.POSTGRES_USER | quote }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.env.POSTGRES_PASSWORD | quote }}
-            - name: POSTGRES_DB
-              value: {{ .Values.env.POSTGRES_DB | quote }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
               subPath: postgres-data
-      imagePullSecrets:
-        - name: ghcr-secret
-
-  # volumeClaimTemplates automatically creates a PersistentVolumeClaim for each pod in the StatefulSet
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
   volumeClaimTemplates:
     - metadata:
-        name: data # This name must match the volumeMounts name in the container
+        name: data
       spec:
         accessModes:
           - {{ .Values.persistence.accessMode | default "ReadWriteOnce" }}
-        storageClassName: {{ .Values.persistence.storageClass | default "standard" }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.persistence.size | default "1Gi" }}

@@ -1,0 +1,35 @@
+# =============================================================================
+# Application racine (app-of-apps) — appliquée UNE FOIS par Ansible sur la
+# machine Argo CD de chaque groupe (rôle k8s_argocd).
+#
+# Elle synchronise bootstrap/appsets/, qui installe le socle (cert-manager,
+# sealed-secrets, ingress-nginx, ClusterIssuer) sur les machines d'INSTANCE
+# du groupe — pas sur la machine Argo CD elle-même.
+#
+# L'ApplicationSet qui déploie Mairie360 n'est PAS ici : il dépend de l'org_id
+# et est rendu par Ansible (roles/k8s_argocd/templates/instances-appset.yaml.j2).
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/mairie360/Deploiment.git
+    targetRevision: main
+    path: bootstrap/appsets
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

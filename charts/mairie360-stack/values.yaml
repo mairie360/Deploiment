@@ -1,46 +1,151 @@
-# --- 1. Variables Globales ---
-global:
-  domain: "mairie360-eip.fr" # Utilisé par l'Ingress pour générer les sous-domaines
+# =============================================================================
+# mairie360-stack — valeurs par défaut
+#
+# Ce fichier définit l'INTERFACE du chart. Les fichiers d'environnement
+# (clusters/<cluster>/instances/<env>/values.yaml) ne font que surcharger
+# ce qui change d'un environnement à l'autre : domaine, tags d'images,
+# tailles, secrets.
+#
+# Règle : tout ce qui est sous `global:` est visible par les sous-charts
+# (APIs, BFFs, Fronts, database, redis, liquibase). Le reste ne l'est pas.
+# =============================================================================
 
+global:
+  # Domaine public. Les fronts sont exposés sur https://<front>.<domain>
+  domain: "mairie360-eip.fr"
+
+  # Nom du Secret de type dockerconfigjson utilisé par TOUS les pods pour
+  # tirer les images GHCR. Mettre "" si les images sont publiques.
+  imagePullSecret: "ghcr-secret"
+
+  # Namespace où tourne le contrôleur d'ingress. Seul ce namespace est
+  # autorisé à joindre les fronts (NetworkPolicy).
+  ingressNamespace: "ingress-nginx"
+
+  # Namespace de Prometheus, s'il existe. Autorise le scraping des pods.
+  # Laisser "" si pas de monitoring.
+  monitoringNamespace: ""
+
+  networkPolicy:
+    # Interdit tout trafic entrant non explicitement autorisé (default-deny)
+    # puis ouvre uniquement les flux ingress → fronts → bffs → apis → data.
+    # NB : sur Kind, le CNI par défaut ignore les NetworkPolicy. Sur k3s
+    # elles sont appliquées.
+    enabled: true
+    # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
+    # car email-api (SMTP) et files-api (S3) ont besoin d'Internet ; à
+    # activer une fois les destinations externes connues et déclarées dans
+    # `egressAllowCIDRs`.
+    egressDefaultDeny: false
+    egressAllowCIDRs: []
+
+  secrets:
+    # Secret contenant les secrets applicatifs partagés (JWT_SECRET…).
+    # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
+    appSecretName: ""
+
+  database:
+    # Nom du Secret Postgres (clés POSTGRES_USER / POSTGRES_PASSWORD /
+    # POSTGRES_DB). Défaut : <release>-database-secret.
+    secretName: ""
+
+  # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
+  # alimentent à la fois les Services et les variables *_URL injectées dans
+  # les BFFs et les fronts. Les conteneurs APIs écoutent tous sur 3000 ; un
+  # port de Service différent par API n'est pas nécessaire (chaque Service a
+  # sa propre IP) mais est conservé pour ne pas casser les URLs existantes.
+  apis:
+    instances:
+      core-api:      { port: 3000 }
+      project-api:   { port: 3001 }
+      calendar-api:  { port: 3002 }
+      message-api:   { port: 3003 }
+      email-api:     { port: 3004 }
+      files-api:     { port: 3005 }
+      elearning-api: { port: 3006 }
+  bffs:
+    instances:
+      user-bff:      { port: 4000 }
+      project-bff:   { port: 4001 }
+      calendar-bff:  { port: 4002 }
+      message-bff:   { port: 4003 }
+      email-bff:     { port: 4004 }
+      files-bff:     { port: 4005 }
+      elearning-bff: { port: 4006 }
+
+# -----------------------------------------------------------------------------
+# Secret de registre (templates/registry-secret.yaml)
+# Ne renseigner `pullSecretData` QUE pour un cluster local jetable. En
+# environnement réel, le Secret `ghcr-secret` est fourni par un SealedSecret
+# (voir scripts/seal-secrets.sh) et cette valeur reste vide.
+# -----------------------------------------------------------------------------
 image:
   pullSecret: "ghcr-secret"
   pullSecretData: ""
-  pullPolicy: "Always"
 
-# --- 2. Configuration Ingress ---
-# Ces valeurs alimentent le template ingress.yaml que tu as posté
+# -----------------------------------------------------------------------------
+# Secrets applicatifs (templates/app-secrets.yaml)
+# create: true  -> le chart crée <release>-app-secrets à partir des valeurs
+#                  ci-dessous. RÉSERVÉ AU CLUSTER LOCAL.
+# create: false -> le Secret doit exister (SealedSecret). C'est le mode
+#                  attendu sur dev / staging / prod.
+# -----------------------------------------------------------------------------
+secrets:
+  create: false
+  jwtSecret: ""
+
+# -----------------------------------------------------------------------------
+# Ingress unique pour tous les fronts activés (templates/ingress.yaml)
+# -----------------------------------------------------------------------------
 ingress:
   enabled: true
   className: "nginx"
+  # ClusterIssuer cert-manager. Commencer par letsencrypt-staging pour valider
+  # la chaîne, puis passer à letsencrypt-prod.
   clusterIssuer: "letsencrypt-prod"
-  annotations:
-    # On ajoute des annotations utiles par défaut
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  hosts: [] # À remplir dans les fichiers d'env (dev/prod) si besoin de routes spécifiques
+  # Nom du Secret TLS. Défaut : <release>-fronts-tls.
+  tlsSecretName: ""
+  # Annotations propres au contrôleur, à définir par environnement. Exemples :
+  #   nginx   : nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  #             nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  #   traefik : traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
+  annotations: {}
 
-# --- 3. Configuration des Sous-Charts (Fronts & BFFs) ---
-# Note : Les noms ici doivent correspondre EXACTEMENT aux noms dans ton dossier charts/
-Fronts:
+# -----------------------------------------------------------------------------
+# Objets supplémentaires rendus tels quels (SealedSecret, ExternalSecret…).
+# Alimenté par clusters/<cluster>/instances/<env>/secrets.yaml.
+# -----------------------------------------------------------------------------
+extraObjects: []
+
+# -----------------------------------------------------------------------------
+# Sous-charts. Les clés doivent correspondre EXACTEMENT aux noms des dossiers
+# dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase).
+# Les `instances` sont renseignées par environnement.
+# -----------------------------------------------------------------------------
+database:
   enabled: true
-  # Ressources par défaut pour TOUS les fronts (standalone)
+redis:
+  enabled: true
+liquibase:
+  enabled: true
+
+APIs:
+  enabled: true
   resources:
-    requests:
-      memory: "64Mi"
-      cpu: "50m"
-    limits:
-      memory: "256Mi"
-      cpu: "200m"
-  # Cette liste sera surchargée par tes fichiers dev/values.yaml ou prod/values.yaml
+    requests: { memory: "64Mi", cpu: "50m" }
+    limits:   { memory: "256Mi", cpu: "500m" }
   instances: {}
 
 BFFs:
   enabled: true
   resources:
-    requests:
-      memory: "32Mi"
-      cpu: "20m"
-    limits:
-      memory: "128Mi"
-      cpu: "100m"
+    requests: { memory: "128Mi", cpu: "20m" }
+    limits:   { memory: "512Mi", cpu: "500m" }
+  instances: {}
+
+Fronts:
+  enabled: true
+  resources:
+    requests: { memory: "64Mi", cpu: "50m" }
+    limits:   { memory: "256Mi", cpu: "500m" }
   instances: {}

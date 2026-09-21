@@ -1,86 +1,46 @@
+# Sous-chart APIs — une Deployment + un Service par entrée de `instances`.
+# Les valeurs ci-dessous sont les défauts ; chaque environnement surcharge
+# `instances.<nom>.image.tag` (c'est ce que fait argocd-image-updater).
+
+# Ressources par défaut, surchargeables par instance (`instances.<nom>.resources`).
 resources:
-  requests:
-    memory: "64Mi"
-    cpu: "50m"
-  limits:
-    memory: "256Mi"
+  requests: { memory: "64Mi", cpu: "50m" }
+  limits:   { memory: "256Mi", cpu: "500m" }
 
-instances:
-  core-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/core-api
-      tag: latest
-    env:
-      - name: PUBLIC_URL
-        value: "http://core.development.mairie360.fr"
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
+# Durcissement des conteneurs. `runAsNonRoot` est laissé à false tant que les
+# images ne sont pas vérifiées : à passer à true dès que le Dockerfile déclare
+# un USER non-root, sinon le pod ne démarrera pas.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
 
-  project-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/project-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
+# Stratégie de mise à jour. maxSurge=0 évite de doubler la RAM sur une petite
+# VM mais provoque une coupure à chaque déploiement avec replicaCount=1.
+strategy:
+  maxSurge: 0
+  maxUnavailable: 1
 
-  calendar-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/calendar-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
+# Variables d'environnement communes à toutes les APIs (en plus de celles
+# injectées par le chart : DB_*, REDIS_*, JWT_SECRET).
+commonEnv:
+  - name: JWT_TIMEOUT
+    value: "3600"
+  - name: TOKIO_WORKER_THREADS
+    value: "2"
 
-  message-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/message-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
-
-  email-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/email-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
-
-  files-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/files-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
-
-  elearning-api:
-    enabled: true
-    image:
-      repository: ghcr.io/mairie360/elearning-api
-      tag: latest
-    env:
-      - name: JWT_SECRET
-        value: "b\"secret\""
-      - name: JWT_TIMEOUT
-        value: "3600"
+# `env` d'une instance passe par `tpl` : on peut y écrire
+#   value: "http://{{ .Release.Name }}-core-api:3000"
+# Renseigné par environnement (clusters/<cluster>/instances/<env>/values.yaml) :
+#   instances:
+#     core-api:
+#       enabled: true
+#       image: { repository: ghcr.io/mairie360/core-api, tag: "dev-abc1234" }
+#       replicaCount: 1
+#       resources: {}          # optionnel, sinon `resources` ci-dessus
+#       env: []                # optionnel, passe par tpl
+instances: {}

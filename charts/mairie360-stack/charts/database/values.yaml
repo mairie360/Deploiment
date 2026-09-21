@@ -1,28 +1,45 @@
-# Enable the database chart
+# Sous-chart database — PostgreSQL en StatefulSet mono-instance.
+#
+# Limites connues (voir docs/ARCHITECTURE) : pas de sauvegarde, pas de
+# bascule, pas de réplication. Le passage à CloudNativePG est la cible ;
+# ce chart est une étape intermédiaire propre.
+
 enabled: true
 
 image:
   repository: "ghcr.io/mairie360/database"
   tag: "latest"
-  pullSecret: "ghcr-secret"
+  pullPolicy: "IfNotPresent"
 
-persistence:
-  enabled: true
-  size: 2Gi
+# Secret POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB.
+# create: true  -> créé depuis `env` (cluster local UNIQUEMENT)
+# create: false -> fourni par un SealedSecret nommé <release>-database-secret
+secret:
+  create: false
 
-resources:
-  requests:
-    memory: "128Mi" # Divisé par 2
-    cpu: "100m"
-  limits:
-    memory: "512Mi"
-
-# Hardcoded environment variables for local run
+# Valeurs utilisées uniquement si secret.create=true.
 env:
   POSTGRES_USER: "postgres"
-  POSTGRES_PASSWORD: "mysecretpassword"
+  POSTGRES_PASSWORD: ""
   POSTGRES_DB: "mairie_db"
 
-# Vault is disabled as requested
-vault:
-  enabled: false
+persistence:
+  size: 2Gi
+  # "" = StorageClass par défaut du cluster (local-path sur k3s / Kind).
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+postgresql:
+  maxConnections: 200
+  sharedBuffers: "128MB"
+
+resources:
+  requests: { memory: "128Mi", cpu: "100m" }
+  limits:   { memory: "512Mi", cpu: "1000m" }
+
+# L'image postgres exige que le répertoire de données appartienne à l'UID
+# 999. Sur la plupart des StorageClass (local-path inclus), fsGroup ne
+# suffit pas : un initContainer root fait le chown. À désactiver si le
+# volume est déjà correctement possédé ou sous Pod Security "restricted".
+initChown:
+  enabled: true

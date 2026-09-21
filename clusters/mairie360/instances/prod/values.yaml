@@ -1,0 +1,180 @@
+# ============================================================================
+# mairie360 / prod
+#
+# Une machine = un cluster k3s = un namespace mairie360-<env>.
+# Déployé par l'ApplicationSet 'instances' de l'Argo CD du groupe mairie360,
+# vers le cluster enregistré sous le nom 'prod'.
+#
+# Ce fichier ne contient QUE ce qui change d'un déploiement à l'autre.
+# Les défauts sont dans charts/mairie360-stack/values.yaml.
+# Les tags d'images sont mis à jour par argocd-image-updater.
+# ============================================================================
+
+global:
+  domain: "mairie360-eip.fr"
+  imagePullSecret: "ghcr-secret"
+  # ingress-nginx est le seul contrôleur : k3s est installé avec Traefik
+  # désactivé (rôle Ansible k8s_node).
+  ingressNamespace: "ingress-nginx"
+  networkPolicy:
+    enabled: true
+    # Passer à true une fois les destinations externes de email-api (SMTP)
+    # et files-api (S3) déclarées dans egressAllowCIDRs.
+    egressDefaultDeny: false
+
+# Secrets fournis par SealedSecret (secrets.yaml, généré par
+# scripts/seal-secrets.sh mairie360 prod). Jamais de valeur en clair ici.
+secrets:
+  create: false
+
+ingress:
+  enabled: true
+  className: "nginx"
+  clusterIssuer: "letsencrypt-prod"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+database:
+  secret:
+    create: false
+  persistence:
+    size: "20Gi"
+    storageClass: "local-path"
+
+redis:
+  secret:
+    create: false
+
+liquibase:
+  image:
+    tag: "v0.1.0"
+  db:
+    name: "mairie_db_prod"
+
+APIs:
+  instances:
+    core-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/core-api, tag: "v0.1.0" }
+      env:
+        - name: PUBLIC_URL
+          value: "https://login.mairie360-eip.fr"
+    project-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/project-api, tag: "v0.1.0" }
+    calendar-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "v0.1.0" }
+    message-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/message-api, tag: "v0.1.0" }
+    email-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/email-api, tag: "v0.1.0" }
+    files-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/files-api, tag: "v0.1.0" }
+    elearning-api:
+      enabled: true
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "v0.1.0" }
+
+BFFs:
+  instances:
+    user-bff:
+      enabled: true
+      port: 4000
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    project-bff:
+      enabled: true
+      port: 4001
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "v0.1.0" }
+    calendar-bff:
+      enabled: true
+      port: 4002
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "v0.1.0" }
+      env:
+        - name: CALENDAR_API_BASE_PATH
+          value: "http://{{ .Release.Name }}-calendar-api:3002/api"
+    message-bff:
+      enabled: true
+      port: 4003
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "v0.1.0" }
+      env:
+        - name: MESSAGE_API_BASE_PATH
+          value: "http://{{ .Release.Name }}-message-api:3003/api"
+    email-bff:
+      enabled: true
+      port: 4004
+      image: { repository: ghcr.io/mairie360/bff-email, tag: "v0.1.0" }
+    files-bff:
+      enabled: true
+      port: 4005
+      image: { repository: ghcr.io/mairie360/bff-files, tag: "v0.1.0" }
+    elearning-bff:
+      enabled: true
+      port: 4006
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "v0.1.0" }
+
+Fronts:
+  instances:
+    login-front:
+      enabled: true
+      port: 5000
+      image: { repository: ghcr.io/mairie360/login-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    project-front:
+      enabled: true
+      port: 5001
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    calendar-front:
+      enabled: true
+      port: 5002
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    message-front:
+      enabled: true
+      port: 5003
+      image: { repository: ghcr.io/mairie360/message-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    email-front:
+      enabled: true
+      port: 5004
+      image: { repository: ghcr.io/mairie360/email-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    files-front:
+      enabled: true
+      port: 5005
+      image: { repository: ghcr.io/mairie360/files-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    elearning-front:
+      enabled: true
+      port: 5006
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"
+    admin-front:
+      enabled: true
+      port: 5007
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "v0.1.0" }
+      env:
+        - name: COOKIE_DOMAIN
+          value: ".mairie360-eip.fr"

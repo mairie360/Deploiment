@@ -1,0 +1,49 @@
+# ClusterIssuer cert-manager, appliqués sur TOUS les clusters par
+# bootstrap/appsets/cluster-issuer-appset.yaml.
+#
+# Le solver HTTP-01 cible explicitement la classe "nginx", installée par
+# bootstrap/appsets/ingress-nginx-appset.yaml sur chaque instance. Chaque hôte
+# doit résoudre publiquement vers l'IP de cette instance avant l'émission.
+#
+# ORDRE DE MISE EN ROUTE : utiliser letsencrypt-staging tant que la chaîne
+# n'est pas validée (quota quasi illimité, certificats non reconnus par les
+# navigateurs), puis basculer sur letsencrypt-prod. Le quota prod est de 50
+# certificats par domaine et par semaine : il s'épuise vite en débogage.
+#
+# LIMITE DU HTTP-01 : un challenge par hôte, soit 8 validations par
+# environnement ici. Le passage au DNS-01 permettrait un seul certificat
+# wildcard *.{env}.mairie360-eip.fr — voir docs/ARCHITECTURE §5.
+#
+# L'alias "letsencrypt-local" a été supprimé : plus aucun values ne le
+# référence.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: quentin.tennerel@epitech.eu
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+---
+# Let's Encrypt staging : quota large, certificats non fiables par le navigateur.
+# À utiliser pour valider une nouvelle stack sans épuiser le quota prod.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: quentin.tennerel@epitech.eu
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx

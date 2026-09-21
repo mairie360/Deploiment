@@ -1,21 +1,24 @@
 {{- range $bffName, $bffConfig := .Values.instances }}
 {{- if $bffConfig.enabled }}
+{{- $ctx := dict "root" $ "name" $bffName }}
+{{- $port := $bffConfig.port | default 4000 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $.Release.Name }}-{{ $bffName }}
   labels:
+    {{- include "bffs.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $bffName }}
     app: {{ $bffName }}
-    component: bff
 spec:
   type: ClusterIP
   ports:
-      - port: {{ $bffConfig.port | default 4000 }}
-        targetPort: {{ $bffConfig.port | default 4000 }}
-        protocol: TCP
-        name: http
+    - name: http
+      port: {{ $port }}
+      targetPort: http
+      protocol: TCP
   selector:
-    app: {{ $bffName }}
+    {{- include "bffs.instanceSelectorLabels" $ctx | nindent 4 }}
 {{- end }}
 {{- end }}

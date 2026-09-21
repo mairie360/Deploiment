@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: {{ include "redis.fullname" . }}
   labels:
-    app: {{ include "redis.name" . }}
+    {{- include "redis.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   type: ClusterIP
   ports:
-    - port: 6379
-      targetPort: 6379
+    - name: redis
+      port: 6379
+      targetPort: redis
   selector:
-    app: {{ include "redis.name" . }}
+    {{- include "redis.selectorLabels" . | nindent 4 }}

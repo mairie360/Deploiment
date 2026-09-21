@@ -21,14 +21,14 @@ jobs:
         with:
           version: v3.15.0
 
-      - name: Helm lint (Recursive)
-        run: |
-          # Lint du chart principal et des subcharts
-          helm lint ./charts/mairie360-stack
-          find ./charts/mairie360-stack/charts -maxdepth 1 -type d -exec helm lint {} \;
-
       - name: Helm dependency build
         run: helm dependency build ./charts/mairie360-stack
+
+      - name: Helm lint
+        # Les subcharts (APIs/BFFs/Fronts) ne sont pas autonomes : ils dépendent
+        # des valeurs `global.*` fournies par l'umbrella. On lint donc l'umbrella,
+        # le rendu par env ci-dessous valide les subcharts avec de vraies valeurs.
+        run: helm lint ./charts/mairie360-stack
 
       # ✨ LE TEST CRUCIAL : Simulation de rendu pour chaque env
       - name: Validate Template Rendering (Dry-Run)
