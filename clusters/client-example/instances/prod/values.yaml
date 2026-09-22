@@ -157,14 +157,14 @@ BFFs:
       image: { repository: ghcr.io/mairie360/bff-calendar, tag: "0.4.0" }
       env:
         - name: CALENDAR_API_BASE_PATH
-          value: "http://{{ .Release.Name }}-calendar-api:3002/api"
+          value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
       image: { repository: ghcr.io/mairie360/bff-message, tag: "0.4.0" }
       env:
         - name: MESSAGE_API_BASE_PATH
-          value: "http://{{ .Release.Name }}-message-api:3003/api"
+          value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
