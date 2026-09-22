@@ -54,19 +54,15 @@
 # RESTIC_PASSWORD is generated like JWT_SECRET / POSTGRES_PASSWORD; LOSING IT
 # MAKES EVERY EXISTING BACKUP UNREADABLE, keep it outside the cluster too,
 # like the sealing key.
-# ATTENTION : faire tourner POSTGRES_PASSWORD ou un <ROLE>_PASSWORD ne change
-# pas le mot de passe d'un rôle déjà créé — Postgres ne lit POSTGRES_PASSWORD
-# qu'au tout premier démarrage, et les <ROLE>_PASSWORD ne sont lus par le job
-# Liquibase (-D<role>_password) que lors du changeset CREATE ROLE, qui ne
-# rejoue pas. Il faut un ALTER ROLE en parallèle.
-# À l'inverse, Redis régénère /acl/users.acl à partir des variables d'env à
-# CHAQUE démarrage (voir charts/.../redis/templates/configmap.yaml) : un
-# simple redémarrage du pod suffit à faire prendre une rotation des mots de
-# passe ACL, pas besoin d'équivalent à ALTER ROLE.
+# WARNING: rotating POSTGRES_PASSWORD does not change the live superuser
+# (Postgres reads it on first init only): run `ALTER ROLE postgres PASSWORD`
+# by hand. The API <ROLE>_PASSWORD are altered by the Liquibase Job on the
+# next sync (see --rotate-roles above), and Redis rewrites /acl/users.acl from
+# its env vars at every start: a pod restart applies a rotated ACL password.
 # =============================================================================
 set -euo pipefail
 
-CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate]}"
+CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
 ENV="${3:?}"
 ROTATE="${4:-}"
