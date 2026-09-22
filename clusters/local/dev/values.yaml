@@ -6,7 +6,7 @@ image:
 
 # 2. Global
 global:
-  domain: "dev.mairie360-eip.fr"
+  domain: "backup.mairie360-eip.fr"
   # Configuration des BFFs (ce que vous avez probablement déjà fait)
 
   database:
@@ -58,16 +58,16 @@ ingress:
     # Sécurité et compatibilité
     nginx.ingress.kubernetes.io/whitelist-source-range: "0.0.0.0/0"
   hosts:
-    - host: dev.mairie360-eip.fr
+    - host: backup.mairie360-eip.fr
       paths:
         - path: /
           pathType: ImplementationSpecific
           serviceName: "local-dev-fronts"
           servicePort: 80
   tls:
-    - secretName: dev-mairie360-tls
+    - secretName: backup-mairie360-tls
       hosts:
-        - dev.mairie360-eip.fr
+        - backup.mairie360-eip.fr
 
 # 4. Service
 service:
@@ -158,7 +158,7 @@ BFFs:
         repository: ghcr.io/mairie360/bff-user
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
         - name: REDIS_URL
           value: "redis://local-dev-redis:6379"
         - name: JWT_SECRET
@@ -234,7 +234,7 @@ Fronts:
         repository: ghcr.io/mairie360/login-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
 
     project-front:
       enabled: true
@@ -243,7 +243,7 @@ Fronts:
         repository: ghcr.io/mairie360/projects-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
 
     calendar-front:
       enabled: true
@@ -252,7 +252,7 @@ Fronts:
         repository: ghcr.io/mairie360/calendar-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
 
     message-front:
       enabled: true
@@ -261,7 +261,7 @@ Fronts:
         repository: ghcr.io/mairie360/message-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
 
     email-front:
       enabled: true
@@ -282,7 +282,7 @@ Fronts:
         repository: ghcr.io/mairie360/elearning-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
 
     admin-front:
       enabled: true
@@ -291,4 +291,4 @@ Fronts:
         repository: ghcr.io/mairie360/administrator-front
       env:
         - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+          value: ".backup.mairie360-eip.fr"
