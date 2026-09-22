@@ -33,7 +33,7 @@ secrets:
 ingress:
   enabled: true
   className: "nginx"
-  clusterIssuer: "letsencrypt-staging"
+  clusterIssuer: "letsencrypt-prod"
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
