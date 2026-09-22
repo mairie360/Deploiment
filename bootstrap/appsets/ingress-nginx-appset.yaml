@@ -12,13 +12,13 @@ metadata:
 spec:
   generators:
     - clusters:
-      # Sélecteur : uniquement les machines dINSTANCE du groupe.
-      # Ansible les enregistre avec ce label (rôle k8s_instance_link) ; la
-      # machine Argo CD elle-même (in-cluster) ne le porte pas et est donc
-      # exclue — elle na pas besoin dingress public ni de base de données.
-      selector:
-        matchLabels:
-          mairie360.fr/role: instance
+        # Sélecteur : uniquement les machines dINSTANCE du groupe.
+        # Ansible les enregistre avec ce label (rôle k8s_instance_link) ; la
+        # machine Argo CD elle-même (in-cluster) ne le porte pas et est donc
+        # exclue — elle na pas besoin dingress public ni de base de données.
+        selector:
+          matchLabels:
+            mairie360.fr/role: instance
   template:
     metadata:
       name: 'ingress-nginx-{{name}}'

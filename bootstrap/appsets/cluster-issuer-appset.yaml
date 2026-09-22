@@ -9,9 +9,9 @@ spec:
   # "CRD not found".
   generators:
     - clusters:
-      selector:
-        matchLabels:
-          mairie360.fr/role: instance
+        selector:
+          matchLabels:
+            mairie360.fr/role: instance
   template:
     metadata:
       name: 'cluster-issuers-{{name}}'
