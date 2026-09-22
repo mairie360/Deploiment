@@ -2,7 +2,7 @@
 # =============================================================================
 # Génère les SealedSecret d'une instance.
 #
-#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate]
+#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate | --rotate-roles]
 #
 # Normally run by ansible (playbooks/secrets.yml, role k8s_instance_secrets),
 # on the group's Argo CD machine: it is the only one that reaches the instance
@@ -38,7 +38,15 @@
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
-# base existante). --rotate régénère tout.
+# base existante). --rotate régénère tout. --rotate-roles ne régénère que les
+# <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
+# hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
+# values, so after pushing secrets.yaml only the API pods need a restart
+# (`kubectl rollout restart deploy -l app.kubernetes.io/component=api`).
+#
+# Generated values are hex: the APIs build `postgres://user:password@host`
+# without percent-encoding the password, so a base64 value containing `/`
+# breaks the URL ("invalid port number", "Name or service not known").
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -46,19 +54,15 @@
 # RESTIC_PASSWORD is generated like JWT_SECRET / POSTGRES_PASSWORD; LOSING IT
 # MAKES EVERY EXISTING BACKUP UNREADABLE, keep it outside the cluster too,
 # like the sealing key.
-# ATTENTION : faire tourner POSTGRES_PASSWORD ou un <ROLE>_PASSWORD ne change
-# pas le mot de passe d'un rôle déjà créé — Postgres ne lit POSTGRES_PASSWORD
-# qu'au tout premier démarrage, et les <ROLE>_PASSWORD ne sont lus par le job
-# Liquibase (-D<role>_password) que lors du changeset CREATE ROLE, qui ne
-# rejoue pas. Il faut un ALTER ROLE en parallèle.
-# À l'inverse, Redis régénère /acl/users.acl à partir des variables d'env à
-# CHAQUE démarrage (voir charts/.../redis/templates/configmap.yaml) : un
-# simple redémarrage du pod suffit à faire prendre une rotation des mots de
-# passe ACL, pas besoin d'équivalent à ALTER ROLE.
+# WARNING: rotating POSTGRES_PASSWORD does not change the live superuser
+# (Postgres reads it on first init only): run `ALTER ROLE postgres PASSWORD`
+# by hand. The API <ROLE>_PASSWORD are altered by the Liquibase Job on the
+# next sync (see --rotate-roles above), and Redis rewrites /acl/users.acl from
+# its env vars at every start: a pod restart applies a rotated ACL password.
 # =============================================================================
 set -euo pipefail
 
-CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate]}"
+CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
 ENV="${3:?}"
 ROTATE="${4:-}"
@@ -96,7 +100,7 @@ prev() {
   kubectl --context "$CTX" -n "$NS" get secret "$1" \
     -o jsonpath="{.data.$2}" 2>/dev/null | base64 -d 2>/dev/null || true
 }
-gen() { openssl rand -base64 48 | tr -d '\n'; }
+gen() { openssl rand -hex 32; }
 
 if [ "$ROTATE" = "--rotate" ]; then
   JWT=""; PGPASS=""; ADMINPASS=""; RESTICPASS=""
@@ -130,7 +134,7 @@ db_args=(
 )
 for role in $DB_ROLES; do
   key="$(printf '%s' "$role" | tr 'a-z-' 'A-Z_')_PASSWORD"
-  if [ "$ROTATE" = "--rotate" ]; then
+  if [ "$ROTATE" = "--rotate" ] || [ "$ROTATE" = "--rotate-roles" ]; then
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
@@ -241,6 +245,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
+  echo "# Rotate only the API Postgres role passwords (applied by the next Liquibase sync):"
+  echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate-roles"
   echo "# Change the Resend API key (SMTP_PASSWORD of core-api):"
   echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
