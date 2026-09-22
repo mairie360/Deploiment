@@ -102,8 +102,10 @@ for how the CNI itself is installed.
 
 - **Aucun secret en clair dans Git.** Uniquement des `SealedSecret`, dont la clé
   est propre à chaque machine.
-- **Aucune image en `latest`.** Le tag est obligatoire ; `argocd-image-updater`
-  le met à jour.
+- **No mobile image tag.** The tag is required and must exist: `dev-<sha>` on
+  dev, `staging-<sha>` on staging, a published semver elsewhere, never
+  `latest` / `*-latest`. `argocd-image-updater` moves it forward;
+  `scripts/check-image-tags.sh` checks it in CI (MAIR-172).
 - **Seuls les fronts sont exposés.** APIs, BFFs, Postgres et Redis sont en
   `ClusterIP`, cloisonnés par des `NetworkPolicy` en `default-deny`. L'API
   server (6443) est sur le VPN, jamais sur Internet.
