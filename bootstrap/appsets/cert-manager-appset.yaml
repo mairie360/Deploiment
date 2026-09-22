@@ -8,9 +8,9 @@ spec:
   # Argo CD machine itself (in-cluster, unlabelled) serves no public host.
   generators:
     - clusters:
-      selector:
-        matchLabels:
-          mairie360.fr/role: instance
+        selector:
+          matchLabels:
+            mairie360.fr/role: instance
   template:
     metadata:
       name: 'cert-manager-{{name}}'

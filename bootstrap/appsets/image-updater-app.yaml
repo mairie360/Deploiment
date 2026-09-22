@@ -12,12 +12,8 @@ spec:
     helm:
       releaseName: argocd-image-updater
       values: |
-        # On pilote les Applications directement via l'API Kubernetes
-        # (patch de spec.source.helm.parameters), pas via l'API gRPC d'Argo CD :
-        # évite tout souci de token / TLS avec un serveur en mode --insecure.
-        extraArgs:
-          - --applications-api=kubernetes
-
+        # v1 drives the Applications through the Kubernetes API only (the
+        # gRPC mode and its --applications-api flag are gone).
         config:
           log.level: info
           # Read access to GHCR, to list tags and their build dates
