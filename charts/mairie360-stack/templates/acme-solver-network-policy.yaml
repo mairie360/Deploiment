@@ -1,0 +1,31 @@
+{{- /*
+HTTP-01 challenges: cert-manager runs its solver pods in this namespace,
+where the default-deny policy applies. They carry none of our component
+labels, so without this rule the ingress controller cannot reach them, the
+self-check times out and no certificate is ever issued (seen on the first
+clean deployment). Solver pods listen on 8089 (cert-manager hardcodes it).
+*/ -}}
+{{- if and .Values.global.networkPolicy.enabled .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mairie360.fullname" . }}-allow-acme-solver
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.ingressNamespace | default "ingress-nginx" }}
+      ports:
+        - protocol: TCP
+          port: 8089
+{{- end }}

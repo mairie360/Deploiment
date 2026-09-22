@@ -154,3 +154,24 @@ tests:
       global.networkPolicy.ciliumL7Visibility: false
     asserts:
       - hasDocuments: { count: 0 }
+
+  - it: lets the ingress controller reach cert-manager's HTTP-01 solver pods, and nothing else
+    templates: [templates/acme-solver-network-policy.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal:
+          path: spec.podSelector.matchLabels["acme.cert-manager.io/http01-solver"]
+          value: "true"
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ingress-nginx
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8089
+      - lengthEqual: { path: spec.ingress, count: 1 }
+
+  - it: renders no ACME solver policy without an Ingress
+    templates: [templates/acme-solver-network-policy.yaml]
+    set: { ingress.enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
