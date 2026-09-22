@@ -340,11 +340,17 @@ and maintaining a parallel Kind topology is what produced the earlier
   `charts/mairie360-stack/values.yaml`) — add a role there and forget the
   script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)
   or `<ROLE>_PASSWORD` (Postgres) key to read, `CreateContainerConfigError`.
-- **Rotating `POSTGRES_PASSWORD` or a `<ROLE>_PASSWORD` doesn't rotate the
-  live role.** Postgres only reads `POSTGRES_PASSWORD` on first init, and the
-  Liquibase changelog only reads a `<ROLE>_PASSWORD` changelog parameter on
-  the `CREATE ROLE` changeset, which doesn't rerun. A `--rotate` needs a
-  matching `ALTER ROLE ... PASSWORD` run by hand.
+- **Rotating `POSTGRES_PASSWORD` doesn't rotate the live superuser**: Postgres
+  only reads it on first init, so a `--rotate` needs a matching
+  `ALTER ROLE postgres PASSWORD` run by hand. The API `<ROLE>_PASSWORD`s are
+  different: `security/api_roles.sql` is `runAlways` and does
+  `ALTER ROLE ... PASSWORD` on every run, and the Liquibase Job is an Argo CD
+  Sync hook, so `seal-secrets.sh --rotate-roles` + push + sync rotates them;
+  then restart the API pods (env from `secretKeyRef` is read at start only).
+- **Generated passwords are hex, never base64**: the APIs build
+  `postgres://user:password@host:port/db` without percent-encoding, so a `/`
+  in the password breaks the URL (`invalid port number`). Seen on the first
+  clean deployment: 2 to 4 APIs per instance could not reach Postgres.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`

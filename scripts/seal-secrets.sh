@@ -2,7 +2,7 @@
 # =============================================================================
 # Génère les SealedSecret d'une instance.
 #
-#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate]
+#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate | --rotate-roles]
 #
 # Normally run by ansible (playbooks/secrets.yml, role k8s_instance_secrets),
 # on the group's Argo CD machine: it is the only one that reaches the instance
@@ -38,7 +38,15 @@
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
-# base existante). --rotate régénère tout.
+# base existante). --rotate régénère tout. --rotate-roles ne régénère que les
+# <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
+# hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
+# values, so after pushing secrets.yaml only the API pods need a restart
+# (`kubectl rollout restart deploy -l app.kubernetes.io/component=api`).
+#
+# Generated values are hex: the APIs build `postgres://user:password@host`
+# without percent-encoding the password, so a base64 value containing `/`
+# breaks the URL ("invalid port number", "Name or service not known").
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -96,7 +104,7 @@ prev() {
   kubectl --context "$CTX" -n "$NS" get secret "$1" \
     -o jsonpath="{.data.$2}" 2>/dev/null | base64 -d 2>/dev/null || true
 }
-gen() { openssl rand -base64 48 | tr -d '\n'; }
+gen() { openssl rand -hex 32; }
 
 if [ "$ROTATE" = "--rotate" ]; then
   JWT=""; PGPASS=""; ADMINPASS=""; RESTICPASS=""
@@ -130,7 +138,7 @@ db_args=(
 )
 for role in $DB_ROLES; do
   key="$(printf '%s' "$role" | tr 'a-z-' 'A-Z_')_PASSWORD"
-  if [ "$ROTATE" = "--rotate" ]; then
+  if [ "$ROTATE" = "--rotate" ] || [ "$ROTATE" = "--rotate-roles" ]; then
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
@@ -241,6 +249,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
+  echo "# Rotate only the API Postgres role passwords (applied by the next Liquibase sync):"
+  echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate-roles"
   echo "# Change the Resend API key (SMTP_PASSWORD of core-api):"
   echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
