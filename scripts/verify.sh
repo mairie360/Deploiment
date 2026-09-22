@@ -57,6 +57,14 @@ for k in S3_ACCESS_KEY S3_SECRET_KEY; do
   fi
 done
 
+for k in ADMIN_EMAIL ADMIN_PASSWORD; do
+  if [ -n "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.$k}" 2>/dev/null)" ]; then
+    ok "$k is set"
+  else
+    ko "$k empty in ${RELEASE}-database-secret: admin account stays on its changelog template credentials (MAIR-170, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
+  fi
+done
+
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
   ko "JWT_SECRET en clair détecté"

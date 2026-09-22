@@ -44,6 +44,11 @@ Le provisionnement des machines est dans le dépôt
      by elearning-api, which does not start without it;
    - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: backup bucket
      (`charts/mairie360-stack/charts/backup/README.md`), only when `backup.enabled`.
+   - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170). Sealed as
+     `ADMIN_EMAIL` into `<env>-database-secret` alongside a generated
+     `ADMIN_PASSWORD`; the Liquibase Job creates or resets the admin account
+     with them, `first_connect = TRUE`. Left empty, the admin account keeps
+     its `Database` changelog template credentials.
 
    It then writes `clusters/<org>/instances/<env>/secrets.yaml` into this
    checkout.

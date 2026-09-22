@@ -72,6 +72,23 @@ spec:
                   name: {{ include "liquibase.dbSecretName" $ }}
                   key: {{ include "liquibase.rolePasswordKey" $role }}
             {{- end }}
+            # MAIR-170: the admin account (users.id = 1) e-mail/password.
+            # Optional: an instance whose database-secret carries neither key
+            # (e2e, local) leaves the changelog parameters empty, and the
+            # changelog keeps its template values — same as running it with
+            # no parameters at all.
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "liquibase.dbSecretName" . }}
+                  key: ADMIN_EMAIL
+                  optional: true
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "liquibase.dbSecretName" . }}
+                  key: ADMIN_PASSWORD
+                  optional: true
           # Per-role passwords are passed as Liquibase changelog parameters
           # (-D<role>_password) so the changelog can CREATE ROLE ... PASSWORD
           # :role_password without the values ever appearing in the chart.
@@ -85,6 +102,8 @@ spec:
               exec liquibase --changelog-file={{ .Values.changelogFile }} update
                 {{- range $role := ($g.database | default dict).roles | default list }} \
                 -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}"
-                {{- end }}
+                {{- end }} \
+                -Dadmin_email="$ADMIN_EMAIL" \
+                -Dadmin_password="$ADMIN_PASSWORD"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
