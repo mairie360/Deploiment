@@ -11,7 +11,7 @@
 # ============================================================================
 
 global:
-  domain: "mairie360-eip.fr"
+  domain: "prod.mairie360-eip.fr"
   imagePullSecret: "ghcr-secret"
   # ingress-nginx est le seul contrôleur : k3s est installé avec Traefik
   # désactivé (rôle Ansible k8s_node).
@@ -79,7 +79,7 @@ APIs:
       image: { repository: ghcr.io/mairie360/core-api, tag: "1.2.0" }
       env:
         - name: PUBLIC_URL
-          value: "https://login.mairie360-eip.fr"
+          value: "https://login.prod.mairie360-eip.fr"
         # Transactional e-mails (password reset) go through Resend's SMTP relay.
         # The Resend API key is the SMTP password: it lives in
         # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).
@@ -146,7 +146,7 @@ BFFs:
       image: { repository: ghcr.io/mairie360/bff-user, tag: "0.5.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
@@ -186,28 +186,28 @@ Fronts:
       image: { repository: ghcr.io/mairie360/login-front, tag: "0.2.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
       image: { repository: ghcr.io/mairie360/projects-front, tag: "1.0.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
       image: { repository: ghcr.io/mairie360/calendar-front, tag: "0.3.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
       image: { repository: ghcr.io/mairie360/message-front, tag: "0.3.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
@@ -222,11 +222,11 @@ Fronts:
       image: { repository: ghcr.io/mairie360/elearning-front, tag: "0.2.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
     admin-front:
       enabled: false  # no release published yet; re-enable with its first version
       port: 5007
       image: { repository: ghcr.io/mairie360/administrator-front, tag: "1.0.0" }
       env:
         - name: COOKIE_DOMAIN
-          value: ".mairie360-eip.fr"
+          value: ".prod.mairie360-eip.fr"
