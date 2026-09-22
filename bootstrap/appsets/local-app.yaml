@@ -7,7 +7,7 @@ spec:
   generators:
     - git:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        revision: main
+        revision: backup
         directories:
           - path: clusters/local/*
           - path: clusters/local/staging
@@ -21,7 +21,7 @@ spec:
       project: default
       source:
         repoURL: 'https://github.com/mairie360/Deploiment.git'
-        targetRevision: main
+        targetRevision: backup
         path: charts/mairie360-stack 
         helm:
           valueFiles:
