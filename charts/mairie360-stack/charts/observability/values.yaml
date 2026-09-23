@@ -1,0 +1,57 @@
+# observability subchart (MAIR-131, POC) — one OpenTelemetry Collector per
+# instance, relaying to Scaleway Cockpit:
+#
+#   core-api ──OTLP/HTTP :4318──► otel-collector ──OTLP/HTTP + X-TOKEN──► Cockpit
+#   kubelet :10250 (pod CPU/RAM) ─┘   (traces data source, metrics data source)
+#
+# Rendered only when `global.observability.enabled` is true: that same flag
+# makes the APIs chart inject the OTEL_* env vars into the APIs listed in
+# `global.observability.apis`, so the collector and its clients are switched
+# on together.
+
+# "k8s" distribution of the collector: otlp receiver, kubeletstats receiver,
+# otlphttp exporter, filter/resource/memory_limiter/batch processors and the
+# health_check extension, nothing more.
+image:
+  repository: otel/opentelemetry-collector-k8s
+  tag: "0.161.0"
+  pullPolicy: IfNotPresent
+
+# Scaleway Cockpit push endpoints, one per data source (Cockpit console >
+# Data sources > <source> > URL, then append the path below). Data sources
+# and the token must be in the same region. Not secret; the token is.
+cockpit:
+  # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  metricsEndpoint: ""
+  # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+  tracesEndpoint: ""
+
+# Secret <release>-cockpit-secret, key COCKPIT_TOKEN: a Cockpit token with the
+# "push metrics" and "push traces" scopes. Same model as backup-secret:
+# create: true  -> built from `token` below (throwaway local cluster only)
+# create: false -> provided by a SealedSecret (scripts/seal-secrets.sh,
+#                  COCKPIT_TOKEN env var)
+secretName: ""
+secret:
+  create: false
+token: ""
+
+# Pod CPU/RAM, read from the kubelet's /stats/summary of the node the
+# collector runs on. One Deployment is enough because every instance is a
+# single-node k3s cluster; a multi-node instance would need a DaemonSet.
+kubeletStats:
+  enabled: true
+  collectionInterval: "30s"
+  # k3s serves the kubelet API with a self-signed certificate that does not
+  # cover the node IP.
+  insecureSkipVerify: true
+
+resources:
+  requests: { memory: "64Mi", cpu: "20m" }
+  limits: { memory: "256Mi", cpu: "200m" }
+
+# memory_limiter refuses data above this share of the container limit
+# instead of letting the collector get OOM-killed.
+memoryLimiter:
+  limitPercentage: 80
+  spikeLimitPercentage: 20

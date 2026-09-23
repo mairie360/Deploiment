@@ -1,0 +1,28 @@
+{{- if and (include "observability.enabled" .) (((.Values.global).networkPolicy).enabled) }}
+# Only the APIs send OTLP to the collector. Its own outbound traffic (kubelet
+# :10250 on the node, Cockpit on 443) is unrestricted while
+# global.networkPolicy.egressDefaultDeny is off; turning that on requires
+# adding the node IP and Cockpit's addresses to egressAllowCIDRs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "observability.fullname" . }}-allow-from-apis
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: telemetry
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - { protocol: TCP, port: 4317 }
+        - { protocol: TCP, port: 4318 }
+{{- end }}
