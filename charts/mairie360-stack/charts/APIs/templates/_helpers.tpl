@@ -128,7 +128,32 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
     secretKeyRef:
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
+{{- include "apis.otelEnv" . }}
 {{- with .root.Values.commonEnv }}
 {{ toYaml . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-131: OpenTelemetry SDK settings (standard OTEL_* variables) for the APIs
+listed in global.observability.apis, once global.observability.enabled turns
+on the collector of the observability subchart. Its Service name
+(<release>-otel-collector) is fixed there. K8S_POD_NAME must come before
+OTEL_RESOURCE_ATTRIBUTES for the $(K8S_POD_NAME) expansion to work.
+*/}}
+{{- define "apis.otelEnv" -}}
+{{- $o := (.root.Values.global).observability | default dict }}
+{{- if and $o.enabled (has .name ($o.apis | default list)) }}
+- name: OTEL_SERVICE_NAME
+  value: {{ .name | quote }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ printf "http://%s-otel-collector:4318" .root.Release.Name | quote }}
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: "http/protobuf"
+- name: K8S_POD_NAME
+  valueFrom:
+    fieldRef: { fieldPath: metadata.name }
+- name: OTEL_RESOURCE_ATTRIBUTES
+  value: {{ printf "k8s.namespace.name=%s,k8s.pod.name=$(K8S_POD_NAME)" .root.Release.Namespace | quote }}
 {{- end }}
 {{- end -}}

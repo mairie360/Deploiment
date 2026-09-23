@@ -24,6 +24,13 @@ global:
     # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
     # Requires the Cilium CNI installed by the Ansible role k8s_node.
     ciliumL7Visibility: true
+  # MAIR-131 (POC): OpenTelemetry Collector -> Scaleway Cockpit, core-api only.
+  # Turn on once the two Cockpit data sources below exist and
+  # <release>-cockpit-secret is sealed (COCKPIT_TOKEN exported when running
+  # scripts/seal-secrets.sh): with empty endpoints the chart refuses to render.
+  observability:
+    enabled: false
+    apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
@@ -74,6 +81,15 @@ backup:
     endpoint: "https://s3.fr-par.scw.cloud"
     bucket: "mairie360-backup-dev"
     region: "fr-par"
+
+# Cockpit push URLs of the dev data sources (Cockpit console > Data sources).
+# Not secret: the token lives in <release>-cockpit-secret.
+observability:
+  cockpit:
+    # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+    metricsEndpoint: ""
+    # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+    tracesEndpoint: ""
 
 APIs:
   instances:

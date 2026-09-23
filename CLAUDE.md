@@ -9,7 +9,8 @@ Argo CD watches this repo and deploys everything with Helm. There is no applicat
 code here — only Helm charts, per-environment values, and Argo CD bootstrap manifests.
 
 The platform is 5 backend APIs (Rust), 7 BFFs (Node), and 8 frontends (Node), plus
-PostgreSQL, Redis, a Liquibase migration job and an optional backup CronJob.
+PostgreSQL, Redis, a Liquibase migration job, an optional backup CronJob and
+an optional OpenTelemetry Collector (MAIR-131 POC).
 APIs: `core`, `project`, `calendar`, `message`, `elearning`. BFFs and fronts add
 `dashboard` and `settings`, which have no API of their own (MAIR-134, they
 replaced the never-built `email` / `files` services), plus `user`/`login` and an
@@ -124,8 +125,9 @@ IP instead would need k3s `node-external-ip` (ansible, `k8s_node`), not
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
 
-Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `backup`, `APIs`, `BFFs`, `Fronts`.
+Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
+`database`, `redis`, `liquibase`, `backup`, `observability`, `APIs`, `BFFs`,
+`Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
   `range $name, $cfg := .Values.instances` and emits one Deployment + Service per
@@ -198,9 +200,25 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   asserts that an unauthenticated `PING` is refused and that `admin` works.
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
-- **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data →
-  `1` migrations and the backup CronJob → `2` APIs → `3` BFFs → `4` Fronts →
-  `5` Ingress.
+- **`observability` (MAIR-131, POC), off by default.** One OpenTelemetry
+  Collector (`otel/opentelemetry-collector-k8s`) per instance, Service
+  `<release>-otel-collector` (OTLP 4317/4318). It receives OTLP from the APIs
+  listed in `global.observability.apis` (only `core-api` for now), scrapes
+  pod CPU/RAM from the node's kubelet (`kubeletstats`, ClusterRole on
+  `nodes/stats`, filtered to the instance namespace) and pushes both to
+  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. One switch,
+  `global.observability.enabled`, renders the collector **and** makes the
+  `APIs` chart inject `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and `OTEL_RESOURCE_ATTRIBUTES`
+  into those APIs. Needs `observability.cockpit.{metrics,traces}Endpoint`
+  (full push URLs of the two Cockpit data sources, the render fails without
+  them) and `<release>-cockpit-secret` (key `COCKPIT_TOKEN`, sealed by
+  `scripts/seal-secrets.sh` from the `COCKPIT_TOKEN` env var). A Deployment,
+  not a DaemonSet: it only sees the kubelet of its own node, which is enough
+  on single-node instances.
+- **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
+  data → `1` migrations, the backup CronJob and the collector → `2` APIs →
+  `3` BFFs → `4` Fronts → `5` Ingress.
 
 ### Network model
 
@@ -214,13 +232,15 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
                                  │  └──────────► redis
                                  └─────────────► redis
               liquibase job ──────────────────► postgres
+                        apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
 ```
 
 Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
 `core-api` (Resend, `smtp.resend.com:587`), `elearning-api` (Scaleway Object
-Storage) and the backup CronJob (S3 bucket) are declared in `egressAllowCIDRs`.
+Storage), the backup CronJob (S3 bucket) and the otel collector (node kubelet
+:10250, Cockpit) are declared in `egressAllowCIDRs`.
 
 ### Outbound e-mail (Resend, MAIR-94)
 
@@ -373,5 +393,6 @@ and maintaining a parallel Kind topology is what produced the earlier
   not declare a non-root `USER`. Fix the Dockerfiles, then flip the flag and
   make the `trivy config` CI job blocking.
 - No `PodDisruptionBudget`, no `HorizontalPodAutoscaler`, no resource quota.
-- No monitoring: `global.monitoringNamespace` opens the NetworkPolicy for
-  Prometheus, but nothing is deployed yet.
+- Monitoring is a POC (MAIR-131): the `observability` collector covers
+  `core-api` traces and pod CPU/RAM on `dev` only. `global.monitoringNamespace`
+  still opens the NetworkPolicy for a Prometheus that is not deployed.

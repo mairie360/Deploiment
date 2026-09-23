@@ -1,0 +1,18 @@
+{{- if include "observability.enabled" . }}
+# APIs send OTLP to http://<release>-otel-collector:4318 (the APIs chart
+# builds that URL, see charts/APIs/templates/_helpers.tpl "apis.otelEnv").
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    {{- include "observability.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+{{- end }}
