@@ -1,0 +1,99 @@
+{{- if .Values.enabled }}
+{{- /*
+PostgreSQL dedicated to Keycloak. Same shape as the database subchart
+(single replica, no failover) but the stock postgres image: Keycloak owns
+its schema and migrates it itself on upgrade, nothing of the Mairie360
+changelog applies here. Not covered by the backup subchart (MAIR-119),
+which only dumps the Mairie360 database.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "keycloak.db.fullname" . }}
+  labels:
+    {{- include "keycloak.db.labels" . | nindent 4 }}
+  annotations:
+    # Data layer, same wave as the Mairie360 database.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  serviceName: {{ include "keycloak.db.fullname" . }}-hl
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "keycloak.db.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.db.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: 70
+      {{- if .Values.db.initChown.enabled }}
+      initContainers:
+        - name: init-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 70:70 /var/lib/postgresql/data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      {{- end }}
+      containers:
+        - name: postgres
+          image: "{{ .Values.db.image.repository }}:{{ .Values.db.image.tag }}"
+          imagePullPolicy: {{ .Values.db.image.pullPolicy }}
+          securityContext:
+            runAsUser: 70
+            runAsGroup: 70
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.db.name | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.db.user | quote }}
+            # Read on first init only: rotating the sealed value afterwards
+            # needs a matching `ALTER ROLE ... PASSWORD` by hand.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: KEYCLOAK_DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.db.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.db.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- with .Values.db.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.db.persistence.size | default "1Gi" }}
+{{- end }}

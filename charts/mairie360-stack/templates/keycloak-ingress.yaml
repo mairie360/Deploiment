@@ -1,0 +1,43 @@
+{{- /*
+Dedicated Ingress of Keycloak (MAIR-139): https://auth.<domain>, the only
+thing exposed besides the fronts. Its own TLS Secret and certificate — one
+more HTTP-01 challenge per instance, on top of the fronts' 8.
+Class, ClusterIssuer and annotations are the fronts' (`ingress.*`), plus
+`keycloak.ingress.annotations` (proxy buffer size, see values.yaml).
+*/ -}}
+{{- if and .Values.ingress.enabled .Values.keycloak.enabled }}
+{{- $host := include "mairie360.keycloakHost" . -}}
+{{- $fullname := include "mairie360.fullname" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-keycloak
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- end }}
+    {{- with merge (dict) (.Values.keycloak.ingress | default dict).annotations .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ printf "%s-keycloak-tls" $fullname }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-keycloak" .Release.Name }}
+                port:
+                  number: 8080
+{{- end }}

@@ -1,0 +1,337 @@
+# MAIR-139: one Keycloak per instance, with its own Postgres, a realm
+# imported at first start, a dedicated Ingress and sealed secrets.
+suite: keycloak (MAIR-139)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  # --- what is deployed --------------------------------------------------------
+
+  - it: renders Keycloak as a single-replica Recreate Deployment in production mode, importing the realm
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: RELEASE-NAME-keycloak }
+      - equal: { path: spec.replicas, value: 1 }
+      - equal: { path: spec.strategy.type, value: Recreate }
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: quay.io/keycloak/keycloak:26.7.4
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: ["start", "--import-realm"]
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: keycloak
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: builds every URL from the public hostname (auth.<domain>) and trusts the proxy headers
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME, value: "https://auth.dev.mairie360-eip.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME_STRICT, value: "true" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HTTP_ENABLED, value: "true" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_PROXY_HEADERS, value: xforwarded }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HEALTH_ENABLED, value: "true" }
+
+  - it: honours global.keycloak.hostname when set, in KC_HOSTNAME and in the Ingress alike
+    set:
+      global.keycloak.hostname: "sso.ville.fr"
+    templates:
+      - charts/keycloak/templates/deployment.yaml
+      - templates/keycloak-ingress.yaml
+    asserts:
+      - template: charts/keycloak/templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME, value: "https://sso.ville.fr" }
+      - template: templates/keycloak-ingress.yaml
+        equal: { path: "spec.rules[0].host", value: sso.ville.fr }
+
+  - it: probes the management port (9000), which is never exposed by the Service
+    templates:
+      - charts/keycloak/templates/deployment.yaml
+      - charts/keycloak/templates/service.yaml
+    asserts:
+      - template: charts/keycloak/templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet
+          value: { path: /health/started, port: management }
+      - template: charts/keycloak/templates/deployment.yaml
+        equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value: { path: /health/ready, port: management }
+      - template: charts/keycloak/templates/service.yaml
+        equal:
+          path: spec.ports
+          value: [{ name: http, port: 8080, targetPort: http }]
+
+  - it: connects to its own Postgres (never the Mairie360 database) with the sealed password
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_DB, value: postgres }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_DB_URL, value: "jdbc:postgresql://RELEASE-NAME-keycloak-db:5432/keycloak" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_DB_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: KEYCLOAK_DB_PASSWORD }
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "KC_DB_URL")].value
+          pattern: "RELEASE-NAME-database"
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].value
+          value: RELEASE-NAME-keycloak-db
+
+  - it: the Keycloak database is a StatefulSet with a headless Service and its own component label
+    templates:
+      - charts/keycloak/templates/db-statefulset.yaml
+      - charts/keycloak/templates/db-service.yaml
+    asserts:
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        equal: { path: metadata.name, value: RELEASE-NAME-keycloak-db }
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        equal: { path: spec.serviceName, value: RELEASE-NAME-keycloak-db-hl }
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: keycloak-db
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        equal:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+          value: local-path
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: KEYCLOAK_DB_PASSWORD }
+      - template: charts/keycloak/templates/db-service.yaml
+        documentIndex: 0
+        equal: { path: spec.clusterIP, value: None }
+      - template: charts/keycloak/templates/db-service.yaml
+        documentIndex: 1
+        equal: { path: metadata.name, value: RELEASE-NAME-keycloak-db }
+
+  - it: "sync waves: Keycloak DB with the data layer (0), Keycloak with the APIs (2), Ingress last (5)"
+    templates:
+      - charts/keycloak/templates/db-statefulset.yaml
+      - charts/keycloak/templates/deployment.yaml
+      - templates/keycloak-ingress.yaml
+    asserts:
+      - template: charts/keycloak/templates/db-statefulset.yaml
+        equal: { path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "0" }
+      - template: charts/keycloak/templates/deployment.yaml
+        equal: { path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "2" }
+      - template: templates/keycloak-ingress.yaml
+        equal: { path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "5" }
+
+  # --- realm -------------------------------------------------------------------
+
+  - it: provisions the mairie360 realm with the Database roles and the two OIDC clients
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - equal: { path: metadata.name, value: RELEASE-NAME-keycloak-realm }
+      - exists: { path: 'data["mairie360-realm.json"]' }
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"realm": "mairie360"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"clientId": "login-front"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"clientId": "bff-user"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"name": "Admin"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"name": "Guest"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"redirectUris": \["https://login.dev.mairie360-eip.fr/\*"\]'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"webOrigins": \["https://login.dev.mairie360-eip.fr"\]'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"pkce.code.challenge.method": "S256"'
+
+  - it: the realm file only carries placeholders for the client secret and the SMTP password', resolved from Secrets by Keycloak
+    templates:
+      - charts/keycloak/templates/realm-configmap.yaml
+      - charts/keycloak/templates/deployment.yaml
+    asserts:
+      - template: charts/keycloak/templates/realm-configmap.yaml
+        matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"secret": "\$\{BFF_USER_CLIENT_SECRET\}"'
+      - template: charts/keycloak/templates/realm-configmap.yaml
+        matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"password": "\$\{SMTP_PASSWORD\}"'
+      - template: charts/keycloak/templates/realm-configmap.yaml
+        matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"from": "noreply@mairie360-eip.fr"'
+      - template: charts/keycloak/templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BFF_USER_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: BFF_USER_CLIENT_SECRET }
+      - template: charts/keycloak/templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SMTP_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: SMTP_PASSWORD, optional: true }
+      - template: charts/keycloak/templates/deployment.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KC_BOOTSTRAP_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: KEYCLOAK_ADMIN_PASSWORD }
+      - template: charts/keycloak/templates/deployment.yaml
+        notMatchRegexRaw:
+          pattern: "e2e-|password: [^\\n]*[A-Za-z0-9]{16,}"
+
+  - it: configures no SMTP relay when the realm has no sender address
+    set:
+      keycloak.realm.smtp.from: ""
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - notMatchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: smtpServer
+
+  - it: renders the realm under the name of global.keycloak.realm
+    set:
+      global.keycloak.realm: "ville"
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - exists: { path: 'data["ville-realm.json"]' }
+      - matchRegex:
+          path: data["ville-realm.json"]
+          pattern: '"realm": "ville"'
+
+  - it: explicit client redirect URIs replace the derived ones
+    set:
+      keycloak.realm.clients.bffUser.redirectUris: ["https://app.example.org/callback"]
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"redirectUris": \["https://app.example.org/callback"\]'
+
+  # --- exposure ----------------------------------------------------------------
+
+  - it: exposes Keycloak on its own Ingress', auth.<domain>, with the fronts' class, issuer and annotations plus the proxy buffer size
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: spec.ingressClassName, value: nginx }
+      - equal: { path: "spec.rules[0].host", value: auth.dev.mairie360-eip.fr }
+      - equal: { path: "spec.tls[0].hosts", value: [auth.dev.mairie360-eip.fr] }
+      - equal: { path: "spec.tls[0].secretName", value: RELEASE-NAME-mairie360-stack-keycloak-tls }
+      - equal: { path: "spec.rules[0].http.paths[0].backend.service", value: { name: RELEASE-NAME-keycloak, port: { number: 8080 } } }
+      - equal: { path: 'metadata.annotations["cert-manager.io/cluster-issuer"]', value: letsencrypt-prod }
+      - equal: { path: 'metadata.annotations["nginx.ingress.kubernetes.io/proxy-buffer-size"]', value: 16k }
+      - equal: { path: 'metadata.annotations["nginx.ingress.kubernetes.io/force-ssl-redirect"]', value: "true" }
+
+  - it: the fronts Ingress does not list Keycloak (separate certificate, separate Ingress)
+    templates: [templates/ingress.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.rules[*].host
+          pattern: '^auth\.'
+
+  - it: renders no Keycloak Ingress without ingress.enabled
+    set: { ingress.enabled: false }
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: keycloak.enabled=false removes Keycloak, its database and its Ingress
+    set: { keycloak.enabled: false }
+    templates:
+      - templates/keycloak-ingress.yaml
+      - charts/keycloak/templates/deployment.yaml
+      - charts/keycloak/templates/db-statefulset.yaml
+      - charts/keycloak/templates/network-policy.yaml
+      - charts/keycloak/templates/realm-configmap.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  # --- secrets -----------------------------------------------------------------
+
+  - it: every instance renders Keycloak (dev, staging, prod, client) with a hostname under its own domain
+    values:
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME, value: "https://auth.prod.mairie360-eip.fr" }
+
+  - it: creates the Keycloak Secret from values only when create=true (local cluster)
+    set:
+      keycloak.secret.create: true
+      keycloak.env.KEYCLOAK_ADMIN_PASSWORD: "test-admin"
+      keycloak.env.KEYCLOAK_DB_PASSWORD: "test-db"
+      keycloak.env.BFF_USER_CLIENT_SECRET: "test-client"
+    templates: [charts/keycloak/templates/secret.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal: { path: metadata.name, value: RELEASE-NAME-keycloak-secret }
+      - equal: { path: stringData.KEYCLOAK_ADMIN_PASSWORD, value: test-admin }
+      - equal: { path: stringData.KEYCLOAK_DB_PASSWORD, value: test-db }
+      - equal: { path: stringData.BFF_USER_CLIENT_SECRET, value: test-client }
+
+  - it: refuses to create the Secret without every value (create=true)
+    set:
+      keycloak.secret.create: true
+      keycloak.env.KEYCLOAK_ADMIN_PASSWORD: "test-admin"
+    templates: [charts/keycloak/templates/secret.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: keycloak.env.KEYCLOAK_DB_PASSWORD
+
+  - it: refuses a Keycloak image without an explicit tag
+    set:
+      keycloak.image.tag: ""
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: keycloak.image.tag is required
+
+  - it: the helm test pod checks the public issuer from a bff-labelled pod
+    templates: [charts/keycloak/templates/tests/test-realm.yaml]
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: bff
+      - contains:
+          path: spec.containers[0].env
+          content: { name: EXPECTED_ISSUER, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }

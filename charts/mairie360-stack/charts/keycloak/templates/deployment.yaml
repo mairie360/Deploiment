@@ -1,0 +1,151 @@
+{{- if .Values.enabled }}
+{{- /*
+Keycloak in production mode (`start`, not `start-dev`) behind ingress-nginx:
+plain HTTP inside the cluster, X-Forwarded-* trusted from the proxy, every
+URL it emits built from the public hostname (KC_HOSTNAME). Health endpoints
+live on the management port (9000), which is never exposed.
+
+Single replica with a local cache: a second replica would need Infinispan
+clustering (JGroups discovery), not just replicaCount. Recreate strategy for
+the same reason as the StatefulSet: one JVM at a time on the database.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keycloak.fullname" . }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    # Same wave as the APIs: needs its database (wave 0), must be up before
+    # the BFFs (wave 3), which will resolve sessions against it.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "keycloak.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.podLabels" . | nindent 8 }}
+      annotations:
+        # Only matters before the first import (Keycloak skips an existing
+        # realm), but keeps the pod and the ConfigMap it mounts in step.
+        checksum/realm: {{ include (print $.Template.BasePath "/realm-configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      initContainers:
+        - name: wait-for-db
+          image: "{{ .Values.db.image.repository }}:{{ .Values.db.image.tag }}"
+          imagePullPolicy: {{ .Values.db.image.pullPolicy }}
+          env:
+            - name: DB_HOST
+              value: {{ include "keycloak.db.fullname" . | quote }}
+            - name: PGUSER
+              value: {{ .Values.db.user | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "$DB_HOST" -p 5432 -U "$PGUSER"; do
+                echo "Waiting for the Keycloak database..."; sleep 2
+              done
+      containers:
+        - name: keycloak
+          image: "{{ .Values.image.repository }}:{{ required "keycloak.image.tag is required (no :latest)" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["start", "--import-realm"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          env:
+            # --- database -----------------------------------------------------
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL
+              value: {{ printf "jdbc:postgresql://%s:5432/%s" (include "keycloak.db.fullname" .) .Values.db.name | quote }}
+            - name: KC_DB_USERNAME
+              value: {{ .Values.db.user | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: KEYCLOAK_DB_PASSWORD
+            # --- bootstrap admin (first start of an empty database only) ------
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: {{ .Values.admin.username | quote }}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: KEYCLOAK_ADMIN_PASSWORD
+            # --- hostname / reverse proxy -------------------------------------
+            # Every URL Keycloak emits (issuer, redirects, admin console) uses
+            # this public address, whatever host the request came in on: the
+            # BFFs can call the cluster Service and still see the same issuer
+            # as the browser.
+            - name: KC_HOSTNAME
+              value: {{ printf "https://%s" (include "keycloak.hostname" .) | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: "true"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
+            # --- health on the management port (9000), never proxied ----------
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_CACHE
+              value: "local"
+            # --- values substituted into the imported realm (`${VAR}`) --------
+            - name: BFF_USER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: BFF_USER_CLIENT_SECRET
+            # Resend API key shared with core-api; optional so that an
+            # instance sealed before it existed still starts.
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.appSecretName" . }}
+                  key: SMTP_PASSWORD
+                  optional: true
+            {{- with .Values.extraEnv }}
+            {{- tpl (toYaml .) $ | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /health/started, port: management }
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health/live, port: management }
+            periodSeconds: 30
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: realm
+          configMap:
+            name: {{ include "keycloak.realmConfigMapName" . }}
+{{- end }}
