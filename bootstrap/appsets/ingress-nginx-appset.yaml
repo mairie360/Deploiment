@@ -1,14 +1,17 @@
-# ingress-nginx: the ONLY public entry point of each instance.
+# ingress-nginx: the public entry point of each instance not yet switched to Traefik.
 #
-# k3s is installed with Traefik disabled (ansible role k8s_node), so there is
-# a single ingress controller and `ingress.className: nginx` in the values
-# matches what actually runs. k3s ServiceLB binds the LoadBalancer Service to
+# k3s is installed with its bundled Traefik disabled (ansible role k8s_node);
+# each machine runs either this controller or the pinned Traefik of
+# traefik-appset.yaml, and `global.ingressController` in its values says
+# which. k3s ServiceLB binds the LoadBalancer Service to
 # ports 80/443 of the machine.
 #
 # ingress-nginx was retired upstream in March 2026: 4.15.1 (controller
 # v1.15.1) is its last release and no further security fix will ship. It is
-# kept until the replacement described in docs/adr/0001-replace-ingress-nginx.md
-# lands; do not treat this pin as maintained.
+# being replaced by Traefik (traefik-appset.yaml, MAIR-260) one machine at a
+# time; this file is deleted once prod has switched
+# (docs/adr/0001-replace-ingress-nginx.md). Do not treat this pin as
+# maintained.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -21,12 +24,27 @@ spec:
         # them with this label (role k8s_instance_link); the Argo CD machine
         # itself (in-cluster) does not carry it and is therefore excluded: it
         # needs neither a public ingress nor a database.
+        #
+        # MAIR-260: machines switched to Traefik (cluster label
+        # mairie360.fr/ingress=traefik) are excluded; a machine with no such
+        # label keeps ingress-nginx, so nothing changes until ansible labels
+        # it. Only one controller can own ports 80/443 (traefik-appset.yaml).
         selector:
           matchLabels:
             mairie360.fr/role: instance
+          matchExpressions:
+            - key: mairie360.fr/ingress
+              operator: NotIn
+              values: ["traefik"]
   template:
     metadata:
       name: 'ingress-nginx-{{name}}'
+      # When a machine switches to Traefik, its Application is deleted; the
+      # finalizer deletes ingress-nginx's resources with it, which frees
+      # ports 80/443 for Traefik. Also what removes it everywhere once this
+      # file is deleted after the last switch (see the ADR).
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       source:

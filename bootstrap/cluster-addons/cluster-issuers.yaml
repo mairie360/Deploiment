@@ -1,9 +1,12 @@
 # cert-manager ClusterIssuers, applied to every INSTANCE cluster by
 # bootstrap/appsets/cluster-issuer-appset.yaml.
 #
-# Le solver HTTP-01 cible explicitement la classe "nginx", installée par
-# bootstrap/appsets/ingress-nginx-appset.yaml sur chaque instance. Chaque hôte
-# doit résoudre publiquement vers l'IP de cette instance avant l'émission.
+# The HTTP-01 solver defaults to the "nginx" class. This file is shared by
+# every instance while they move to Traefik one by one (MAIR-260), so the
+# chart's Ingresses override it with the annotation
+# acme.cert-manager.io/http01-ingress-ingressclassname: <their own class>;
+# this default only matters for an Ingress created outside the chart. Each
+# host must resolve publicly to that instance's IP before issuance.
 #
 # ORDRE DE MISE EN ROUTE : utiliser letsencrypt-staging tant que la chaîne
 # n'est pas validée (quota quasi illimité, certificats non reconnus par les

@@ -26,11 +26,16 @@ helm lint ./charts/mairie360-stack
 helm plugin install https://github.com/helm-unittest/helm-unittest   # once
 helm unittest ./charts/mairie360-stack
 
-# Render + schema-validate every instance (this is what CI does)
-for v in clusters/*/instances/*; do
-  helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-    | kubeconform -strict -summary -schema-location default || echo "KO: $v"
-done
+# Render + schema-validate every instance with both ingress controllers,
+# plus bootstrap/ (this is what CI does). CRD schemas (Traefik Middleware,
+# Argo CD AppSets) come from the datreeio CRDs-catalog.
+CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+for v in clusters/*/instances/*; do for c in nginx traefik; do
+  helm template r ./charts/mairie360-stack -f "$v/values.yaml" --set global.ingressController=$c \
+    | kubeconform -strict -summary -schema-location default -schema-location "$CRDS" \
+        -skip CiliumNetworkPolicy || echo "KO: $v ($c)"
+done; done
+kubeconform -strict -schema-location default -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
@@ -57,7 +62,8 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 `scripts/bootstrap-node.sh` remains for preparing an isolated machine by hand.
 
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
-`helm lint` → render **and `kubeconform`** every instance → `helm unittest`,
+`helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
+and `bootstrap/` → `helm unittest`,
 all blocking. `gitleaks` and `trivy config` are not wired yet. The Kind +
 Cilium end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 
@@ -98,7 +104,8 @@ describes desired state.
 | `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` | instances only |
 | `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.21.2 | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
-| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances only |
+| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
+| `traefik-appset.yaml` | AppSet, clusters generator, multi-source | `traefik` chart 41.6.0 (v3.7.13), values `bootstrap/values/traefik.yaml` | instances labelled `mairie360.fr/ingress=traefik` |
 | `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
@@ -106,25 +113,40 @@ Ansible sets it during `argocd cluster add`; the clusters generator selects on
 it, which excludes the Argo CD machine itself (`in-cluster`, unlabelled) — it
 needs no public ingress, no cert-manager, no database.
 
+**The `mairie360.fr/ingress` label (MAIR-260)** picks the ingress controller
+of a machine: `traefik` → Traefik, absent or anything else → ingress-nginx.
+Only one can own 80/443 (ServiceLB). Ansible writes it from the host var
+`ingress_controller` (`k8s_instance_link`, `site.yml --tags labels`). Both
+controller AppSets carry the Argo CD resources finalizer, so a flip deletes
+the old controller. The instance values must agree:
+`global.ingressController`.
+
 ### HTTPS chain
 
-`ingress-nginx-appset` (nginx as **default IngressClass**, k3s installed with
-Traefik disabled) → `cert-manager-appset` → `cluster-issuer-appset`
-(`letsencrypt-prod` / `-staging`, HTTP-01 targeting `ingressClassName: nginx`)
-→ the `cert-manager.io/cluster-issuer` annotation on the fronts Ingress.
+`ingress-nginx-appset` or `traefik-appset` (one per machine, default
+IngressClass; k3s's bundled Traefik stays disabled so the version is pinned
+here) → `cert-manager-appset` → `cluster-issuer-appset` (`letsencrypt-prod` /
+`-staging`, HTTP-01 solver class `nginx` by default) → the
+`cert-manager.io/cluster-issuer` annotation on the fronts Ingress, plus
+`acme.cert-manager.io/http01-ingress-ingressclassname: <instance class>`,
+which overrides the solver class per Ingress. With Traefik, HTTP → HTTPS is
+the web entrypoint's redirect pinned at **priority 1**, so the solver router
+(`pathType: Exact`) always answers on port 80: keep it the lowest.
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
 **`cert-manager-appset.yaml` must stay free of any domain or IP** (MAIR-157):
 it is shared by every group. The HTTP-01 self-check goes through public DNS;
 it works from inside the cluster because the instance's public IP is on its
-interface, so ServiceLB publishes it as the ingress-nginx LoadBalancer IP and
+interface, so ServiceLB publishes it as the ingress controller's LoadBalancer IP and
 kube-proxy short-circuits pod traffic to it. A provider that NATs the public
 IP instead would need k3s `node-external-ip` (ansible, `k8s_node`), not
 `hostAliases` here.
 
 **ingress-nginx is retired upstream (March 2026)**: 4.15.1 is its last
-release and gets no more security fixes. Its replacement (Traefik + Gateway
-API, proposed) is recorded in `docs/adr/0001-replace-ingress-nginx.md`. Keep
+release and gets no more security fixes. It is being replaced by Traefik one
+machine at a time (dev → staging → prod, with rollback): decision and
+procedure in `docs/adr/0001-replace-ingress-nginx.md` (accepted, MAIR-260).
+`ingress-nginx-appset.yaml` is deleted once prod has switched. Keep
 controller >= v1.13.2 while cert-manager >= 1.18 is used: its HTTP-01 solver
 Ingress uses `pathType: Exact` (MAIR-228).
 
@@ -147,9 +169,10 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   image with another user, or an app that writes elsewhere, needs these
   values changed; `tests/security_context_test.yaml` pins them.
 - **Client IP (MAIR-226).** ingress-nginx runs with
-  `use-forwarded-headers: "false"`: nothing sits in front of it, so it
-  overwrites `X-Forwarded-For` with the TCP peer instead of trusting the
-  client's header. Every BFF gets `TRUST_PROXY=loopback, <global.trustedProxyCIDRs>`
+  `use-forwarded-headers: "false"` and Traefik with `forwardedHeaders`
+  trusting no IP: nothing sits in front of them, so they overwrite
+  `X-Forwarded-For` with the TCP peer instead of trusting the client's
+  header. Every BFF gets `TRUST_PROXY=loopback, <global.trustedProxyCIDRs>`
   (default `10.42.0.0/16`, the k3s pod CIDR = ansible `k3s_cluster_cidr`),
   so Express skips in-cluster proxies (ingress, fronts) and BFF_user's
   per-IP rate limits see the browser. Change both together if the pod CIDR
@@ -172,9 +195,17 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
-  host = `<frontName minus "-front">.<global.domain>`, `ingressClassName`,
-  `cert-manager.io/cluster-issuer` and annotations all read from
-  `.Values.ingress.*`. APIs/BFFs are never exposed.
+  host = `<frontName minus "-front">.<global.domain>`. **Everything
+  controller-specific derives from `global.ingressController`** (`nginx` |
+  `traefik`, MAIR-260) through `templates/_helpers.tpl`: `ingressClassName`
+  (unless `ingress.className`), the controller namespace the NetworkPolicies
+  admit (unless `global.ingressNamespace`), the HTTPS redirect and the body
+  limit `ingress.maxBodySizeMiB` (nginx annotations, or Traefik
+  `router.entrypoints: websecure` + a `buffering` Middleware from
+  `templates/traefik-middlewares.yaml`, rendered only for traefik since the
+  CRD does not exist on an nginx machine). `ingress.annotations` are added
+  last and win. Instance values never carry controller annotations anymore.
+  APIs/BFFs are never exposed.
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
@@ -299,6 +330,15 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   `app.kubernetes.io/component` try every hop (`check-flows.sh`). A denied
   flow must *time out* (Cilium drops silently); a fast failure is reported
   as an error, so a broken Service can't pass as "deny".
+- `chainsaw/ingress` (MAIR-260): `run.sh` installs Traefik (versions read
+  from the AppSets, values `bootstrap/values/traefik.yaml`), cert-manager and
+  **Pebble** (Let's Encrypt's test ACME server, `tests/e2e/pebble.yaml`),
+  and rewrites `*.e2e.invalid` to Traefik in CoreDNS. The test asserts the
+  fronts certificate is issued over HTTP-01 through Traefik (the e2e
+  ClusterIssuer keeps class `nginx`, proving the per-Ingress override), the
+  301/308 HTTP → HTTPS redirect, the 413 above 50 MiB and that a client-sent
+  `X-Forwarded-For` is not trusted. The e2e values run Traefik, so the
+  network-policies probe sits in the `traefik` namespace.
 - `chainsaw/data-access`: Redis ACL (prefix and command restrictions) and
   the per-API Postgres role logging in with its Secret password. The latter
   depends on the `Devops/Database` images actually creating those roles.

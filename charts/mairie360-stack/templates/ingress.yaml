@@ -10,7 +10,7 @@ specified"), so it is simply not rendered.
 {{- end -}}
 {{- end -}}
 {{- if and .Values.ingress.enabled $enabledFronts }}
-{{- $domain := required "global.domain est obligatoire pour l'Ingress des fronts" .Values.global.domain -}}
+{{- $domain := required "global.domain is required by the fronts Ingress" .Values.global.domain -}}
 {{- $fullname := include "mairie360.fullname" . -}}
 {{- $release := .Release.Name -}}
 apiVersion: networking.k8s.io/v1
@@ -20,18 +20,14 @@ metadata:
   labels:
     {{- include "mairie360.labels" . | nindent 4 }}
   annotations:
-    # Les fronts sont exposés en dernier : tout le reste doit être prêt avant.
+    # The fronts are exposed last: everything else must be ready first.
     argocd.argoproj.io/sync-wave: "5"
-    {{- if .Values.ingress.clusterIssuer }}
-    # C'est cette annotation qui déclenche l'émission du certificat par
-    # cert-manager. Sans elle, le bloc tls: ci-dessous ne crée rien.
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
-    {{- end }}
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    # cert-manager.io/cluster-issuer is what makes cert-manager issue the
+    # certificate of the tls: block below; the rest translates ingress.*
+    # into the controller's annotations (templates/_helpers.tpl).
+    {{- include "mairie360.ingressAnnotations" . | nindent 4 }}
 spec:
-  ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
+  ingressClassName: {{ include "mairie360.ingressClassName" . | quote }}
   tls:
     - hosts:
         {{- range $frontName, $frontConfig := $enabledFronts }}

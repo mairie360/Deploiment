@@ -28,7 +28,7 @@ spec:
         - wait:
             apiVersion: v1
             kind: Pod
-            namespace: ingress-nginx
+            namespace: traefik
             name: probe-ingress
             timeout: 2m
             for:
