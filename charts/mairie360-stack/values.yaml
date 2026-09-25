@@ -22,6 +22,16 @@ global:
   # autorisé à joindre les fronts (NetworkPolicy).
   ingressNamespace: "ingress-nginx"
 
+  # Addresses of the in-cluster reverse proxies (ingress-nginx and the
+  # fronts' Next.js server routes all run as pods). Injected into every BFF
+  # as TRUST_PROXY (Express `trust proxy`, preceded by `loopback`) so that
+  # req.ip is the browser's address taken from X-Forwarded-For, which the
+  # per-IP rate limits of BFF_user rely on (MAIR-226). Must match the pod
+  # CIDR of the machines: ansible `k3s_cluster_cidr` (Cilium cluster-pool).
+  # Never add a public range: any peer in this list may choose the client IP.
+  # [] = TRUST_PROXY not set, every client is seen as the front pod.
+  trustedProxyCIDRs: ["10.42.0.0/16"]
+
   # Namespace de Prometheus, s'il existe. Autorise le scraping des pods.
   # Laisser "" si pas de monitoring.
   monitoringNamespace: ""
