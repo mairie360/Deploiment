@@ -54,7 +54,20 @@ spec:
                 # is useless.
                 externalTrafficPolicy: Local
               config:
-                use-forwarded-headers: "true"
+                # Nothing sits in front of the controller (ServiceLB only
+                # DNATs), so it must NOT trust the X-Forwarded-* headers
+                # sent by clients: with "true" and the default
+                # proxy-real-ip-cidr (0.0.0.0/0), a client-chosen
+                # X-Forwarded-For became $remote_addr and was forwarded
+                # upstream, letting anyone pick the IP the BFFs rate-limit
+                # on (MAIR-226). With "false" the realip module is off and
+                # the controller sends X-Forwarded-For = the TCP peer
+                # (compute-full-forwarded-for stays off: it would append to,
+                # not replace, the client's header) and X-Forwarded-Proto =
+                # its own scheme, since TLS terminates here. Set it back to
+                # "true" only together with proxy-real-ip-cidr = the CIDR of
+                # a trusted load balancer/CDN placed in front.
+                use-forwarded-headers: "false"
                 ssl-protocols: "TLSv1.2 TLSv1.3"
                 hsts: "true"
               metrics:

@@ -146,6 +146,15 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   `emptyDir` (`/tmp` everywhere, plus `/app/.next/cache` for fronts). A new
   image with another user, or an app that writes elsewhere, needs these
   values changed; `tests/security_context_test.yaml` pins them.
+- **Client IP (MAIR-226).** ingress-nginx runs with
+  `use-forwarded-headers: "false"`: nothing sits in front of it, so it
+  overwrites `X-Forwarded-For` with the TCP peer instead of trusting the
+  client's header. Every BFF gets `TRUST_PROXY=loopback, <global.trustedProxyCIDRs>`
+  (default `10.42.0.0/16`, the k3s pod CIDR = ansible `k3s_cluster_cidr`),
+  so Express skips in-cluster proxies (ingress, fronts) and BFF_user's
+  per-IP rate limits see the browser. Change both together if the pod CIDR
+  changes; never list a public range. An instance `env` entry
+  `TRUST_PROXY` replaces the injected one.
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.
