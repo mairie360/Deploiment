@@ -19,7 +19,11 @@ spec:
       source:
         repoURL: https://charts.jetstack.io
         chart: cert-manager
-        targetRevision: v1.16.5
+        # PINNED to a supported minor (MAIR-228): 1.16 is out of support.
+        # Supported releases and their Kubernetes range:
+        # https://cert-manager.io/docs/releases/ (1.21: Kubernetes 1.33-1.36).
+        # Read the upgrade notes of every minor you skip before bumping.
+        targetRevision: v1.21.2
         helm:
           releaseName: cert-manager
           values: |
