@@ -11,17 +11,21 @@ data:
     maxmemory {{ .Values.config.maxmemory }}
     maxmemory-policy {{ .Values.config.maxmemoryPolicy }}
     aclfile /acl/users.acl
-    {{- if .Values.persistence.enabled }}
-    appendonly yes
     dir /data
-    {{- else }}
+    {{- if not .Values.persistence.enabled }}
     save ""
+    {{- end }}
+    {{- if or .Values.persistence.enabled .Values.config.appendonly }}
+    appendonly yes
+    {{- else }}
     appendonly no
     {{- end }}
-  # Génère /acl/users.acl au démarrage à partir des variables d'env du
-  # conteneur : seuls les NOMS de variable sont templatés ici, jamais un mot
-  # de passe (les valeurs viennent de secretKeyRef, cf. deployment.yaml). Le
-  # compte `default` est désactivé ; `admin` sert aux probes et à `helm test`.
+  # Writes /acl/users.acl at start from the container's env vars: only the
+  # variable NAMES are templated here, never a password (the values come from
+  # secretKeyRef, see deployment.yaml). The `default` account is disabled;
+  # `admin` is for the probes and `helm test`. The API roles also get the
+  # shared revocation list (MAIR-264, values `revokedTokens`): read-write for
+  # its writers, read-only (`%R~`) for the other APIs, nothing for the BFFs.
   entrypoint.sh: |
     #!/bin/sh
     set -eu
@@ -29,8 +33,18 @@ data:
     {
       echo "user default off resetkeys resetchannels -@all"
       echo "user admin on >$REDIS_PASSWORD ~* &* allcommands"
+      {{- $apis := ((($.Values.global | default dict).apis | default dict).instances) | default dict }}
+      {{- $revoked := $.Values.revokedTokens | default dict }}
       {{- range $role := (include "redis.roles" . | fromYamlArray) }}
-      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:* resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}"
+      {{- $shared := "" }}
+      {{- if $revoked.keyPattern }}
+      {{- if has $role ($revoked.writerRoles | default list) }}
+      {{- $shared = printf " ~%s" $revoked.keyPattern }}
+      {{- else if hasKey $apis $role }}
+      {{- $shared = printf " %%R~%s" $revoked.keyPattern }}
+      {{- end }}
+      {{- end }}
+      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}"
       {{- end }}
     } > /acl/users.acl
     exec redis-server /etc/redis/redis.conf

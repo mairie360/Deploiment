@@ -1,0 +1,89 @@
+suite: redis JWT revocation list (MAIR-264)
+# Core API writes `revoked:<sid>` (SET + EXPIRE), every API reads it
+# (EXISTS) before accepting a token. The key is not prefixed by API_lib.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: core-api reads and writes revoked:* next to its own prefix
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
+
+  - it: the other APIs only read revoked:* (Redis 7 %R~ key permission)
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user project-api on >\$PROJECT_API_REDIS_PASSWORD ~project-api:\* %R~revoked:\* resetchannels'
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user calendar-api on .* ~calendar-api:\* %R~revoked:\* '
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user message-api on .* ~message-api:\* %R~revoked:\* '
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user elearning-api on .* ~elearning-api:\* %R~revoked:\* '
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user project-api on [^"]* ~revoked:\*'
+
+  - it: BFFs get no access to revoked:*
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user user-bff on >\$USER_BFF_REDIS_PASSWORD ~user-bff:\* resetchannels'
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user [a-z]+-bff on [^"]*revoked'
+
+  - it: EXISTS and GET stay allowed (the APIs check the list with EXISTS)
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user project-api on [^"]*\+get[^"]*\+exists'
+
+  - it: an empty keyPattern turns the shared list off
+    templates: [charts/redis/templates/configmap.yaml]
+    set:
+      redis.revokedTokens.keyPattern: ""
+    asserts:
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'revoked'
+
+  - it: never evicts (revoked keys are the only ones with a TTL) and keeps an AOF
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["redis.conf"]
+          pattern: '(?m)^maxmemory-policy noeviction$'
+      - matchRegex:
+          path: data["redis.conf"]
+          pattern: '(?m)^appendonly yes$'
+      - matchRegex:
+          path: data["redis.conf"]
+          pattern: '(?m)^dir /data$'
+      - notMatchRegex:
+          path: data["redis.conf"]
+          pattern: 'allkeys|volatile'
+
+  - it: the APIs authenticate with their own ACL account through REDIS_URL
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-project-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_URL
+            value: "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@RELEASE-NAME-redis:6379"
+      # $(VAR) only expands variables defined earlier in the list.
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name == "REDIS_USERNAME")].value
+          value: project-api
