@@ -11,7 +11,8 @@
 #                               a second run reuses it and reinstalls the chart
 #
 # 1. Kind cluster with Cilium, the CNI of the real machines, so the
-#    NetworkPolicies are enforced exactly like in production.
+#    NetworkPolicies are enforced exactly like in production; then Traefik,
+#    cert-manager and Pebble (a local ACME server) for the ingress test.
 # 2. `helm install --wait --wait-for-jobs` of charts/mairie360-stack with
 #    tests/e2e/values.yaml (placeholder app images, real data layer), or with
 #    an instance's values plus tests/e2e/values-real.yaml when INSTANCE is set.
@@ -28,6 +29,9 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 CLUSTER="${CLUSTER:-mairie360-e2e}"
 NODE_IMAGE="${NODE_IMAGE:-kindest/node:v1.31.14}"   # k3s channel v1.31 on the machines
 CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"           # ansible group_vars/all.yml
+# Pinned in the platform AppSets: read from there so the two never diverge.
+TRAEFIK_CHART="$(awk '/chart: traefik/{f=1} f && /targetRevision:/{print $2; exit}' "$ROOT/bootstrap/appsets/traefik-appset.yaml")"
+CERT_MANAGER_VERSION="$(awk '/targetRevision:/{print $2; exit}' "$ROOT/bootstrap/appsets/cert-manager-appset.yaml")"
 NAMESPACE=mairie360-e2e
 RELEASE=e2e
 CTX="kind-$CLUSTER"
@@ -113,6 +117,32 @@ if ! $K -n kube-system get ds cilium >/dev/null 2>&1; then
 fi
 cilium status --context "$CTX" --wait --wait-duration 5m >/dev/null
 $K wait --for=condition=Ready node --all --timeout=3m
+
+step "Ingress stack: Traefik $TRAEFIK_CHART, cert-manager $CERT_MANAGER_VERSION, Pebble"
+# Same chart versions as the platform AppSets and the very values file the
+# Traefik AppSet reads, so the ingress test exercises what the machines run.
+# Only the Service type differs: Kind has no ServiceLB, and
+# externalTrafficPolicy (kept from the values) needs NodePort at least.
+helm --kube-context "$CTX" upgrade --install traefik traefik \
+  --repo https://traefik.github.io/charts --version "$TRAEFIK_CHART" \
+  -n traefik --create-namespace \
+  -f "$ROOT/bootstrap/values/traefik.yaml" --set service.spec.type=NodePort \
+  --wait --timeout 5m
+helm --kube-context "$CTX" upgrade --install cert-manager cert-manager \
+  --repo https://charts.jetstack.io --version "$CERT_MANAGER_VERSION" \
+  -n cert-manager --create-namespace --set crds.enabled=true \
+  --wait --timeout 5m
+# *.e2e.invalid -> Traefik's Service, for Pebble (HTTP-01 validation),
+# cert-manager (its self-check) and the test pods: the part public DNS plays
+# on a machine.
+$K -n kube-system get configmap coredns -o json \
+  | jq '.data.Corefile |= (if test("e2e\\.invalid") then . else
+          sub("\\.:53 \\{"; ".:53 {\n    rewrite name regex (.*)\\.e2e\\.invalid traefik.traefik.svc.cluster.local answer auto") end)' \
+  | $K apply -f - >/dev/null
+$K -n kube-system rollout restart deployment/coredns >/dev/null
+$K -n kube-system rollout status deployment/coredns --timeout 2m
+$K apply -f "$HERE/pebble.yaml"
+$K -n pebble rollout status deployment/pebble --timeout 2m
 
 step "Install: data layer and migrations (sync waves 0-1)${INSTANCE:+ — real images of instance $INSTANCE}"
 helm dependency build "$ROOT/charts/mairie360-stack" >/dev/null

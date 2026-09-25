@@ -7,12 +7,13 @@ client) ; chaque Argo CD ne pilote que les instances de son propre groupe.
 Ansible (rôle k8s_argocd) sur la machine Argo CD du groupe
   ├── installe Argo CD
   ├── kubectl apply bootstrap/platform-app.yaml
-  │     └── platform (app-of-apps) → synchronise bootstrap/appsets/
+  │     └── platform (app-of-apps) → syncs bootstrap/appsets/
   │           ├── sealed-secrets-appset   ┐
-  │           ├── cert-manager-appset     │ clusters generator, sélecteur
+  │           ├── cert-manager-appset     │ clusters generator, selector
   │           ├── cluster-issuer-appset   │ mairie360.fr/role=instance
-  │           ├── ingress-nginx-appset    ┘ → uniquement les instances
-  │           └── image-updater-app         → in-cluster (machine Argo CD)
+  │           ├── ingress-nginx-appset    │ → instances only; the last two
+  │           ├── traefik-appset          ┘   split on mairie360.fr/ingress
+  │           └── image-updater-app         → in-cluster (Argo CD machine)
   │
   ├── kubectl apply <instances-appset rendu>   ← templates/ du dépôt ansible
   │     └── une Application par clusters/<org>/instances/*
@@ -24,6 +25,23 @@ Ansible (rôle k8s_argocd) sur la machine Argo CD du groupe
 Application annotations. They depend on the group's instances (one per
 environment, tag policy per environment name), so Ansible renders them too,
 from `roles/k8s_argocd/templates/image-updaters.yaml.j2`.
+
+## Ingress controller: ingress-nginx or Traefik (MAIR-260)
+
+A machine runs exactly one ingress controller: both publish a LoadBalancer
+Service on 80/443 and k3s ServiceLB cannot bind a port twice. The Argo CD
+cluster label `mairie360.fr/ingress` (ansible var `ingress_controller`)
+chooses it: `traefik` → `traefik-appset.yaml` (chart pinned there, values in
+`values/traefik.yaml`, also used by `tests/e2e/run.sh`), anything else →
+`ingress-nginx-appset.yaml` (retired upstream, kept until prod has
+switched). Both carry the Argo CD resources finalizer, so flipping the label
+removes one controller and installs the other. The instance values must say
+the same (`global.ingressController`). Procedure and rollback:
+`docs/adr/0001-replace-ingress-nginx.md`.
+
+`values/` is not synced by the platform app (it only reads `appsets/`): its
+files are read by the AppSets through an Argo CD `$values` source that
+tracks `main`, like `cluster-addons/`.
 
 ## Pourquoi l'ApplicationSet des instances n'est pas ici
 

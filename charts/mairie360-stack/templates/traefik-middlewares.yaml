@@ -1,0 +1,25 @@
+{{- /*
+Traefik counterpart of nginx.ingress.kubernetes.io/proxy-body-size (MAIR-260):
+the `buffering` Middleware answers 413 above maxRequestBodyBytes. Only
+rendered on a Traefik instance: the Middleware CRD does not exist on a
+machine that still runs ingress-nginx. Referenced by the fronts Ingress
+through traefik.ingress.kubernetes.io/router.middlewares
+(<namespace>-<name>@kubernetescrd), same namespace, so no cross-namespace
+reference is needed.
+Buffering also buffers responses: fine for the fronts, which stream
+nothing (no SSE / WebSocket).
+*/ -}}
+{{- if and .Values.ingress.enabled (eq (include "mairie360.ingressController" .) "traefik") (gt (int (.Values.ingress.maxBodySizeMiB | default 0)) 0) }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "mairie360.ingressBodySizeMiddleware" . }}
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    # Before the Ingresses (wave 5) that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  buffering:
+    maxRequestBodyBytes: {{ mul (int .Values.ingress.maxBodySizeMiB) 1048576 }}
+{{- end }}

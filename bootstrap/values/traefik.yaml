@@ -1,0 +1,93 @@
+# Values of the Traefik chart installed by bootstrap/appsets/traefik-appset.yaml
+# (MAIR-260). Kept in its own file, read through an Argo CD `$values` source,
+# so that tests/e2e/run.sh installs exactly the same configuration.
+#
+# Traefik replaces ingress-nginx (retired upstream, see
+# docs/adr/0001-replace-ingress-nginx.md) with the same behaviour:
+#   - forced HTTP -> HTTPS redirect (web entrypoint, below);
+#   - 50 MiB request body limit: a `buffering` Middleware rendered by the
+#     mairie360-stack chart (templates/traefik-middlewares.yaml);
+#   - cert-manager HTTP-01: the solver Ingress (class traefik, pathType Exact)
+#     is served over plain HTTP, the redirect having priority 1;
+#   - client-sent X-Forwarded-* never trusted, client source IP preserved.
+
+deployment:
+  replicas: 1
+
+# The fronts Ingress sets ingressClassName: traefik explicitly; making the
+# class the default also covers Ingresses created without one.
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+  name: traefik
+
+providers:
+  # Middlewares (body size) are Traefik CRDs, same namespace as the Ingress.
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: false
+  kubernetesIngress:
+    enabled: true
+    # Publishes the LoadBalancer IP in the Ingress status, like ingress-nginx.
+    publishedService:
+      enabled: true
+  # Gateway API is the target of a later ticket (ADR 0001), not enabled yet.
+  kubernetesGateway:
+    enabled: false
+
+ports:
+  web:
+    http:
+      redirections:
+        # Every plain-HTTP request is redirected to HTTPS (301, 308 for
+        # non-GET), except the ones a more specific router takes. Priority 1
+        # makes this catch-all the lowest-priority router of the entrypoint,
+        # so the cert-manager HTTP-01 solver router (Host + exact Path)
+        # always answers the ACME challenge over plain HTTP. (On Traefik
+        # v3.7.13 the e2e run also got the challenge answered with the
+        # chart's default priority; pinning 1 keeps it from depending on
+        # that default.)
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+          priority: 1
+    # Nothing sits in front of Traefik (ServiceLB only DNATs): trust nobody's
+    # X-Forwarded-* headers. Traefik then drops the client's headers and
+    # sends X-Forwarded-For = the TCP peer, like ingress-nginx with
+    # use-forwarded-headers: "false" (MAIR-226). The BFFs trust only the pod
+    # CIDR (global.trustedProxyCIDRs), so the client cannot pick its IP.
+    forwardedHeaders:
+      trustedIPs: []
+      insecure: false
+  websecure:
+    forwardedHeaders:
+      trustedIPs: []
+      insecure: false
+
+# TLS 1.2 minimum, as ssl-protocols "TLSv1.2 TLSv1.3" on ingress-nginx.
+# HSTS is not set here: it moves to MAIR-258 with rate limiting.
+tlsOptions:
+  default:
+    minVersion: VersionTLS12
+    sniStrict: false
+
+service:
+  spec:
+    type: LoadBalancer
+    # Keeps the client's real source IP (ServiceLB): without it every access
+    # log shows the node's internal IP and any per-IP limit is useless.
+    externalTrafficPolicy: Local
+
+# Access logs on stdout: the client IP check of the migration procedure
+# (docs/adr/0001-replace-ingress-nginx.md) reads them.
+accessLog:
+  enabled: true
+
+resources:
+  requests: { memory: 128Mi, cpu: 100m }
+
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: Exists
+    effect: NoSchedule
