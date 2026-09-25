@@ -250,6 +250,17 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   account is disabled; `admin` (Secret key `redis-password`) is for probes and
   `helm test`. Fronts have no Redis account — they never used it. `helm test`
   asserts that an unauthenticated `PING` is refused and that `admin` works.
+  Each role is confined to `~<role>:*`, plus the **shared JWT revocation
+  list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
+  `core-api`, read-only `%R~revoked:*` for every other API, nothing for the
+  BFFs. Because Redis now holds that list, `maxmemory-policy` is
+  **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
+  TTL; `volatile-*` would even drop them first, they are the only keys with a
+  TTL) and AOF is on (`config.appendonly`, survives container restarts;
+  `persistence.enabled` for new pods too). The APIs only read `REDIS_URL`,
+  so the APIs chart builds it as
+  `redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@<release>-redis:6379`
+  (Kubernetes expands `$(VAR)` from the variables listed before it).
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data →
@@ -394,8 +405,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   rolling update.
 - **`replicaCount: 2` on Redis would give two independent caches**, not a
   replicated one. Leave it at 1.
-- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): fine
-  for a cache, data-losing for sessions.
+- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): the
+  AOF survives a container restart but not a new pod (config change, node
+  reboot), which empties the JWT revocation list: revoked tokens are then
+  accepted again by every API but Core until they expire (`JWT_TIMEOUT`).
+  Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
   sync with `global.apis.instances` / `global.bffs.instances`; `DB_ROLES`

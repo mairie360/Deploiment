@@ -66,6 +66,36 @@ spec:
             check:
               ($error): ~
 
+    - name: redis JWT revocation list (MAIR-264)
+      try:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-redis -- sh -c '
+                FAILED=0
+                as() { u=$1; p=$2; shift 2; redis-cli -h "$REDIS_HOST" --user "$u" --pass "$p" --no-auth-warning "$@" 2>&1; }
+                expect() { # <label> <expected substring> <actual output>
+                  case "$3" in
+                    *"$2"*) echo "ok    $1" ;;
+                    *) echo "FAIL  $1: expected \"$2\", got \"$3\""; FAILED=1 ;;
+                  esac
+                }
+                expect "core-api writes a revoked session" OK "$(as core-api "$ROLE_PASSWORD" set revoked:e2e-sid 1 EX 60)"
+                expect "project-api sees it (EXISTS)" 1 "$(as project-api "$PROJECT_API_PASSWORD" exists revoked:e2e-sid)"
+                expect "project-api reads it (GET)" 1 "$(as project-api "$PROJECT_API_PASSWORD" get revoked:e2e-sid)"
+                expect "project-api cannot write it" NOPERM "$(as project-api "$PROJECT_API_PASSWORD" set revoked:e2e-sid 0)"
+                expect "project-api cannot delete it" NOPERM "$(as project-api "$PROJECT_API_PASSWORD" del revoked:e2e-sid)"
+                expect "a BFF cannot read it" NOPERM "$(as user-bff "$USER_BFF_PASSWORD" exists revoked:e2e-sid)"
+                expect "REDIS_URL built like the APIs chart authenticates" 1 "$(redis-cli -u "$REDIS_URL" --no-auth-warning exists revoked:e2e-sid 2>&1)"
+                expect "Redis never evicts" noeviction "$(as admin "$ADMIN_PASSWORD" config get maxmemory-policy)"
+                exit $FAILED
+              '
+            check:
+              ($error): ~
+
     - name: postgres role
       try:
         - script:

@@ -114,8 +114,6 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
   value: {{ printf "%s-redis" .root.Release.Name | quote }}
 - name: REDIS_PORT
   value: "6379"
-- name: REDIS_URL
-  value: {{ printf "redis://%s-redis:6379" .root.Release.Name | quote }}
 - name: REDIS_USERNAME
   value: {{ .name | quote }}
 - name: REDIS_PASSWORD
@@ -123,6 +121,15 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
     secretKeyRef:
       name: {{ printf "%s-redis" .root.Release.Name }}
       key: {{ printf "%s-password" .name }}
+{{- /*
+The APIs (API_lib `Redis::new`) only read REDIS_URL: the credentials must be
+in it, or every command hits the disabled `default` account (NOAUTH).
+Kubernetes expands $(VAR) from the variables defined ABOVE it in this list,
+so the password never appears in the manifest. Passwords are hex
+(scripts/seal-secrets.sh), hence URL-safe. MAIR-264.
+*/}}
+- name: REDIS_URL
+  value: {{ printf "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:6379" .root.Release.Name | quote }}
 - name: JWT_SECRET
   valueFrom:
     secretKeyRef:

@@ -1,7 +1,7 @@
-# Sous-chart redis — instance unique.
+# redis subchart: a single instance.
 #
-# ATTENTION : replicaCount > 1 ne donne PAS un Redis répliqué mais N Redis
-# indépendants derrière un même Service. Laisser à 1.
+# WARNING: replicaCount > 1 does NOT give a replicated Redis but N independent
+# Redis behind one Service. Keep it at 1.
 
 enabled: true
 replicaCount: 1
@@ -22,13 +22,26 @@ secret:
 password: ""
 rolePasswords: {}
 
-# Commandes ACL accordées à chaque rôle, restreintes à ce qui est
-# effectivement utilisé par le cache-aside de API_lib. Le compte `default`
-# est désactivé (voir templates/configmap.yaml : entrypoint.sh).
+# ACL commands granted to every role, limited to what API_lib's cache-aside
+# actually uses. The `default` account is disabled (see
+# templates/configmap.yaml: entrypoint.sh).
 aclCommands: ["get", "set", "del", "exists", "expire"]
 
-# Persistance. false = emptyDir : les données sont perdues à chaque
-# redémarrage du pod. Suffisant pour un cache, pas pour des sessions.
+# Shared JWT revocation list (MAIR-264). Core API writes one key per revoked
+# session, `revoked:<sid>` (SET + EXPIRE, TTL = remaining JWT lifetime), and
+# every API checks it (EXISTS) through API_lib before accepting a token.
+# The key is used exactly as written: API_lib does not prefix it with the role.
+#   - writerRoles: read + write on keyPattern (next to their own <role>:*);
+#   - every other API role (global.apis.instances): read-only, Redis 7 key
+#     permission `%R~<keyPattern>`;
+#   - BFF roles: no access.
+revokedTokens:
+  keyPattern: "revoked:*"
+  writerRoles: ["core-api"]
+
+# Persistence of /data. false = emptyDir: data survives a container restart
+# (with config.appendonly) but not a new pod (config change, node reboot).
+# true = a PVC, which also keeps the revocation list across new pods.
 persistence:
   enabled: false
   size: 1Gi
@@ -36,7 +49,22 @@ persistence:
 
 config:
   maxmemory: "256mb"
-  maxmemoryPolicy: "allkeys-lru"
+  # noeviction (MAIR-264): Redis now holds the JWT revocation list, and an
+  # evicted `revoked:<sid>` key means a revoked token is accepted again by
+  # every API but Core. Every other policy can drop it before its TTL:
+  #   - allkeys-lru/lfu/random evict any key, revoked ones included;
+  #   - volatile-* only evict keys WITH a TTL, and today the revocation keys
+  #     are the only keys with one (Core's cache `sessions:<id>` and its
+  #     forgot-password / first-connection tokens have none), so they
+  #     would be the very first to go.
+  # With noeviction a full Redis refuses writes (OOM error) instead: Core's
+  # writes fail loudly, the cache-aside degrades to Postgres, nothing is
+  # silently forgotten. Keys are tiny (~100 bytes), so 256mb is far from
+  # full; watch `used_memory` rather than trade correctness for it.
+  maxmemoryPolicy: "noeviction"
+  # AOF in /data (emptyDir, or the PVC when persistence.enabled): the
+  # revocation list survives a Redis container restart (crash, OOM kill).
+  appendonly: true
 
 resources:
   requests: { memory: "64Mi", cpu: "50m" }
