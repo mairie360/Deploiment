@@ -1,46 +1,66 @@
-# Sous-chart APIs — une Deployment + un Service par entrée de `instances`.
-# Les valeurs ci-dessous sont les défauts ; chaque environnement surcharge
-# `instances.<nom>.image.tag` (c'est ce que fait argocd-image-updater).
+# APIs subchart: one Deployment + one Service per entry of `instances`.
+# The values below are defaults; each environment overrides
+# `instances.<name>.image.tag` (which is what argocd-image-updater does).
 
-# Ressources par défaut, surchargeables par instance (`instances.<nom>.resources`).
+# Default resources, overridable per instance (`instances.<name>.resources`).
 resources:
   requests: { memory: "64Mi", cpu: "50m" }
   limits:   { memory: "256Mi", cpu: "500m" }
 
-# Durcissement des conteneurs. `runAsNonRoot` est laissé à false tant que les
-# images ne sont pas vérifiées : à passer à true dès que le Dockerfile déclare
-# un USER non-root, sinon le pod ne démarrera pas.
+# Container hardening (MAIR-229). Every pod runs as a fixed non-root uid/gid:
+# 65532 is `nonroot` of gcr.io/distroless (the API images move to the
+# `:nonroot` base, whose files are owned by that uid).
+# A numeric runAsUser is what lets `runAsNonRoot: true` pass the kubelet check
+# even on an image whose Dockerfile declares no numeric USER.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
 containerSecurityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
-  runAsNonRoot: false
+  # The Rust binaries write nothing to disk; /tmp stays writable just in case.
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
   capabilities:
     drop: ["ALL"]
   seccompProfile:
     type: RuntimeDefault
 
-# Stratégie de mise à jour. maxSurge=0 évite de doubler la RAM sur une petite
-# VM mais provoque une coupure à chaque déploiement avec replicaCount=1.
+# No workload calls the Kubernetes API: do not mount the namespace's
+# default ServiceAccount token into the pods.
+automountServiceAccountToken: false
+
+# Writable emptyDir volumes mounted over the read-only root filesystem.
+writableDirs:
+  - name: tmp
+    mountPath: /tmp
+    sizeLimit: 64Mi
+
+# Update strategy. maxSurge=0 avoids doubling the RAM on a small VM but
+# causes a short outage on every rollout with replicaCount=1.
 strategy:
   maxSurge: 0
   maxUnavailable: 1
 
-# Variables d'environnement communes à toutes les APIs (en plus de celles
-# injectées par le chart : DB_*, REDIS_*, JWT_SECRET).
+# Environment variables shared by every API (on top of the ones the chart
+# injects: DB_*, REDIS_*, JWT_SECRET).
 commonEnv:
   - name: JWT_TIMEOUT
     value: "3600"
   - name: TOKIO_WORKER_THREADS
     value: "2"
 
-# `env` d'une instance passe par `tpl` : on peut y écrire
+# An instance's `env` goes through `tpl`, so it may contain
 #   value: "http://{{ .Release.Name }}-core-api:3000"
-# Renseigné par environnement (clusters/<cluster>/instances/<env>/values.yaml) :
+# Set per environment (clusters/<cluster>/instances/<env>/values.yaml):
 #   instances:
 #     core-api:
 #       enabled: true
 #       image: { repository: ghcr.io/mairie360/core-api, tag: "dev-abc1234" }
 #       replicaCount: 1
-#       resources: {}          # optionnel, sinon `resources` ci-dessus
-#       env: []                # optionnel, passe par tpl
+#       resources: {}          # optional, defaults to `resources` above
+#       env: []                # optional, goes through tpl
 instances: {}
