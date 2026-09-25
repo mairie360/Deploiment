@@ -29,7 +29,8 @@ Le provisionnement des machines est dans le dépôt
 |---|---|
 | `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), 5 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
-| `bootstrap/` | Amorçage Argo CD (voir `bootstrap/README.md`) |
+| `bootstrap/` | Argo CD bootstrap: platform AppSets (cert-manager, sealed-secrets, ingress controller: ingress-nginx or Traefik, see `bootstrap/README.md`) |
+| `docs/adr/` | Architecture decision records (`0001`: replacing ingress-nginx with Traefik, migration procedure) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
 
 ## Ajouter une instance

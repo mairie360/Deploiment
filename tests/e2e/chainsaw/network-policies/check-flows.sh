@@ -63,7 +63,7 @@ while read -r source target expected; do
 
   if [ "$source" = ingress ]; then
     # Cross-namespace: the Service needs its fully qualified name.
-    ns=ingress-nginx
+    ns=traefik
     host="${target%%:*}.${NAMESPACE}.svc.cluster.local"
   else
     ns="$NAMESPACE"

@@ -24,7 +24,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.ingressNamespace | default "ingress-nginx" }}
+              kubernetes.io/metadata.name: {{ include "mairie360.ingressNamespace" . }}
       ports:
         - protocol: TCP
           port: 8089

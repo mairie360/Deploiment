@@ -18,11 +18,22 @@ global:
   # tirer les images GHCR. Mettre "" si les images sont publiques.
   imagePullSecret: "ghcr-secret"
 
-  # Namespace où tourne le contrôleur d'ingress. Seul ce namespace est
-  # autorisé à joindre les fronts (NetworkPolicy).
-  ingressNamespace: "ingress-nginx"
+  # Ingress controller running on this instance's machine (MAIR-260):
+  # "nginx" (ingress-nginx, retired upstream) or "traefik". It drives the
+  # IngressClass of the chart's Ingresses, their controller-specific
+  # annotations/Middlewares and, unless ingressNamespace is set, the
+  # namespace the NetworkPolicies admit. It MUST match the controller the
+  # platform AppSets install on that machine, chosen by the Argo CD cluster
+  # label `mairie360.fr/ingress` (ansible `ingress_controller`): see
+  # docs/adr/0001-replace-ingress-nginx.md for the switch procedure.
+  ingressController: "nginx"
 
-  # Addresses of the in-cluster reverse proxies (ingress-nginx and the
+  # Namespace of the ingress controller: the only namespace allowed to reach
+  # the fronts and the ACME solver pods (NetworkPolicy). "" = derived from
+  # ingressController ("ingress-nginx" or "traefik").
+  ingressNamespace: ""
+
+  # Addresses of the in-cluster reverse proxies (the ingress controller and the
   # fronts' Next.js server routes all run as pods). Injected into every BFF
   # as TRUST_PROXY (Express `trust proxy`, preceded by `loopback`) so that
   # req.ip is the browser's address taken from X-Forwarded-For, which the
@@ -128,20 +139,30 @@ secrets:
   s3SecretKey: ""
 
 # -----------------------------------------------------------------------------
-# Ingress unique pour tous les fronts activés (templates/ingress.yaml)
+# Single Ingress for every enabled front (templates/ingress.yaml)
 # -----------------------------------------------------------------------------
 ingress:
   enabled: true
-  className: "nginx"
-  # ClusterIssuer cert-manager. Commencer par letsencrypt-staging pour valider
-  # la chaîne, puis passer à letsencrypt-prod.
+  # IngressClass. "" = global.ingressController ("nginx" or "traefik"), which
+  # is what the platform AppSets install; only set it for a custom class.
+  className: ""
+  # cert-manager ClusterIssuer. Start with letsencrypt-staging to validate
+  # the chain, then switch to letsencrypt-prod.
   clusterIssuer: "letsencrypt-prod"
-  # Nom du Secret TLS. Défaut : <release>-fronts-tls.
+  # TLS Secret name. Default: <release>-fronts-tls.
   tlsSecretName: ""
-  # Annotations propres au contrôleur, à définir par environnement. Exemples :
-  #   nginx   : nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-  #             nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-  #   traefik : traefik.ingress.kubernetes.io/router.entrypoints: "web,websecure"
+  # Maximum request body size, in MiB, translated per controller:
+  #   nginx   -> nginx.ingress.kubernetes.io/proxy-body-size: "<n>m"
+  #   traefik -> a `buffering` Middleware (maxRequestBodyBytes), attached
+  #              with traefik.ingress.kubernetes.io/router.middlewares
+  # Requests above it get 413. 0 = no limit set by the chart.
+  maxBodySizeMiB: 50
+  # HTTP -> HTTPS redirect: nginx gets ssl-redirect/force-ssl-redirect on the
+  # Ingress; with traefik the redirect is done by the controller itself (web
+  # entrypoint, bootstrap/values/traefik.yaml) and the fronts' routers only
+  # listen on websecure, so it cannot be turned off per instance.
+  # Extra annotations, added as-is whatever the controller (they win over
+  # the generated ones).
   annotations: {}
 
 # -----------------------------------------------------------------------------

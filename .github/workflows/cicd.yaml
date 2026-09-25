@@ -32,6 +32,10 @@ jobs:
 
       # Render every instance and validate it against the Kubernetes schemas.
       # CiliumNetworkPolicy has no schema in kubeconform's default store.
+      # Every instance is rendered with both ingress controllers (MAIR-260),
+      # so a switch to Traefik is validated before it happens; the Traefik
+      # Middleware and the Argo CD AppSets are checked against the
+      # datreeio CRDs-catalog schemas.
       - name: Install kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
@@ -39,11 +43,19 @@ jobs:
 
       - name: Render and validate every instance
         run: |
+          CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           for v in clusters/*/instances/*; do
-            echo "Rendering $v"
-            helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-              | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy
+            for controller in nginx traefik; do
+              echo "Rendering $v (ingress controller: $controller)"
+              helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
+                --set global.ingressController="$controller" \
+                | kubeconform -strict -summary -schema-location default \
+                    -schema-location "$CRDS" -skip CiliumNetworkPolicy
+            done
           done
+          echo "Validating bootstrap/"
+          kubeconform -strict -summary -schema-location default \
+            -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
 
       - name: Helm unit tests
         run: |

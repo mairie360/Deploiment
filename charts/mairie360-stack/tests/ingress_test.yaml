@@ -1,0 +1,148 @@
+suite: ingress controllers (MAIR-260)
+# The fronts Ingress, the Traefik Middleware and the NetworkPolicies follow
+# global.ingressController, so that one value switches an instance between
+# ingress-nginx and Traefik (and back).
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  # --- nginx (every instance today) -----------------------------------------
+  - it: nginx keeps the ingress-nginx class and annotations of the instances
+    templates: [templates/ingress.yaml]
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - isSubset:
+          path: metadata.annotations
+          content:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            acme.cert-manager.io/http01-ingress-ingressclassname: nginx
+            nginx.ingress.kubernetes.io/proxy-body-size: 50m
+            nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+
+  - it: nginx renders no Traefik Middleware (its CRD does not exist there)
+    templates: [templates/traefik-middlewares.yaml]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: nginx admits the ingress-nginx namespace to the fronts and ACME solvers
+    templates:
+      - charts/Fronts/templates/network-policy.yaml
+      - templates/acme-solver-network-policy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: ingress-nginx
+
+  # --- traefik ----------------------------------------------------------------
+  - it: traefik switches the class, the HTTP-01 solver class and the annotations
+    templates: [templates/ingress.yaml]
+    set:
+      global.ingressController: traefik
+    release:
+      namespace: mairie360-dev
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - isSubset:
+          path: metadata.annotations
+          content:
+            cert-manager.io/cluster-issuer: letsencrypt-prod
+            acme.cert-manager.io/http01-ingress-ingressclassname: traefik
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+            traefik.ingress.kubernetes.io/router.middlewares: mairie360-dev-RELEASE-NAME-mairie360-stack-body-size@kubernetescrd
+      - notExists:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+      - notExists:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/force-ssl-redirect"]
+
+  - it: traefik gets the 50 MiB body limit as a buffering Middleware
+    templates: [templates/traefik-middlewares.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - isKind:
+          of: Middleware
+      - isAPIVersion:
+          of: traefik.io/v1alpha1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-mairie360-stack-body-size
+      - equal:
+          path: spec.buffering.maxRequestBodyBytes
+          value: 52428800
+
+  - it: traefik follows ingress.maxBodySizeMiB, and 0 drops the limit
+    templates: [templates/traefik-middlewares.yaml, templates/ingress.yaml]
+    set:
+      global.ingressController: traefik
+      ingress.maxBodySizeMiB: 0
+    asserts:
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+        template: templates/ingress.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/traefik-middlewares.yaml
+
+  - it: traefik admits the traefik namespace to the fronts and ACME solvers
+    templates:
+      - charts/Fronts/templates/network-policy.yaml
+      - templates/acme-solver-network-policy.yaml
+    set:
+      global.ingressController: traefik
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: traefik
+
+  # --- overrides and guards ---------------------------------------------------
+  - it: ingress.annotations win over the generated ones
+    templates: [templates/ingress.yaml]
+    set:
+      ingress.annotations:
+        nginx.ingress.kubernetes.io/proxy-body-size: 200m
+        example.com/extra: "yes"
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            nginx.ingress.kubernetes.io/proxy-body-size: 200m
+            example.com/extra: "yes"
+
+  - it: an explicit ingressNamespace and className still win
+    templates:
+      - templates/ingress.yaml
+      - templates/acme-solver-network-policy.yaml
+    set:
+      global.ingressController: traefik
+      global.ingressNamespace: kube-system
+      ingress.className: traefik-internal
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik-internal
+        template: templates/ingress.yaml
+      - equal:
+          path: metadata.annotations["acme.cert-manager.io/http01-ingress-ingressclassname"]
+          value: traefik-internal
+        template: templates/ingress.yaml
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: kube-system
+        template: templates/acme-solver-network-policy.yaml
+
+  - it: an unknown controller fails the render
+    # traefik-middlewares.yaml is the first template to evaluate it.
+    templates: [templates/traefik-middlewares.yaml]
+    set:
+      global.ingressController: haproxy
+    asserts:
+      - failedTemplate:
+          errorPattern: 'global.ingressController must be "nginx" or "traefik"'

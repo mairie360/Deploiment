@@ -1,0 +1,13 @@
+# An HTTP client inside the cluster, standing in for a browser: it reaches the
+# fronts through Traefik's Service, by name (*.e2e.invalid -> Traefik, see
+# run.sh), exactly like a browser reaches the machine's public IP.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-browser
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: curl
+      image: curlimages/curl:8.16.0
+      command: ["sleep", "3600"]

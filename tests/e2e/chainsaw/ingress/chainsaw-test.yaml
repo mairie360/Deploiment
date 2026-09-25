@@ -1,0 +1,116 @@
+# The public entry point through Traefik (MAIR-260), with the chart's own
+# Ingress and the platform's Traefik values (bootstrap/values/traefik.yaml):
+#  - cert-manager obtains the fronts certificate over HTTP-01 from Pebble,
+#    through a solver Ingress of class traefik (the ClusterIssuer says nginx:
+#    the chart's annotation overrides it) with pathType Exact, which the
+#    web entrypoint's HTTPS redirect must not swallow;
+#  - plain HTTP is redirected to HTTPS, and HTTPS serves that certificate;
+#  - a request body above ingress.maxBodySizeMiB (50 MiB) gets 413;
+#  - a client-sent X-Forwarded-For is not trusted: the front sees the
+#    client's real address (MAIR-226).
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: ingress
+spec:
+  bindings:
+    - name: release
+      value: e2e
+  steps:
+    - name: the fronts certificate is issued over HTTP-01
+      try:
+        - assert:
+            timeout: 5m
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata:
+                name: (join('-', [$release, 'mairie360-stack-fronts-tls']))
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+      catch:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              kubectl -n "$NAMESPACE" get certificates,certificaterequests,orders,challenges -o wide || true
+              kubectl -n "$NAMESPACE" describe challenges || true
+              kubectl -n "$NAMESPACE" get ingress -o yaml | grep -E 'name:|ingressClassName|pathType|path:' || true
+              kubectl -n traefik logs deploy/traefik --tail=50 || true
+              kubectl -n pebble logs deploy/pebble --tail=50 || true
+
+    - name: start the client
+      try:
+        - apply:
+            file: client.yaml
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            name: client-browser
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+
+    - name: redirect, certificate, body limit and client IP
+      try:
+        - script:
+            timeout: 3m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-browser -- sh -c '
+                FAILED=0
+                HOST=login.e2e.invalid
+                expect() { # <label> <expected substring> <actual output>
+                  case "$3" in
+                    *"$2"*) echo "ok    $1" ;;
+                    *) echo "FAIL  $1: expected \"$2\", got \"$3\""; FAILED=1 ;;
+                  esac
+                }
+                refute() { # <label> <forbidden substring> <actual output>
+                  case "$3" in
+                    *"$2"*) echo "FAIL  $1: found \"$2\" in \"$3\""; FAILED=1 ;;
+                    *) echo "ok    $1" ;;
+                  esac
+                }
+
+                # Traefik permanent redirect: 301 for GET/HEAD, 308 otherwise
+                # (the method and body are kept).
+                expect "plain HTTP GET is permanently redirected to HTTPS, path kept" \
+                  "301 https://$HOST/some/path?q=1" \
+                  "$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "http://$HOST/some/path?q=1")"
+                expect "plain HTTP POST is redirected with 308 (method kept)" \
+                  "308 https://$HOST/api/auth/login" \
+                  "$(curl -s -o /dev/null -w "%{http_code} %{redirect_url}" -X POST -d x=1 "http://$HOST/api/auth/login")"
+
+                # Traefik picks the Secret up a few seconds after it is Ready.
+                for i in $(seq 1 30); do
+                  issuer=$(curl -skv -o /dev/null "https://$HOST/" 2>&1 | grep -i "issuer:")
+                  case "$issuer" in *Pebble*) break ;; esac
+                  sleep 2
+                done
+                expect "HTTPS serves the certificate issued by the ACME server" Pebble "$issuer"
+
+                expect "HTTPS reaches the front" 200 \
+                  "$(curl -sk -o /dev/null -w "%{http_code}" "https://$HOST/")"
+
+                expect "a 1 MiB body goes through" 200 \
+                  "$(head -c 1048576 /dev/zero | curl -sk -o /dev/null -w "%{http_code}" -X POST --data-binary @- "https://$HOST/")"
+                expect "a body over 50 MiB is refused" 413 \
+                  "$(head -c 52428801 /dev/zero | curl -sk -o /dev/null -w "%{http_code}" -X POST --data-binary @- "https://$HOST/")"
+
+                # traefik/whoami echoes the request it received.
+                MY_IP=$(hostname -i | cut -d" " -f1)
+                echoed=$(curl -sk -H "X-Forwarded-For: 203.0.113.7" "https://$HOST/" | grep -i "^X-Forwarded-For:")
+                refute "a client-sent X-Forwarded-For is not trusted" 203.0.113.7 "$echoed"
+                expect "the front sees the client address in X-Forwarded-For" "$MY_IP" "$echoed"
+
+                exit $FAILED
+              '
+            check:
+              ($error): ~
