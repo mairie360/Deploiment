@@ -138,6 +138,14 @@ Umbrella `type: application` chart with 7 local subcharts (`file://` deps):
   entry where `enabled: true`. Objects are named `<Release.Name>-<instanceName>`.
   Per-instance keys: `image.repository`, `image.tag` (**required**, no `latest`
   default), `port`, `replicaCount`, `resources`, `env`.
+- **Non-root, read-only pods (MAIR-229).** Each of the three charts sets a
+  pod `securityContext` with a numeric uid/gid (`APIs` 65532 distroless
+  `nonroot`, `BFFs` 1000 `node`, `Fronts` 1001 `nextjs`/`nodejs`, matching
+  the images' Dockerfiles), `readOnlyRootFilesystem: true`,
+  `automountServiceAccountToken: false`, and mounts `writableDirs` as
+  `emptyDir` (`/tmp` everywhere, plus `/app/.next/cache` for fronts). A new
+  image with another user, or an app that writes elsewhere, needs these
+  values changed; `tests/security_context_test.yaml` pins them.
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.

@@ -28,6 +28,11 @@ spec:
       labels:
         {{- include "apis.instancePodLabels" $ctx | nindent 8 }}
     spec:
+      automountServiceAccountToken: {{ $.Values.automountServiceAccountToken }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with $.Values.global.imagePullSecret }}
       imagePullSecrets:
         - name: {{ . }}
@@ -56,5 +61,22 @@ spec:
             {{- end }}
           resources:
             {{- toYaml ($apiConfig.resources | default $.Values.resources) | nindent 12 }}
+          {{- with $.Values.writableDirs }}
+          volumeMounts:
+            {{- range . }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+            {{- end }}
+          {{- end }}
+      {{- with $.Values.writableDirs }}
+      volumes:
+        {{- range . }}
+        - name: {{ .name }}
+          emptyDir:
+            {{- with .sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+      {{- end }}
 {{- end }}
 {{- end }}
