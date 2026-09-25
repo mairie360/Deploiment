@@ -375,3 +375,7 @@ and maintaining a parallel Kind topology is what produced the earlier
 - No `PodDisruptionBudget`, no `HorizontalPodAutoscaler`, no resource quota.
 - No monitoring: `global.monitoringNamespace` opens the NetworkPolicy for
   Prometheus, but nothing is deployed yet.
+
+## Pull request reviewers
+
+Every PR requests a review from the whole team, minus its author: `CarolinHugo`, `LAURETbenjamin`, `MathTek` and `Quentintnrl` (`gh pr create … --reviewer CarolinHugo,LAURETbenjamin,MathTek`). `.github/CODEOWNERS` makes GitHub request them automatically as well.
