@@ -35,6 +35,10 @@ done
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
 
+# Every rendered image exists on its registry and follows its env's tag family
+# (dev-<sha> / staging-<sha> / semver). Needs skopeo; --offline = policy only.
+./scripts/check-image-tags.sh
+
 # End-to-end test of the Kubernetes layer on a throwaway Kind + Cilium cluster
 # (needs docker, kind, cilium CLI, chainsaw, jq; KEEP=1 keeps the cluster)
 tests/e2e/run.sh
@@ -57,9 +61,10 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 `scripts/bootstrap-node.sh` remains for preparing an isolated machine by hand.
 
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
-`helm lint` → render **and `kubeconform`** every instance → `helm unittest`,
-all blocking. `gitleaks` and `trivy config` are not wired yet. The Kind +
-Cilium end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
+`helm lint` → render **and `kubeconform`** every instance →
+`scripts/check-image-tags.sh` → `helm unittest`, all blocking. `gitleaks`
+and `trivy config` are not wired yet. The Kind + Cilium end-to-end suite runs
+separately (`.github/workflows/k8s-e2e.yaml`).
 
 ## Architecture
 
@@ -338,6 +343,19 @@ and maintaining a parallel Kind topology is what produced the earlier
   readable in past commits: rotate it, then purge history (`git filter-repo`).
 - `helm lint` on subcharts standalone fails (they need umbrella `global.*`);
   CI lints the umbrella only and validates subcharts through the per-env render.
+- **Instance image tags must exist without the image-updater (MAIR-172).**
+  The CICD `docker-release` action pushes `dev-<sha>` + `dev`, then
+  `staging-<sha>` + `staging`, then `<version>` + `latest`; `dev-latest` /
+  `staging-latest` are no longer pushed and point at stale images (on
+  2026-09-22 `core-api:dev-latest` crashed on glibc, three fronts had no
+  `staging-latest` at all). The mobile `dev` / `staging` tags are not an
+  option either: the BFFs, `database` and `liquibase-migrations` do not push
+  them yet. So dev/staging values pin an explicit `<env>-<sha>` (the family
+  `image_updater_policies` tracks, `newest-build` then moves it forward) and
+  prod/client values a published semver. `database` / `liquibase` are not
+  handled by the image-updater: bump their `<env>-<sha>` by hand. On GHCR
+  several `<env>-<sha>` of one image can share the same `Created` date
+  (build cache): pick by commit date, not by `Created`.
 - **Front image name mismatch**: the values key is `project-front` but the image
   is `ghcr.io/mairie360/projects-front` (plural). The image-updater alias follows
   the key, the `image-list` entry follows the image.
