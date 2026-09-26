@@ -234,6 +234,25 @@ otherwise seals it empty and warns). `--rotate` never clears it. The
 `EMAIL_FROM` domain must be verified in the Resend dashboard, and Core API
 only enables STARTTLS + auth when `SMTP_USERNAME` is non-empty.
 
+### Admin account bootstrap (MAIR-170)
+
+No instance ships with the `Database` template admin account
+(`template.email@gmail.com` / `password_template`) reachable by default.
+`<release>-database-secret` carries `ADMIN_EMAIL`/`ADMIN_PASSWORD` alongside
+`POSTGRES_*` and the per-API roles; `scripts/seal-secrets.sh` takes
+`ADMIN_EMAIL` from the env var of the same name (otherwise keeps the value
+already on the cluster, otherwise seals it empty and warns) and generates
+`ADMIN_PASSWORD` once, the first time it is sealed. The Liquibase Job passes
+both as changelog parameters (`-Dadmin_email` / `-Dadmin_password`), reading
+them through an **optional** `secretKeyRef` — an instance with neither key
+(e2e, local `helm install` with `database.secret.create=true`) leaves the
+changelog on its template admin credentials, same as no parameter at all.
+Unlike every other value in that Secret, **neither key is ever touched by
+`--rotate` or `--rotate-roles`**: the changelog only overwrites the admin
+account while it still carries the template credentials, so once the town
+hall administrator has changed their password, the sealed value would just
+go stale — see the comment above `--rotate` in `scripts/seal-secrets.sh`.
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

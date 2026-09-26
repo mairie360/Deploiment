@@ -35,10 +35,21 @@
 #                   keys are sealed empty and elearning-api will not start.
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  backup bucket key pair (MAIR-119),
 #                   see below. Without them <env>-backup-secret is not sealed.
+#   ADMIN_EMAIL     e-mail of the town hall's administrator account (MAIR-170),
+#                   stored as-is in <env>-database-secret. When unset, the
+#                   value already present on the cluster is kept; with
+#                   neither, it is sealed empty and the Liquibase Job leaves
+#                   the admin account on its changelog template credentials.
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
-# base existante). --rotate régénère tout. --rotate-roles ne régénère que les
+# base existante). --rotate régénère tout, SAUF ADMIN_PASSWORD (MAIR-170):
+# the Liquibase Job only sets it while the admin account still carries its
+# changelog template credentials, so once the town hall administrator has
+# logged in and changed it, rotating the sealed value here would just make
+# it wrong — the Job would leave the live account untouched either way.
+# ADMIN_EMAIL is likewise never rotated, so both stay in lockstep with
+# whatever the admin last set. --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -115,6 +126,23 @@ fi
 [ -n "$ADMINPASS" ]  || { ADMINPASS="$(gen)";  echo "  redis-password (admin) : généré"; }
 [ -n "$RESTICPASS" ] || { RESTICPASS="$(gen)"; echo "  RESTIC_PASSWORD        : generated"; }
 
+# MAIR-170: the town hall admin account's e-mail/password. Unlike the block
+# above, ALWAYS kept from the cluster regardless of --rotate/--rotate-roles
+# — see the --rotate comment near the top of this file.
+APPADMINEMAIL="${ADMIN_EMAIL:-}"
+if [ -n "$APPADMINEMAIL" ]; then
+  echo "  ADMIN_EMAIL      : from ADMIN_EMAIL"
+else
+  APPADMINEMAIL="$(prev "${RELEASE}-database-secret" ADMIN_EMAIL)"
+  if [ -n "$APPADMINEMAIL" ]; then
+    echo "  ADMIN_EMAIL      : kept from cluster"
+  else
+    echo "  ADMIN_EMAIL      : EMPTY (set ADMIN_EMAIL) — admin account keeps its template credentials" >&2
+  fi
+fi
+APPADMINPWD="$(prev "${RELEASE}-database-secret" ADMIN_PASSWORD)"
+[ -n "$APPADMINPWD" ] || { APPADMINPWD="$(gen)"; echo "  ADMIN_PASSWORD   : généré"; }
+
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
   key="${role}-password"
@@ -142,6 +170,10 @@ for role in $DB_ROLES; do
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   db_args+=(--from-literal="${key}=${val}")
 done
+db_args+=(
+  --from-literal=ADMIN_EMAIL="${APPADMINEMAIL}"
+  --from-literal=ADMIN_PASSWORD="${APPADMINPWD}"
+)
 
 # The Resend API key cannot be generated: it comes from RESEND_API_KEY, or is
 # kept from the cluster. --rotate does not clear it (a new key is issued from
@@ -251,6 +283,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
   echo "#   S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Set the admin account's e-mail (MAIR-170, ADMIN_PASSWORD is generated once):"
+  echo "#   ADMIN_EMAIL=admin@example.org ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do
