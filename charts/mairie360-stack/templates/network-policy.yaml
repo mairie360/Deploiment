@@ -8,6 +8,8 @@ chaque sous-chart ouvre UNIQUEMENT le flux dont il a besoin :
   ingress-controller ─► fronts ─► bffs ─► apis ─► postgres / redis
                                    └──────────────► redis
                         (migration liquibase ──────► postgres)
+  ingress-controller ─► keycloak ─► keycloak-db      (MAIR-139)
+                bffs / apis ─► keycloak
 
 Toute policy permissive (podSelector: {} + namespaceSelector: {}) annulerait
 l'ensemble : ne jamais en rajouter une.

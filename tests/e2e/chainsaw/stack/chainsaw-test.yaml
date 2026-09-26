@@ -36,6 +36,23 @@ spec:
                 name: (join('-', [$release, 'redis']))
               status:
                 readyReplicas: 1
+        # MAIR-139
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: (join('-', [$release, 'keycloak-db']))
+              status:
+                readyReplicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: (join('-', [$release, 'keycloak']))
+              status:
+                readyReplicas: 1
 
     - name: every Service has ready endpoints and no pod is stuck
       try:

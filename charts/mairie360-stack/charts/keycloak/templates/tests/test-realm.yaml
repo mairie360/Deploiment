@@ -1,0 +1,43 @@
+{{- if .Values.enabled }}
+{{- /*
+`helm test`: the realm was imported and Keycloak advertises the public
+issuer. Labelled as a BFF, the only in-namespace component (with the APIs)
+the NetworkPolicy lets through to Keycloak.
+*/ -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "keycloak.fullname" . }}-test
+  labels:
+    app.kubernetes.io/name: {{ include "keycloak.name" . }}-test
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: bff
+    helm.sh/chart: {{ include "keycloak.chart" . }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: realm-test
+      image: curlimages/curl:8.10.1
+      env:
+        - name: DISCOVERY_URL
+          value: {{ printf "http://%s:8080/realms/%s/.well-known/openid-configuration" (include "keycloak.fullname" .) (include "keycloak.realmName" .) | quote }}
+        - name: EXPECTED_ISSUER
+          value: {{ printf "https://%s/realms/%s" (include "keycloak.hostname" .) (include "keycloak.realmName" .) | quote }}
+      command:
+        - sh
+        - -c
+        - |
+          set -u
+          echo "GET $DISCOVERY_URL"
+          if ! body=$(curl -sSf -m 10 "$DISCOVERY_URL"); then
+            echo "realm not served: was it imported? (kubectl logs deploy/{{ include "keycloak.fullname" . }})"
+            exit 1
+          fi
+          case "$body" in
+            *"\"issuer\":\"$EXPECTED_ISSUER\""*) echo "issuer is $EXPECTED_ISSUER" ;;
+            *) echo "unexpected issuer (KC_HOSTNAME?): $body"; exit 1 ;;
+          esac
+{{- end }}

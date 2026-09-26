@@ -16,6 +16,8 @@ OTHER_BFF="${RELEASE}-calendar-bff:4002"
 API="${RELEASE}-core-api:3000"
 DB="${RELEASE}-database:5432"
 REDIS="${RELEASE}-redis:6379"
+KC="${RELEASE}-keycloak:8080"
+KCDB="${RELEASE}-keycloak-db:5432"
 
 FLOWS="
 ingress   $FRONT     allow
@@ -23,30 +25,39 @@ ingress   $BFF       deny
 ingress   $API       deny
 ingress   $DB        deny
 ingress   $REDIS     deny
+ingress   $KC        allow
+ingress   $KCDB      deny
 
 none      $FRONT     deny
 none      $BFF       deny
 none      $API       deny
 none      $DB        deny
 none      $REDIS     deny
+none      $KC        deny
+none      $KCDB      deny
 
 frontend  $FRONT     deny
 frontend  $BFF       allow
 frontend  $API       deny
 frontend  $DB        deny
 frontend  $REDIS     deny
+frontend  $KC        deny
 
 bff       $FRONT     deny
 bff       $OTHER_BFF allow
 bff       $API       allow
 bff       $REDIS     allow
 bff       $DB        deny
+bff       $KC        allow
+bff       $KCDB      deny
 
 api       $FRONT     deny
 api       $BFF       deny
 api       $API       deny
 api       $DB        allow
 api       $REDIS     allow
+api       $KC        allow
+api       $KCDB      deny
 
 migration $DB        allow
 migration $API       deny
@@ -55,6 +66,12 @@ migration $REDIS     deny
 backup    $DB        allow
 backup    $API       deny
 backup    $REDIS     deny
+backup    $KCDB      deny
+
+keycloak  $KCDB      allow
+keycloak  $DB        deny
+keycloak  $API       deny
+keycloak  $REDIS     deny
 "
 
 FAILED=0

@@ -7,7 +7,7 @@
 # tailles, secrets.
 #
 # Règle : tout ce qui est sous `global:` est visible par les sous-charts
-# (APIs, BFFs, Fronts, database, redis, liquibase). Le reste ne l'est pas.
+# (APIs, BFFs, Fronts, database, redis, liquibase, keycloak). Le reste ne l'est pas.
 # =============================================================================
 
 global:
@@ -33,10 +33,10 @@ global:
     # elles sont appliquées.
     enabled: true
     # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car core-api (Resend, smtp.resend.com:587), elearning-api (Scaleway
-    # Object Storage, s3.<region>.scw.cloud) et le CronJob backup (bucket S3)
-    # ont besoin d'Internet ; à activer une fois ces destinations déclarées
-    # dans `egressAllowCIDRs`.
+    # car core-api et Keycloak (Resend, smtp.resend.com:587), elearning-api
+    # (Scaleway Object Storage, s3.<region>.scw.cloud) et le CronJob backup
+    # (bucket S3) ont besoin d'Internet ; à activer une fois ces destinations
+    # déclarées dans `egressAllowCIDRs`.
     egressDefaultDeny: false
     egressAllowCIDRs: []
     # Cilium only. Mirrors the HTTP hops (fronts -> bffs, bffs -> apis) as
@@ -66,6 +66,16 @@ global:
     # than falling back to the postgres superuser. Keep in sync with
     # scripts/seal-secrets.sh's DB_ROLES.
     roles: ["core-api", "project-api", "calendar-api", "message-api", "elearning-api"]
+
+  # Keycloak (MAIR-139): the instance's identity provider, charts/keycloak.
+  # Global because the BFFs/APIs will need the same issuer URL
+  # (https://<hostname>/realms/<realm>) as the browser.
+  keycloak:
+    # Public hostname, exposed by templates/keycloak-ingress.yaml.
+    # "" = auth.<global.domain>
+    hostname: ""
+    # Realm provisioned at first start (charts/keycloak/values.yaml `realm`).
+    realm: "mairie360"
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans
@@ -118,7 +128,9 @@ secrets:
   s3SecretKey: ""
 
 # -----------------------------------------------------------------------------
-# Ingress unique pour tous les fronts activés (templates/ingress.yaml)
+# Ingress unique pour tous les fronts activés (templates/ingress.yaml), et
+# Ingress dédié de Keycloak (templates/keycloak-ingress.yaml) : même classe,
+# même ClusterIssuer, mêmes annotations (+ celles de keycloak.ingress).
 # -----------------------------------------------------------------------------
 ingress:
   enabled: true
@@ -142,7 +154,7 @@ extraObjects: []
 
 # -----------------------------------------------------------------------------
 # Sous-charts. Les clés doivent correspondre EXACTEMENT aux noms des dossiers
-# dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase).
+# dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase, backup, keycloak).
 # Les `instances` sont renseignées par environnement.
 # -----------------------------------------------------------------------------
 database:
@@ -155,6 +167,17 @@ liquibase:
 # first. See charts/backup/README.md (MAIR-119).
 backup:
   enabled: false
+# Keycloak + its own Postgres (MAIR-139). Realm, clients and sizing in
+# charts/keycloak/values.yaml; <release>-keycloak-secret must be sealed
+# (scripts/seal-secrets.sh) like the other per-instance Secrets.
+keycloak:
+  enabled: true
+  ingress:
+    # Added to `ingress.annotations` on the Keycloak Ingress only. Keycloak's
+    # responses carry large headers (admin console, session cookies): nginx's
+    # default 4k proxy buffer answers 502 "upstream sent too big header".
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
 
 APIs:
   enabled: true

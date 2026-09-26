@@ -1,5 +1,6 @@
 # Vérifie que le cloisonnement réseau est bien celui attendu :
 #   ingress -> fronts -> bffs -> apis -> data
+#   ingress -> keycloak -> keycloak-db, bffs / apis -> keycloak (MAIR-139)
 suite: network policies
 values:
   - ../../../clusters/mairie360/instances/dev/values.yaml
@@ -92,9 +93,81 @@ tests:
       - charts/Fronts/templates/deployment.yaml
       - charts/database/templates/statefulset.yaml
       - charts/redis/templates/deployment.yaml
+      - charts/keycloak/templates/deployment.yaml
+      - charts/keycloak/templates/db-statefulset.yaml
     asserts:
       - exists:
           path: spec.template.metadata.labels["app.kubernetes.io/component"]
+
+  - it: "MAIR-139: Keycloak only accepts the ingress controller, the BFFs and the APIs, on 8080"
+    templates: [charts/keycloak/templates/network-policy.yaml]
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: keycloak
+      - lengthEqual: { path: spec.ingress, count: 1 }
+      - lengthEqual: { path: 'spec.ingress[0].from', count: 3 }
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: bff
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: api
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: frontend
+      - equal:
+          path: spec.ingress[0].ports
+          value: [{ protocol: TCP, port: 8080 }]
+
+  - it: "MAIR-139: Keycloak's database only accepts Keycloak, never the APIs, the migration Job or the backup"
+    templates: [charts/keycloak/templates/network-policy.yaml]
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: keycloak-db
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: keycloak
+      - equal:
+          path: spec.ingress[0].ports
+          value: [{ protocol: TCP, port: 5432 }]
+
+  - it: "MAIR-139: the Mairie360 database policy still never admits Keycloak"
+    templates: [charts/database/templates/network-policy.yaml]
+    asserts:
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: keycloak
+
+  - it: "MAIR-139: no Keycloak policy without networkPolicy.enabled"
+    templates: [charts/keycloak/templates/network-policy.yaml]
+    set: { global.networkPolicy.enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
 
 
   # --- Cilium L7 visibility (templates/cilium-l7-visibility.yaml) -------------
