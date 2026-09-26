@@ -96,9 +96,9 @@ describes desired state.
 | File | Kind | Generates | Destination |
 |---|---|---|---|
 | `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` | instances only |
-| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.16.5 | instances only |
+| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.21.2 | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
-| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.11.3, default IngressClass | instances only |
+| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances only |
 | `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
@@ -121,6 +121,12 @@ interface, so ServiceLB publishes it as the ingress-nginx LoadBalancer IP and
 kube-proxy short-circuits pod traffic to it. A provider that NATs the public
 IP instead would need k3s `node-external-ip` (ansible, `k8s_node`), not
 `hostAliases` here.
+
+**ingress-nginx is retired upstream (March 2026)**: 4.15.1 is its last
+release and gets no more security fixes. Its replacement (Traefik + Gateway
+API, proposed) is recorded in `docs/adr/0001-replace-ingress-nginx.md`. Keep
+controller >= v1.13.2 while cert-manager >= 1.18 is used: its HTTP-01 solver
+Ingress uses `pathType: Exact` (MAIR-228).
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.3.x)
 

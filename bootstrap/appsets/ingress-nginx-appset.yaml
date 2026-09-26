@@ -1,9 +1,14 @@
-# ingress-nginx — le SEUL point d'entrée public de chaque instance.
+# ingress-nginx: the ONLY public entry point of each instance.
 #
-# k3s est installé avec Traefik désactivé (rôle k8s_node) : il n'y a donc
-# qu'un contrôleur d'ingress, et `ingress.className: nginx` dans les values
-# correspond bien à ce qui tourne. ServiceLB de k3s lie le Service
-# LoadBalancer aux ports 80/443 de la machine.
+# k3s is installed with Traefik disabled (ansible role k8s_node), so there is
+# a single ingress controller and `ingress.className: nginx` in the values
+# matches what actually runs. k3s ServiceLB binds the LoadBalancer Service to
+# ports 80/443 of the machine.
+#
+# ingress-nginx was retired upstream in March 2026: 4.15.1 (controller
+# v1.15.1) is its last release and no further security fix will ship. It is
+# kept until the replacement described in docs/adr/0001-replace-ingress-nginx.md
+# lands; do not treat this pin as maintained.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -12,10 +17,10 @@ metadata:
 spec:
   generators:
     - clusters:
-        # Sélecteur : uniquement les machines dINSTANCE du groupe.
-        # Ansible les enregistre avec ce label (rôle k8s_instance_link) ; la
-        # machine Argo CD elle-même (in-cluster) ne le porte pas et est donc
-        # exclue — elle na pas besoin dingress public ni de base de données.
+        # Selector: only the group's INSTANCE machines. Ansible registers
+        # them with this label (role k8s_instance_link); the Argo CD machine
+        # itself (in-cluster) does not carry it and is therefore excluded: it
+        # needs neither a public ingress nor a database.
         selector:
           matchLabels:
             mairie360.fr/role: instance
@@ -27,9 +32,15 @@ spec:
       source:
         repoURL: https://kubernetes.github.io/ingress-nginx
         chart: ingress-nginx
-        # Version ÉPINGLÉE : avec '*', une version majeure casserait le cluster
-        # sans qu'aucun commit n'ait changé. Les montées passent par Renovate.
-        targetRevision: 4.11.3
+        # PINNED version: with '*', a major release would break the cluster
+        # without any commit changing. Upgrades go through Renovate.
+        # >= 4.11.5 / 4.12.1 is required for CVE-2025-1974 ("IngressNightmare",
+        # unauthenticated RCE through the admission webhook) and
+        # CVE-2025-1097/1098/24514/24513 (MAIR-228). Controller >= v1.13.2 is
+        # also required by cert-manager >= 1.18, whose HTTP-01 solver Ingress
+        # uses `pathType: Exact` (rejected by older controllers with
+        # strict-validate-path-type, the default since v1.12).
+        targetRevision: 4.15.1
         helm:
           releaseName: ingress-nginx
           values: |
@@ -38,9 +49,9 @@ spec:
                 default: true
               service:
                 type: LoadBalancer
-                # Préserve l'IP source réelle du client : sans ça, tous les
-                # journaux d'accès affichent l'IP interne du nœud et toute
-                # limitation par IP est inopérante.
+                # Keeps the client's real source IP: without it every access
+                # log shows the node's internal IP and any per-IP rate limit
+                # is useless.
                 externalTrafficPolicy: Local
               config:
                 use-forwarded-headers: "true"
