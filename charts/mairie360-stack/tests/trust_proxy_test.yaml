@@ -1,0 +1,74 @@
+suite: trusted proxies (MAIR-226)
+# BFF_user rate-limits authentication per client IP, taken by Express from
+# X-Forwarded-For only through the proxies listed in TRUST_PROXY. Those must
+# be the in-cluster pods (ingress-nginx, the fronts), never a public range.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/BFFs/templates/deployment.yaml]
+tests:
+  - it: user-bff trusts loopback and the k3s pod CIDR only
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+            value: "loopback, 10.42.0.0/16"
+          count: 1
+
+  - it: every BFF gets the same setting (same ingress -> front -> bff chain)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+            value: "loopback, 10.42.0.0/16"
+
+  - it: follows global.trustedProxyCIDRs
+    set:
+      global.trustedProxyCIDRs: ["10.52.0.0/16", "fd00:42::/56"]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+            value: "loopback, 10.52.0.0/16, fd00:42::/56"
+
+  - it: no TRUST_PROXY at all when no proxy is declared trusted
+    set:
+      global.trustedProxyCIDRs: []
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+          any: true
+
+  - it: an instance-level TRUST_PROXY replaces the global one, without a duplicate entry
+    set:
+      BFFs.instances.user-bff.env:
+        - name: TRUST_PROXY
+          value: "1"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+            value: "1"
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_PROXY
+            value: "loopback, 10.42.0.0/16"
