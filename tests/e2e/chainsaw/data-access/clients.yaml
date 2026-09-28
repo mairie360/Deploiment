@@ -1,6 +1,7 @@
 # Client pods labelled as an API (the only component allowed to reach both
 # Postgres and Redis), each reading core-api's credentials from the Secrets
-# the chart wires into the real core-api Deployment.
+# the chart wires into the real core-api Deployment — plus one labelled as a
+# BFF for Keycloak (MAIR-139), holding bff-user's client secret.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -50,3 +51,23 @@ spec:
             secretKeyRef:
               name: (join('-', [$release, 'database-secret']))
               key: CORE_API_PASSWORD
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-keycloak
+  labels: { app.kubernetes.io/component: bff }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      command: ["sleep", "3600"]
+      env:
+        - name: KEYCLOAK_URL
+          value: (join('', ['http://', $release, '-keycloak:8080']))
+        - name: CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'keycloak-secret']))
+              key: BFF_USER_CLIENT_SECRET

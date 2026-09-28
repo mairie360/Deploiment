@@ -1,19 +1,48 @@
-# Sous-chart Fronts — une Deployment + un Service par entrée de `instances`.
-# Chaque front est exposé sur https://<nom sans "-front">.<global.domain>
-# par l'Ingress du chart parent (templates/ingress.yaml).
+# Fronts subchart: one Deployment + one Service per entry of `instances`.
+# Each front is exposed on https://<name minus "-front">.<global.domain>
+# by the parent chart's Ingress (templates/ingress.yaml).
 
 resources:
   requests: { memory: "64Mi", cpu: "50m" }
   limits:   { memory: "256Mi", cpu: "500m" }
 
+# Container hardening (MAIR-229). Every pod runs as a fixed non-root uid/gid:
+# 1001:1001 is `nextjs`:`nodejs` created by every front Dockerfile
+# (`useradd --uid 1001 nextjs`, files chowned nextjs:nodejs).
+# A numeric runAsUser is what lets `runAsNonRoot: true` pass the kubelet check
+# even on an image whose Dockerfile declares no numeric USER.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
 containerSecurityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
-  runAsNonRoot: false
+  # Next.js (standalone) writes its image-optimisation and fetch cache to
+  # /app/.next/cache; that directory and /tmp are emptyDirs below. The pages
+  # are rendered dynamically (CSP nonce), so no ISR output is written under
+  # /app/.next/server.
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
   capabilities:
     drop: ["ALL"]
   seccompProfile:
     type: RuntimeDefault
+
+# No workload calls the Kubernetes API: do not mount the namespace's
+# default ServiceAccount token into the pods.
+automountServiceAccountToken: false
+
+# Writable emptyDir volumes mounted over the read-only root filesystem.
+writableDirs:
+  - name: tmp
+    mountPath: /tmp
+    sizeLimit: 64Mi
+  - name: next-cache
+    mountPath: /app/.next/cache
+    sizeLimit: 256Mi
 
 strategy:
   maxSurge: 0
@@ -23,7 +52,7 @@ commonEnv:
   - name: NODE_ENV
     value: "production"
 
-# Renseigné par environnement :
+# Set per environment:
 #   instances:
 #     login-front:
 #       enabled: true

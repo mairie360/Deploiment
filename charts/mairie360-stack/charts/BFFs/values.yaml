@@ -1,31 +1,55 @@
-# Sous-chart BFFs — une Deployment + un Service par entrée de `instances`.
+# BFFs subchart: one Deployment + one Service per entry of `instances`.
 
 resources:
   requests: { memory: "128Mi", cpu: "20m" }
   limits:   { memory: "512Mi", cpu: "500m" }
 
+# Container hardening (MAIR-229). Every pod runs as a fixed non-root uid/gid:
+# 1000:1000 is the `node` user of node:*-alpine (`USER node` in every BFF
+# Dockerfile).
+# A numeric runAsUser is what lets `runAsNonRoot: true` pass the kubelet check
+# even on an image whose Dockerfile declares no numeric USER.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
 containerSecurityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
-  runAsNonRoot: false
+  # The BFFs write nothing to disk except tsx's transpile cache under /tmp
+  # (BFF_Calendar starts with tsx), hence the /tmp emptyDir below.
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
   capabilities:
     drop: ["ALL"]
   seccompProfile:
     type: RuntimeDefault
 
+# No workload calls the Kubernetes API: do not mount the namespace's
+# default ServiceAccount token into the pods.
+automountServiceAccountToken: false
+
+# Writable emptyDir volumes mounted over the read-only root filesystem.
+writableDirs:
+  - name: tmp
+    mountPath: /tmp
+    sizeLimit: 64Mi
+
 strategy:
   maxSurge: 0
   maxUnavailable: 1
 
-# Variables communes à tous les BFFs (en plus de DB_*, REDIS_*, JWT_SECRET,
-# et des *_API_URL / *_BFF_URL générées depuis global.apis / global.bffs).
+# Variables shared by every BFF (on top of DB_*, REDIS_*, JWT_SECRET and the
+# *_API_URL / *_BFF_URL generated from global.apis / global.bffs).
 commonEnv:
   - name: NODE_ENV
     value: "production"
   - name: NODE_OPTIONS
     value: "--max-old-space-size=200"
 
-# Renseigné par environnement :
+# Set per environment:
 #   instances:
 #     user-bff:
 #       enabled: true

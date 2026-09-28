@@ -101,6 +101,23 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
     secretKeyRef:
       name: {{ include "bffs.appSecretName" $.root }}
       key: JWT_SECRET
+{{- /*
+TRUST_PROXY (MAIR-226): Express `trust proxy` = loopback + the in-cluster
+pod CIDR(s), so req.ip is the client address carried by X-Forwarded-For
+through ingress-nginx and the fronts, never one chosen from outside.
+Skipped when global.trustedProxyCIDRs is empty or when the instance sets
+TRUST_PROXY itself in its `env` (no duplicate env entry).
+*/}}
+{{- $trusted := ((($.root.Values.global | default dict).trustedProxyCIDRs) | default list) }}
+{{- $instance := (index ($.root.Values.instances | default dict) $.name) | default dict }}
+{{- $overridden := false }}
+{{- range ($instance.env | default list) }}
+{{- if eq .name "TRUST_PROXY" }}{{ $overridden = true }}{{ end }}
+{{- end }}
+{{- if and $trusted (not $overridden) }}
+- name: TRUST_PROXY
+  value: {{ prepend $trusted "loopback" | join ", " | quote }}
+{{- end }}
 {{- with $.root.Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}

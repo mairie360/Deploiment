@@ -1,0 +1,107 @@
+{{- if .Values.enabled }}
+{{- /*
+Realm imported by Keycloak at first start (`start --import-realm` reads
+/opt/keycloak/data/import/*.json). Only the realm NAME, roles, clients and
+SMTP relay are provisioned here; users come with MAIR-141.
+
+No secret value is rendered: `${BFF_USER_CLIENT_SECRET}` and
+`${SMTP_PASSWORD}` are Keycloak placeholders, resolved at import time from
+the container's environment (secretKeyRef in deployment.yaml). They are NOT
+Helm expressions — Helm leaves `${...}` untouched.
+
+Keycloak skips the import when the realm already exists, so editing this
+file after the first sync changes nothing on a running instance: use the
+admin console, or delete the realm and let the next restart re-import it.
+*/ -}}
+{{- $realm := .Values.realm -}}
+{{- $loginFront := $realm.clients.loginFront -}}
+{{- $bffUser := $realm.clients.bffUser -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycloak.realmConfigMapName" . }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  {{ include "keycloak.realmName" . }}-realm.json: |
+    {
+      "realm": {{ include "keycloak.realmName" . | quote }},
+      "displayName": {{ $realm.displayName | quote }},
+      "enabled": true,
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "rememberMe": true,
+      "bruteForceProtected": true,
+      "internationalizationEnabled": true,
+      "supportedLocales": {{ $realm.supportedLocales | toJson }},
+      "defaultLocale": {{ $realm.defaultLocale | quote }},
+      {{- with $realm.smtp }}
+      {{- if .from }}
+      "smtpServer": {
+        "from": {{ .from | quote }},
+        "fromDisplayName": {{ .fromDisplayName | quote }},
+        "host": {{ .host | quote }},
+        "port": {{ .port | quote }},
+        "starttls": {{ .starttls | toString | quote }},
+        "auth": "true",
+        "user": {{ .user | quote }},
+        "password": "${SMTP_PASSWORD}"
+      },
+      {{- end }}
+      {{- end }}
+      "roles": {
+        "realm": [
+          {{- range $i, $role := $realm.roles }}
+          {{- if $i }},{{ end }}
+          { "name": {{ $role.name | quote }}, "description": {{ $role.description | default "" | quote }} }
+          {{- end }}
+        ]
+      },
+      "clients": [
+        {
+          "clientId": {{ $loginFront.clientId | quote }},
+          "name": "Login_Web_Service",
+          "description": "Mairie 360 login front (public client, authorization code + PKCE)",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "rootUrl": {{ include "keycloak.loginUrl" . | quote }},
+          "redirectUris": {{ include "keycloak.clientRedirectUris" (dict "root" . "client" $loginFront) }},
+          "webOrigins": {{ include "keycloak.clientWebOrigins" (dict "root" . "client" $loginFront) }},
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "post.logout.redirect.uris": "+"
+          }
+        },
+        {
+          "clientId": {{ $bffUser.clientId | quote }},
+          "name": "BFF_user",
+          "description": "Mairie 360 root BFF (confidential client, authorization code + service account)",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "${BFF_USER_CLIENT_SECRET}",
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "rootUrl": {{ include "keycloak.loginUrl" . | quote }},
+          "redirectUris": {{ include "keycloak.clientRedirectUris" (dict "root" . "client" $bffUser) }},
+          "webOrigins": {{ include "keycloak.clientWebOrigins" (dict "root" . "client" $bffUser) }},
+          "attributes": {
+            "post.logout.redirect.uris": "+"
+          }
+        }
+      ]
+    }
+{{- end }}
