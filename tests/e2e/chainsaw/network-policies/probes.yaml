@@ -3,15 +3,12 @@
 # controller's namespace. They carry the component label but never `app`, so
 # no chart Service selects them.
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: ingress-nginx
----
-apiVersion: v1
 kind: Pod
 metadata:
   name: probe-ingress
-  namespace: ingress-nginx
+  # The ingress controller's namespace, created by run.sh (Traefik install):
+  # global.ingressController is "traefik" in tests/e2e/values.yaml.
+  namespace: traefik
   labels: { mairie360.fr/e2e-probe: "true" }
 spec:
   terminationGracePeriodSeconds: 0

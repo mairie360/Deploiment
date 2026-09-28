@@ -9,8 +9,9 @@ Argo CD watches this repo and deploys everything with Helm. There is no applicat
 code here — only Helm charts, per-environment values, and Argo CD bootstrap manifests.
 
 The platform is 5 backend APIs (Rust), 7 BFFs (Node), and 8 frontends (Node), plus
-PostgreSQL, Redis, a Liquibase migration job, an optional backup CronJob and,
-since MAIR-139, one Keycloak (with its own PostgreSQL) per instance.
+PostgreSQL, Redis, a Liquibase migration job, an optional backup CronJob, an optional
+OpenTelemetry Collector (MAIR-131 POC) and, since MAIR-139, one Keycloak (with its own
+PostgreSQL) per instance.
 APIs: `core`, `project`, `calendar`, `message`, `elearning`. BFFs and fronts add
 `dashboard` and `settings`, which have no API of their own (MAIR-134, they
 replaced the never-built `email` / `files` services), plus `user`/`login` and an
@@ -27,11 +28,16 @@ helm lint ./charts/mairie360-stack
 helm plugin install https://github.com/helm-unittest/helm-unittest   # once
 helm unittest ./charts/mairie360-stack
 
-# Render + schema-validate every instance (this is what CI does)
-for v in clusters/*/instances/*; do
-  helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
-    | kubeconform -strict -summary -schema-location default || echo "KO: $v"
-done
+# Render + schema-validate every instance with both ingress controllers,
+# plus bootstrap/ (this is what CI does). CRD schemas (Traefik Middleware,
+# Argo CD AppSets) come from the datreeio CRDs-catalog.
+CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+for v in clusters/*/instances/*; do for c in nginx traefik; do
+  helm template r ./charts/mairie360-stack -f "$v/values.yaml" --set global.ingressController=$c \
+    | kubeconform -strict -summary -schema-location default -schema-location "$CRDS" \
+        -skip CiliumNetworkPolicy || echo "KO: $v ($c)"
+done; done
+kubeconform -strict -schema-location default -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
@@ -62,10 +68,12 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 `scripts/bootstrap-node.sh` remains for preparing an isolated machine by hand.
 
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
-`helm lint` → render **and `kubeconform`** every instance →
-`scripts/check-image-tags.sh` → `helm unittest`, all blocking. `gitleaks`
-and `trivy config` are not wired yet. The Kind + Cilium end-to-end suite runs
-separately (`.github/workflows/k8s-e2e.yaml`).
+`helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
+and `bootstrap/` → `scripts/check-image-tags.sh` → `helm unittest`, all
+blocking. `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
+end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
+`.github/workflows/promote.yaml` is the manual main → staging → prod promotion
+(it calls `cicd.yaml` as a reusable workflow on the promoted commit).
 
 ## Architecture
 
@@ -104,7 +112,8 @@ describes desired state.
 | `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` | instances only |
 | `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.21.2 | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
-| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances only |
+| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
+| `traefik-appset.yaml` | AppSet, clusters generator, multi-source | `traefik` chart 41.6.0 (v3.7.13), values `bootstrap/values/traefik.yaml` | instances labelled `mairie360.fr/ingress=traefik` |
 | `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
@@ -112,32 +121,48 @@ Ansible sets it during `argocd cluster add`; the clusters generator selects on
 it, which excludes the Argo CD machine itself (`in-cluster`, unlabelled) — it
 needs no public ingress, no cert-manager, no database.
 
+**The `mairie360.fr/ingress` label (MAIR-260)** picks the ingress controller
+of a machine: `traefik` → Traefik, absent or anything else → ingress-nginx.
+Only one can own 80/443 (ServiceLB). Ansible writes it from the host var
+`ingress_controller` (`k8s_instance_link`, `site.yml --tags labels`). Both
+controller AppSets carry the Argo CD resources finalizer, so a flip deletes
+the old controller. The instance values must agree:
+`global.ingressController`.
+
 ### HTTPS chain
 
-`ingress-nginx-appset` (nginx as **default IngressClass**, k3s installed with
-Traefik disabled) → `cert-manager-appset` → `cluster-issuer-appset`
-(`letsencrypt-prod` / `-staging`, HTTP-01 targeting `ingressClassName: nginx`)
-→ the `cert-manager.io/cluster-issuer` annotation on the fronts Ingress.
+`ingress-nginx-appset` or `traefik-appset` (one per machine, default
+IngressClass; k3s's bundled Traefik stays disabled so the version is pinned
+here) → `cert-manager-appset` → `cluster-issuer-appset` (`letsencrypt-prod` /
+`-staging`, HTTP-01 solver class `nginx` by default) → the
+`cert-manager.io/cluster-issuer` annotation on the fronts Ingress, plus
+`acme.cert-manager.io/http01-ingress-ingressclassname: <instance class>`,
+which overrides the solver class per Ingress. With Traefik, HTTP → HTTPS is
+the web entrypoint's redirect pinned at **priority 1**, so the solver router
+(`pathType: Exact`) always answers on port 80: keep it the lowest.
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
 **`cert-manager-appset.yaml` must stay free of any domain or IP** (MAIR-157):
 it is shared by every group. The HTTP-01 self-check goes through public DNS;
 it works from inside the cluster because the instance's public IP is on its
-interface, so ServiceLB publishes it as the ingress-nginx LoadBalancer IP and
+interface, so ServiceLB publishes it as the ingress controller's LoadBalancer IP and
 kube-proxy short-circuits pod traffic to it. A provider that NATs the public
 IP instead would need k3s `node-external-ip` (ansible, `k8s_node`), not
 `hostAliases` here.
 
 **ingress-nginx is retired upstream (March 2026)**: 4.15.1 is its last
-release and gets no more security fixes. Its replacement (Traefik + Gateway
-API, proposed) is recorded in `docs/adr/0001-replace-ingress-nginx.md`. Keep
+release and gets no more security fixes. It is being replaced by Traefik one
+machine at a time (dev → staging → prod, with rollback): decision and
+procedure in `docs/adr/0001-replace-ingress-nginx.md` (accepted, MAIR-260).
+`ingress-nginx-appset.yaml` is deleted once prod has switched. Keep
 controller >= v1.13.2 while cert-manager >= 1.18 is used: its HTTP-01 solver
 Ingress uses `pathType: Exact` (MAIR-228).
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.6.x)
 
 Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `backup`, `keycloak`, `APIs`, `BFFs`, `Fronts`.
+`database`, `redis`, `liquibase`, `backup`, `keycloak`, `observability`, `APIs`,
+`BFFs`, `Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
   `range $name, $cfg := .Values.instances` and emits one Deployment + Service per
@@ -153,9 +178,10 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
   image with another user, or an app that writes elsewhere, needs these
   values changed; `tests/security_context_test.yaml` pins them.
 - **Client IP (MAIR-226).** ingress-nginx runs with
-  `use-forwarded-headers: "false"`: nothing sits in front of it, so it
-  overwrites `X-Forwarded-For` with the TCP peer instead of trusting the
-  client's header. Every BFF gets `TRUST_PROXY=loopback, <global.trustedProxyCIDRs>`
+  `use-forwarded-headers: "false"` and Traefik with `forwardedHeaders`
+  trusting no IP: nothing sits in front of them, so they overwrite
+  `X-Forwarded-For` with the TCP peer instead of trusting the client's
+  header. Every BFF gets `TRUST_PROXY=loopback, <global.trustedProxyCIDRs>`
   (default `10.42.0.0/16`, the k3s pod CIDR = ansible `k3s_cluster_cidr`),
   so Express skips in-cluster proxies (ingress, fronts) and BFF_user's
   per-IP rate limits see the browser. Change both together if the pod CIDR
@@ -178,11 +204,19 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
-  host = `<frontName minus "-front">.<global.domain>`, `ingressClassName`,
-  `cert-manager.io/cluster-issuer` and annotations all read from
-  `.Values.ingress.*`. `templates/keycloak-ingress.yaml` is the only other
-  Ingress (`auth.<global.domain>`, own TLS Secret, same `ingress.*` settings
-  plus `keycloak.ingress.annotations`). APIs/BFFs are never exposed.
+  host = `<frontName minus "-front">.<global.domain>`. **Everything
+  controller-specific derives from `global.ingressController`** (`nginx` |
+  `traefik`, MAIR-260) through `templates/_helpers.tpl`: `ingressClassName`
+  (unless `ingress.className`), the controller namespace the NetworkPolicies
+  admit (unless `global.ingressNamespace`), the HTTPS redirect and the body
+  limit `ingress.maxBodySizeMiB` (nginx annotations, or Traefik
+  `router.entrypoints: websecure` + a `buffering` Middleware from
+  `templates/traefik-middlewares.yaml`, rendered only for traefik since the
+  CRD does not exist on an nginx machine). `ingress.annotations` are added
+  last and win. Instance values never carry controller annotations anymore.
+  `templates/keycloak-ingress.yaml` is the only other Ingress
+  (`auth.<global.domain>`, own TLS Secret): same `ingress.*` settings plus
+  `keycloak.ingress.annotations`. APIs/BFFs are never exposed.
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
@@ -227,11 +261,38 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
   account is disabled; `admin` (Secret key `redis-password`) is for probes and
   `helm test`. Fronts have no Redis account — they never used it. `helm test`
   asserts that an unauthenticated `PING` is refused and that `admin` works.
+  Each role is confined to `~<role>:*`, plus the **shared JWT revocation
+  list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
+  `core-api`, read-only `%R~revoked:*` for every other API, nothing for the
+  BFFs. Because Redis now holds that list, `maxmemory-policy` is
+  **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
+  TTL; `volatile-*` would even drop them first, they are the only keys with a
+  TTL) and AOF is on (`config.appendonly`, survives container restarts;
+  `persistence.enabled` for new pods too). The APIs only read `REDIS_URL`,
+  so the APIs chart builds it as
+  `redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@<release>-redis:6379`
+  (Kubernetes expands `$(VAR)` from the variables listed before it).
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
   `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
-- **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps → `0` data
-  (Postgres, Redis, Keycloak's Postgres) → `1` migrations and the backup
-  CronJob → `2` APIs and Keycloak → `3` BFFs → `4` Fronts → `5` Ingresses.
+- **`observability` (MAIR-131, POC), off by default.** One OpenTelemetry
+  Collector (`otel/opentelemetry-collector-k8s`) per instance, Service
+  `<release>-otel-collector` (OTLP 4317/4318). It receives OTLP from the APIs
+  listed in `global.observability.apis` (only `core-api` for now), scrapes
+  pod CPU/RAM from the node's kubelet (`kubeletstats`, ClusterRole on
+  `nodes/stats`, filtered to the instance namespace) and pushes both to
+  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. One switch,
+  `global.observability.enabled`, renders the collector **and** makes the
+  `APIs` chart inject `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and `OTEL_RESOURCE_ATTRIBUTES`
+  into those APIs. Needs `observability.cockpit.{metrics,traces}Endpoint`
+  (full push URLs of the two Cockpit data sources, the render fails without
+  them) and `<release>-cockpit-secret` (key `COCKPIT_TOKEN`, sealed by
+  `scripts/seal-secrets.sh` from the `COCKPIT_TOKEN` env var). A Deployment,
+  not a DaemonSet: it only sees the kubelet of its own node, which is enough
+  on single-node instances.
+- **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
+  data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup CronJob
+  and the collector → `2` APIs and Keycloak → `3` BFFs → `4` Fronts → `5` Ingresses.
 
 ### Keycloak (MAIR-139, `charts/keycloak`)
 
@@ -304,14 +365,15 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
               liquibase job ──────────────────► postgres
 ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
                 bffs / apis ─► keycloak
+                        apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
 ```
 
 Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
-`core-api` and Keycloak (Resend, `smtp.resend.com:587`), `elearning-api`
-(Scaleway Object Storage) and the backup CronJob (S3 bucket) are declared in
-`egressAllowCIDRs`.
+`core-api` and Keycloak (Resend, `smtp.resend.com:587`), `elearning-api` (Scaleway
+Object Storage), the backup CronJob (S3 bucket) and the otel collector (node kubelet
+:10250, Cockpit) are declared in `egressAllowCIDRs`.
 
 ### Outbound e-mail (Resend, MAIR-94)
 
@@ -386,6 +448,15 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   `app.kubernetes.io/component` try every hop (`check-flows.sh`). A denied
   flow must *time out* (Cilium drops silently); a fast failure is reported
   as an error, so a broken Service can't pass as "deny".
+- `chainsaw/ingress` (MAIR-260): `run.sh` installs Traefik (versions read
+  from the AppSets, values `bootstrap/values/traefik.yaml`), cert-manager and
+  **Pebble** (Let's Encrypt's test ACME server, `tests/e2e/pebble.yaml`),
+  and rewrites `*.e2e.invalid` to Traefik in CoreDNS. The test asserts the
+  fronts certificate is issued over HTTP-01 through Traefik (the e2e
+  ClusterIssuer keeps class `nginx`, proving the per-Ingress override), the
+  301/308 HTTP → HTTPS redirect, the 413 above 50 MiB and that a client-sent
+  `X-Forwarded-For` is not trusted. The e2e values run Traefik, so the
+  network-policies probe sits in the `traefik` namespace.
 - `chainsaw/data-access`: Redis ACL (prefix and command restrictions) and
   the per-API Postgres role logging in with its Secret password. The latter
   depends on the `Devops/Database` images actually creating those roles.
@@ -415,10 +486,28 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 - **Subchart directory names are capitalized** (`APIs`, `BFFs`, `Fronts`) and must
   match the top-level values keys exactly.
-- **`targetRevision` is `main` everywhere.** When working on a branch, Ansible's
-  `repo_branch` variable repoints both `platform-app.yaml` and the rendered
-  instances AppSet — do not let the two diverge, or Argo CD silently serves the
-  old appsets from `main` while you edit the branch.
+- **Each environment follows its own branch (ADR 0002).** The instances AppSet
+  gives every Application a `targetRevision` from Ansible's
+  `deploiment_env_revisions`: `dev` → `main`, `staging` → `staging`, `prod` →
+  `prod` (chart, `values.yaml` and `secrets.yaml` are all read at that revision).
+  So **a merge on `main` only reaches dev**; staging then prod move with the
+  `Promote` workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`):
+  fast-forward only, a commit must already be in `main` to reach `staging` and
+  in `staging` to reach `prod`, the whole `cicd.yaml` re-runs on it, and `prod`
+  additionally needs the `staging_verified` box (run `scripts/verify.sh` on
+  staging first: GitHub runners cannot reach the instance API servers) and the
+  approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
+  the branch back to an older commit. Consequences: a change to
+  `clusters/mairie360/instances/prod/values.yaml` or a freshly sealed
+  `secrets.yaml` also needs a promotion; the AppSet generator still lists
+  directories on `main`, so a **new environment directory must be promoted
+  before its Application can render**. The bootstrap appsets (`bootstrap/`,
+  cert-manager, ingress-nginx, sealed-secrets, cluster-addons) are **not**
+  covered: the root `platform` app follows `main` and hits every instance at once.
+  Also, when working on a branch, Ansible's `deploiment_repo_branch` repoints
+  `platform-app.yaml`, the instances AppSet generator and the `dev` revision —
+  do not let them diverge, or Argo CD silently serves the old appsets from
+  `main` while you edit the branch.
 - **SealedSecrets are per-machine.** The sealing key belongs to one cluster's
   controller; `clusters/<org>/instances/<env>/secrets.yaml` must be generated on
   that machine with `scripts/seal-secrets.sh`. Back up every key — losing one
@@ -467,8 +556,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   rolling update.
 - **`replicaCount: 2` on Redis would give two independent caches**, not a
   replicated one. Leave it at 1.
-- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): fine
-  for a cache, data-losing for sessions.
+- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): the
+  AOF survives a container restart but not a new pod (config change, node
+  reboot), which empties the JWT revocation list: revoked tokens are then
+  accepted again by every API but Core until they expire (`JWT_TIMEOUT`).
+  Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
   sync with `global.apis.instances` / `global.bffs.instances`; `DB_ROLES`
@@ -512,8 +604,9 @@ and maintaining a parallel Kind topology is what produced the earlier
   not declare a non-root `USER`. Fix the Dockerfiles, then flip the flag and
   make the `trivy config` CI job blocking.
 - No `PodDisruptionBudget`, no `HorizontalPodAutoscaler`, no resource quota.
-- No monitoring: `global.monitoringNamespace` opens the NetworkPolicy for
-  Prometheus, but nothing is deployed yet.
+- Monitoring is a POC (MAIR-131): the `observability` collector covers
+  `core-api` traces and pod CPU/RAM on `dev` only. `global.monitoringNamespace`
+  still opens the NetworkPolicy for a Prometheus that is not deployed.
 
 ## Pull request reviewers
 

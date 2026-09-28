@@ -18,9 +18,12 @@
 global:
   domain: "dev.mairie360-eip.fr"
   imagePullSecret: "ghcr-secret"
-  # ingress-nginx est le seul contrôleur : k3s est installé avec Traefik
-  # désactivé (rôle Ansible k8s_node).
-  ingressNamespace: "ingress-nginx"
+  # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
+  # Must match the Argo CD cluster label mairie360.fr/ingress set by ansible
+  # (`ingress_controller`); switch procedure in
+  # docs/adr/0001-replace-ingress-nginx.md. The IngressClass, annotations
+  # and NetworkPolicy namespace follow from it.
+  ingressController: "nginx"
   networkPolicy:
     enabled: true
     # Passer à true une fois les destinations externes connues et déclarées
@@ -29,6 +32,13 @@ global:
     # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
     # Requires the Cilium CNI installed by the Ansible role k8s_node.
     ciliumL7Visibility: true
+  # MAIR-131 (POC): OpenTelemetry Collector -> Scaleway Cockpit, core-api only.
+  # Turn on once the two Cockpit data sources below exist and
+  # <release>-cockpit-secret is sealed (COCKPIT_TOKEN exported when running
+  # scripts/seal-secrets.sh): with empty endpoints the chart refuses to render.
+  observability:
+    enabled: false
+    apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
@@ -37,13 +47,14 @@ secrets:
 
 ingress:
   enabled: true
-  className: "nginx"
   clusterIssuer: "letsencrypt-prod"
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  # 50 MiB body limit and HTTPS redirect: chart defaults (ingress.maxBodySizeMiB).
 
+# Memory sizing (dev, 4 GB machine, no headroom). Every value below is set from
+# the working set measured on the running instance (crictl stats, 2026-09-28):
+# fronts 40-55 MiB, BFFs 26-50 MiB, APIs ~5 MiB, Postgres 40 MiB, Redis 6 MiB.
+# Requests are about the idle usage, limits leave 3-4x for startup and peaks.
+# The chart defaults (256-512 MiB limits) stay as is for staging and prod.
 database:
   image:
     tag: "dev-4d7edf8"
@@ -52,14 +63,20 @@ database:
   persistence:
     size: "5Gi"
     storageClass: "local-path"
+  resources:
+    requests: { memory: "96Mi", cpu: "100m" }
+    limits:   { memory: "384Mi", cpu: "1000m" }
 
 redis:
   secret:
     create: false
+  resources:
+    requests: { memory: "32Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
 
 liquibase:
   image:
-    tag: "dev-4d7edf8"
+    tag: "dev-0aaede5"
   db:
     name: "mairie_db_dev"
 
@@ -87,6 +104,15 @@ backup:
 # <release>-keycloak-secret in secrets.yaml (scripts/seal-secrets.sh).
 keycloak:
   enabled: true
+  # Keycloak idles around 400 MiB. Cap the heap explicitly: without it the JVM
+  # sizes it as a percentage of the limit and the rest (metaspace, threads,
+  # code cache) can push the container over the limit during the realm import.
+  extraEnv:
+    - name: JAVA_OPTS_KC_HEAP
+      value: "-Xms64m -Xmx512m"
+  resources:
+    requests: { memory: "400Mi", cpu: "100m" }
+    limits:   { memory: "1Gi", cpu: "1000m" }
   realm:
     # Same Resend relay and verified domain as core-api's EMAIL_FROM above.
     smtp:
@@ -97,7 +123,19 @@ keycloak:
       size: "1Gi"
       storageClass: "local-path"
 
+# Cockpit push URLs of the dev data sources (Cockpit console > Data sources).
+# Not secret: the token lives in <release>-cockpit-secret.
+observability:
+  cockpit:
+    # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+    metricsEndpoint: ""
+    # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+    tracesEndpoint: ""
+
 APIs:
+  resources:
+    requests: { memory: "24Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     core-api:
       enabled: true
@@ -164,6 +202,9 @@ APIs:
               key: S3_SECRET_KEY
 
 BFFs:
+  resources:
+    requests: { memory: "48Mi", cpu: "20m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     user-bff:
       enabled: true
@@ -204,6 +245,9 @@ BFFs:
       image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-014923a8b66439d530530fe1dea16a83fc0e4a87" }
 
 Fronts:
+  resources:
+    requests: { memory: "48Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     login-front:
       enabled: true
@@ -215,32 +259,32 @@ Fronts:
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-7a22cde" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-584f9f7" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-0585c2e" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-57c95ed" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-9691f31" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-4f873fd" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-4a88a76" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-6646766" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-14b51e3" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-beb8882" }
     elearning-front:
       enabled: true
       port: 5006

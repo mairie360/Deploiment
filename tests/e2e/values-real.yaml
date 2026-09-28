@@ -9,13 +9,21 @@
 # never prove.
 #
 # This file only overrides what cannot work on a throwaway cluster:
-# credentials (no SealedSecret controller here), the storage class and the
-# GHCR pull secret.
+# credentials (no SealedSecret controller here), the storage class, the
+# GHCR pull secret, and the domain / ingress controller / issuer (Traefik and
+# Pebble, see run.sh).
 # =============================================================================
 
 global:
   # Public images: no ghcr-secret exists in this cluster.
   imagePullSecret: ""
+  # The e2e cluster runs Traefik and resolves *.e2e.invalid to it; the
+  # ingress test needs the fronts there, whatever the instance says.
+  domain: "e2e.invalid"
+  ingressController: "traefik"
+
+ingress:
+  clusterIssuer: "e2e-pebble"
 
 secrets:
   create: true

@@ -43,6 +43,12 @@
 #   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
 #                   to re-seal one regenerated in the admin console; otherwise
 #                   the value on the cluster is kept, or generated once.
+#   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
+#                   stored in <env>-cockpit-secret for the OpenTelemetry
+#                   Collector (MAIR-131, charts/observability). When unset, the
+#                   value already on the cluster is kept; with neither, that
+#                   Secret is not sealed (only needed with
+#                   global.observability.enabled).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
@@ -236,6 +242,18 @@ else
   fi
 fi
 
+# MAIR-131: Cockpit token, cannot be generated (issued from the Cockpit
+# console). Kept from the cluster when not supplied; --rotate does not clear it.
+COCKPITTOKEN="${COCKPIT_TOKEN:-}"
+if [ -n "$COCKPITTOKEN" ]; then
+  echo "  COCKPIT_TOKEN    : from COCKPIT_TOKEN"
+else
+  COCKPITTOKEN="$(prev "${RELEASE}-cockpit-secret" COCKPIT_TOKEN)"
+  if [ -n "$COCKPITTOKEN" ]; then
+    echo "  COCKPIT_TOKEN    : kept from cluster"
+  fi
+fi
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -295,6 +313,15 @@ else
   echo "  backup-secret : skipped (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not provided)"
 fi
 
+if [ -n "$COCKPITTOKEN" ]; then
+  kubectl create secret generic "${RELEASE}-cockpit-secret" \
+    --namespace "$NS" \
+    --from-literal=COCKPIT_TOKEN="$COCKPITTOKEN" \
+    --dry-run=client -o yaml | seal > "$TMP/cockpit.yaml"
+else
+  echo "  cockpit-secret : skipped (COCKPIT_TOKEN not provided)"
+fi
+
 mkdir -p "$(dirname "$OUT")"
 {
   echo "# ==========================================================================="
@@ -318,6 +345,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ADMIN_EMAIL=admin@example.org ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Re-seal a bff-user client secret regenerated in the Keycloak admin console (MAIR-139):"
   echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
+  echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do

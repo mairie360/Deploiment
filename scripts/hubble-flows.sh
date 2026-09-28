@@ -26,6 +26,15 @@ LAST="${3:-20}"
 NS="mairie360-${ENV}"
 PORT="${HUBBLE_PORT:-4245}"
 C="app.kubernetes.io/component"
+# Namespace of the ingress controller (MAIR-260): Traefik's once the machine
+# has switched, ingress-nginx's before. INGRESS_NS=... overrides it.
+if [ -z "${INGRESS_NS:-}" ]; then
+  if kubectl --context "$CTX" get namespace traefik >/dev/null 2>&1; then
+    INGRESS_NS=traefik
+  else
+    INGRESS_NS=ingress-nginx
+  fi
+fi
 
 command -v hubble >/dev/null 2>&1 \
   || { echo "hubble CLI not found: https://github.com/cilium/hubble/releases" >&2; exit 2; }
@@ -48,8 +57,8 @@ title() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 title "Dropped flows in ${NS} (what the NetworkPolicies refused)"
 $OBS --namespace "$NS" --verdict DROPPED
 
-title "ingress-nginx -> fronts"
-$OBS --from-namespace ingress-nginx --to-namespace "$NS" --to-label "${C}=frontend"
+title "${INGRESS_NS} -> fronts"
+$OBS --from-namespace "$INGRESS_NS" --to-namespace "$NS" --to-label "${C}=frontend"
 
 title "fronts -> bffs"
 $OBS --from-label "${C}=frontend" --to-namespace "$NS" --to-label "${C}=bff"

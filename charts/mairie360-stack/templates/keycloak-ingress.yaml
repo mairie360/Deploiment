@@ -3,7 +3,8 @@ Dedicated Ingress of Keycloak (MAIR-139): https://auth.<domain>, the only
 thing exposed besides the fronts. Its own TLS Secret and certificate — one
 more HTTP-01 challenge per instance, on top of the fronts' 8.
 Class, ClusterIssuer and annotations are the fronts' (`ingress.*`), plus
-`keycloak.ingress.annotations` (proxy buffer size, see values.yaml).
+`keycloak.ingress.annotations` (proxy buffer size, see values.yaml), all
+through the controller-agnostic helpers of templates/_helpers.tpl (MAIR-260).
 */ -}}
 {{- if and .Values.ingress.enabled .Values.keycloak.enabled }}
 {{- $host := include "mairie360.keycloakHost" . -}}
@@ -17,14 +18,11 @@ metadata:
     app.kubernetes.io/component: keycloak
   annotations:
     argocd.argoproj.io/sync-wave: "5"
-    {{- if .Values.ingress.clusterIssuer }}
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
-    {{- end }}
-    {{- with merge (dict) (.Values.keycloak.ingress | default dict).annotations .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- /* The fronts' annotations for the instance's controller, then Keycloak's own on top. */}}
+    {{- $annotations := merge (dict) (.Values.keycloak.ingress | default dict).annotations (include "mairie360.ingressAnnotations" . | fromYaml) }}
+    {{- toYaml $annotations | nindent 4 }}
 spec:
-  ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
+  ingressClassName: {{ include "mairie360.ingressClassName" . | quote }}
   tls:
     - hosts:
         - {{ $host | quote }}
