@@ -12,6 +12,8 @@ on:
     paths:
       - "charts/**"
       - "tests/e2e/**"
+      # Traefik and cert-manager versions and values used by the ingress test
+      - "bootstrap/**"
       - ".github/workflows/k8s-e2e.yaml"
 
 concurrency:

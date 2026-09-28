@@ -19,7 +19,10 @@ global:
   domain: "e2e.invalid"
   # Every image used here is public.
   imagePullSecret: ""
-  ingressNamespace: "ingress-nginx"
+  # Traefik, installed by run.sh with bootstrap/values/traefik.yaml: the
+  # ingress chainsaw test goes through it (HTTP-01 via Pebble, HTTPS
+  # redirect, body limit, X-Forwarded-For).
+  ingressController: "traefik"
   networkPolicy:
     enabled: true
     egressDefaultDeny: false
@@ -33,8 +36,8 @@ secrets:
 
 ingress:
   enabled: true
-  className: "nginx"
-  clusterIssuer: "letsencrypt-staging"
+  # Pebble (tests/e2e/pebble.yaml) instead of Let's Encrypt.
+  clusterIssuer: "e2e-pebble"
 
 database:
   # Pinned, not `latest`: the run must fail when a new image breaks the chart,

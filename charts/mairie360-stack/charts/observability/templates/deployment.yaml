@@ -1,0 +1,70 @@
+{{- if include "observability.enabled" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability.fullname" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    # Before the APIs (wave 2) so their first spans have somewhere to go.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the collector configuration changes.
+        checksum/config: {{ include "observability.config" . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "observability.fullname" . }}
+      containers:
+        - name: otel-collector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config=/conf/config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            # kubeletstats scrapes the kubelet of the node this pod runs on.
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.hostIP }
+            - name: COCKPIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "observability.secretName" . }}
+                  key: COCKPIT_TOKEN
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: health, containerPort: 13133 }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}
+{{- end }}

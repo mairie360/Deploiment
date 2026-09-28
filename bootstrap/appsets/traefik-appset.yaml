@@ -1,0 +1,63 @@
+# Traefik: the ingress controller replacing ingress-nginx (MAIR-260,
+# docs/adr/0001-replace-ingress-nginx.md), one per INSTANCE machine that has
+# been switched to it.
+#
+# Only one controller per machine: both publish a LoadBalancer Service on
+# 80/443, and k3s ServiceLB cannot bind the same host port twice. The
+# machine's controller is chosen by the Argo CD cluster label
+# `mairie360.fr/ingress` (ansible var `ingress_controller`, role
+# k8s_instance_link): this AppSet takes `traefik`, ingress-nginx-appset.yaml
+# takes everything else. The instance values must say the same
+# (`global.ingressController`).
+#
+# k3s's bundled Traefik stays disabled (ansible role k8s_node): its version
+# would follow the k3s release instead of being pinned here.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            mairie360.fr/role: instance
+          matchExpressions:
+            - key: mairie360.fr/ingress
+              operator: In
+              values: ["traefik"]
+  template:
+    metadata:
+      name: 'traefik-{{name}}'
+      # Removing the machine from this AppSet (label flipped back to nginx)
+      # deletes Traefik's resources too, which frees ports 80/443 for
+      # ingress-nginx. Without it Argo CD would only delete the Application.
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      sources:
+        - repoURL: https://traefik.github.io/charts
+          chart: traefik
+          # PINNED: chart 41.6.0 = Traefik v3.7.13 (Sept 2026, current
+          # minor; Kubernetes >= 1.25). Upgrades go through Renovate.
+          targetRevision: 41.6.0
+          helm:
+            releaseName: traefik
+            valueFiles:
+              - $values/bootstrap/values/traefik.yaml
+        # Values from this repo (same file as tests/e2e/run.sh). Like
+        # cluster-issuer-appset.yaml, it tracks `main`, not ansible's
+        # repo_branch.
+        - repoURL: https://github.com/mairie360/Deploiment.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{server}}'
+        namespace: traefik
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        # ServerSideApply: Traefik's CRDs are too large for a client-side
+        # apply's last-applied annotation.
+        syncOptions: [CreateNamespace=true, ServerSideApply=true]
