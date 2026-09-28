@@ -8,6 +8,8 @@ tests:
   # --- nginx (every instance today) -----------------------------------------
   - it: nginx keeps the ingress-nginx class and annotations of the instances
     templates: [templates/ingress.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.ingressClassName
@@ -25,6 +27,8 @@ tests:
 
   - it: nginx renders no Traefik Middleware (its CRD does not exist there)
     templates: [templates/traefik-middlewares.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - hasDocuments:
           count: 0
@@ -33,6 +37,8 @@ tests:
     templates:
       - charts/Fronts/templates/network-policy.yaml
       - templates/acme-solver-network-policy.yaml
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
@@ -150,6 +156,8 @@ tests:
   # --- Keycloak (MAIR-139) follows the same controller as the fronts --------
   - it: nginx keeps Keycloak on the nginx class with its proxy buffer annotation
     templates: [templates/keycloak-ingress.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.ingressClassName
@@ -184,6 +192,8 @@ tests:
     documentSelector:
       path: metadata.name
       value: RELEASE-NAME-keycloak-allow-from-ingress-and-apps
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]

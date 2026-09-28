@@ -41,6 +41,8 @@ tests:
 
   - it: les fronts n'acceptent que le namespace du contrôleur d'ingress
     templates: [charts/Fronts/templates/network-policy.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
@@ -102,6 +104,8 @@ tests:
   - it: "MAIR-139: Keycloak only accepts the ingress controller, the BFFs and the APIs, on 8080"
     templates: [charts/keycloak/templates/network-policy.yaml]
     documentIndex: 0
+    set:
+      global.ingressController: nginx
     asserts:
       - equal:
           path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
@@ -230,6 +234,8 @@ tests:
 
   - it: lets the ingress controller reach cert-manager's HTTP-01 solver pods, and nothing else
     templates: [templates/acme-solver-network-policy.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - hasDocuments: { count: 1 }
       - equal:

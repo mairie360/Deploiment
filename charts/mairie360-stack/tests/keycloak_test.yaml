@@ -249,6 +249,8 @@ tests:
 
   - it: exposes Keycloak on its own Ingress', auth.<domain>, with the fronts' class, issuer and annotations plus the proxy buffer size
     templates: [templates/keycloak-ingress.yaml]
+    set:
+      global.ingressController: nginx
     asserts:
       - hasDocuments: { count: 1 }
       - equal: { path: spec.ingressClassName, value: nginx }
