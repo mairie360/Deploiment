@@ -1,0 +1,46 @@
+{{- if include "observability.enabled" . }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability.fullname" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+{{- if .Values.kubeletStats.enabled }}
+---
+# kubeletstats reads the kubelet's /stats/summary. `nodes/stats` is a
+# cluster-scoped resource, hence a ClusterRole; it grants read access to
+# resource usage only, not to pod specs or secrets. Named after the namespace
+# so two releases on one cluster would not collide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" .Release.Namespace (include "observability.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/stats"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s" .Release.Namespace (include "observability.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s" .Release.Namespace (include "observability.fullname" .) | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "observability.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,13 @@
+{{- if include "observability.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  config.yaml: |
+    {{- include "observability.config" . | nindent 4 }}
+{{- end }}
