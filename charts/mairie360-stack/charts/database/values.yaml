@@ -22,6 +22,11 @@ env:
   POSTGRES_USER: "postgres"
   POSTGRES_PASSWORD: ""
   POSTGRES_DB: "mairie_db"
+  # MAIR-170: admin account (users.id = 1) bootstrap. Optional, unlike
+  # POSTGRES_PASSWORD above: left empty, the changelog keeps its template
+  # admin credentials (same as no parameter at all).
+  ADMIN_EMAIL: ""
+  ADMIN_PASSWORD: ""
 
 # Per-role Postgres passwords (MAIR-114), keyed by API instance name
 # (global.database.roles). Only used when secret.create=true.

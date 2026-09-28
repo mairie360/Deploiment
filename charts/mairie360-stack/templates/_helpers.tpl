@@ -43,3 +43,12 @@ Nom du Secret applicatif partagé (JWT_SECRET…).
 {{- define "mairie360.appSecretName" -}}
 {{- default (printf "%s-app-secrets" .Release.Name) .Values.global.secrets.appSecretName -}}
 {{- end }}
+
+{{/*
+Public hostname of Keycloak (MAIR-139): global.keycloak.hostname, else
+auth.<global.domain>. Same rule as "keycloak.hostname" in charts/keycloak,
+which builds KC_HOSTNAME from it — the two must stay identical.
+*/}}
+{{- define "mairie360.keycloakHost" -}}
+{{- .Values.global.keycloak.hostname | default (printf "auth.%s" (required "global.domain est obligatoire pour l'Ingress de Keycloak" .Values.global.domain)) -}}
+{{- end }}

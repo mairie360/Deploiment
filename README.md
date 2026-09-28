@@ -27,7 +27,7 @@ Le provisionnement des machines est dans le dépôt
 
 | Chemin | Rôle |
 |---|---|
-| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), 5 APIs, 7 BFFs, 8 fronts |
+| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), Keycloak (SSO), 5 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
 | `bootstrap/` | Amorçage Argo CD (voir `bootstrap/README.md`) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
@@ -44,6 +44,15 @@ Le provisionnement des machines est dans le dépôt
      by elearning-api, which does not start without it;
    - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: backup bucket
      (`charts/mairie360-stack/charts/backup/README.md`), only when `backup.enabled`.
+   - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170). Sealed as
+     `ADMIN_EMAIL` into `<env>-database-secret` alongside a generated
+     `ADMIN_PASSWORD`; the Liquibase Job creates or resets the admin account
+     with them, `first_connect = TRUE`. Left empty, the admin account keeps
+     its `Database` changelog template credentials.
+
+   `<env>-keycloak-secret` (MAIR-139: Keycloak bootstrap admin, its Postgres
+   role, the `bff-user` client secret) is generated entirely, nothing to
+   provide. The DNS records must cover `auth.<domain>` as well as the fronts.
 
    It then writes `clusters/<org>/instances/<env>/secrets.yaml` into this
    checkout.
@@ -81,7 +90,8 @@ Kubernetes réels.
 
 Every machine runs Cilium as CNI (Ansible role `k8s_node`), which enforces
 the `NetworkPolicy` objects below and lets Hubble record every flow with its
-verdict — `ingress -> fronts -> bffs -> apis -> postgres / redis`.
+verdict — `ingress -> fronts -> bffs -> apis -> postgres / redis` and
+`ingress -> keycloak -> keycloak-db`.
 
 ```bash
 ./scripts/hubble-flows.sh <contexte-kube> dev
@@ -97,11 +107,14 @@ for how the CNI itself is installed.
 
 - **Aucun secret en clair dans Git.** Uniquement des `SealedSecret`, dont la clé
   est propre à chaque machine.
-- **Aucune image en `latest`.** Le tag est obligatoire ; `argocd-image-updater`
-  le met à jour.
-- **Seuls les fronts sont exposés.** APIs, BFFs, Postgres et Redis sont en
-  `ClusterIP`, cloisonnés par des `NetworkPolicy` en `default-deny`. L'API
-  server (6443) est sur le VPN, jamais sur Internet.
+- **No mobile image tag.** The tag is required and must exist: `dev-<sha>` on
+  dev, `staging-<sha>` on staging, a published semver elsewhere, never
+  `latest` / `*-latest`. `argocd-image-updater` moves it forward;
+  `scripts/check-image-tags.sh` checks it in CI (MAIR-172).
+- **Seuls les fronts et Keycloak (`auth.<domain>`) sont exposés.** APIs,
+  BFFs, Postgres, Redis et la base de Keycloak sont en `ClusterIP`,
+  cloisonnés par des `NetworkPolicy` en `default-deny`. L'API server (6443)
+  est sur le VPN, jamais sur Internet.
 - **Retour arrière = `git revert`.** Ne jamais corriger un cluster à la main :
   `selfHeal` écrase la modification en trois minutes.
 

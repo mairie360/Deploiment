@@ -45,6 +45,12 @@ jobs:
               | kubeconform -strict -summary -schema-location default -skip CiliumNetworkPolicy
           done
 
+      # Every instance must start before argocd-image-updater's first pass
+      # (MAIR-172): tags follow the image-updater's family for the env and
+      # exist on their registry. skopeo is preinstalled on ubuntu-latest.
+      - name: Check image tags exist
+        run: ./scripts/check-image-tags.sh
+
       - name: Helm unit tests
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2
