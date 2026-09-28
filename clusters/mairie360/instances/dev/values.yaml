@@ -23,7 +23,7 @@ global:
   # (`ingress_controller`); switch procedure in
   # docs/adr/0001-replace-ingress-nginx.md. The IngressClass, annotations
   # and NetworkPolicy namespace follow from it.
-  ingressController: "nginx"
+  ingressController: "traefik"
   networkPolicy:
     enabled: true
     # Passer à true une fois les destinations externes connues et déclarées
@@ -36,9 +36,10 @@ global:
   # Turn on once the two Cockpit data sources below exist and
   # <release>-cockpit-secret is sealed (COCKPIT_TOKEN exported when running
   # scripts/seal-secrets.sh): with empty endpoints the chart refuses to render.
-  observability:
-    enabled: false
-    apis: ["core-api"]
+  # Commented out: the chart default is already `enabled: false`.
+  # observability:
+  #   enabled: false
+  #   apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
@@ -125,12 +126,13 @@ keycloak:
 
 # Cockpit push URLs of the dev data sources (Cockpit console > Data sources).
 # Not secret: the token lives in <release>-cockpit-secret.
-observability:
-  cockpit:
-    # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
-    metricsEndpoint: ""
-    # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
-    tracesEndpoint: ""
+# Commented out until Cockpit is enabled (chart default: empty endpoints).
+# observability:
+#   cockpit:
+#     # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+#     metricsEndpoint: ""
+#     # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+#     tracesEndpoint: ""
 
 APIs:
   resources:
