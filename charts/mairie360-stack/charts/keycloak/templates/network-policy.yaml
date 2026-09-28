@@ -1,0 +1,59 @@
+{{- if and .Values.enabled (($.Values.global).networkPolicy).enabled }}
+# Keycloak is the second and last thing exposed to the ingress controller
+# (auth.<domain>, browser flows and the admin console). Inside the namespace
+# only the BFFs (session / token exchange) and the APIs (token validation,
+# admin client of MAIR-142) may reach it; fronts and data pods never do.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "keycloak.fullname" . }}-allow-from-ingress-and-apps
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.ingressNamespace | default "ingress-nginx" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Keycloak's database is Keycloak's alone: not even the APIs, the migration
+# Job or the backup CronJob (all admitted on the Mairie360 database) reach it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "keycloak.db.fullname" . }}-allow-from-keycloak
+  labels:
+    {{- include "keycloak.db.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: keycloak
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}

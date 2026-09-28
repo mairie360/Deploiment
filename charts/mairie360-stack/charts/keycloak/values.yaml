@@ -1,0 +1,134 @@
+# keycloak subchart (MAIR-139) — one Keycloak per Mairie360 instance, the
+# first brick of the SSO epic (MAIR-135).
+#
+# What it deploys:
+#   <release>-keycloak      Deployment + Service (8080), the identity provider
+#   <release>-keycloak-db   StatefulSet + Services, a PostgreSQL dedicated to
+#                           Keycloak — NOT the Mairie360 database: Keycloak's
+#                           schema, upgrades and backups stay independent of
+#                           the Devops/Database changelog, and the database
+#                           NetworkPolicy (APIs / migration / backup only)
+#                           stays untouched.
+#   <release>-keycloak-realm ConfigMap: the realm imported at first start
+#                           (`--import-realm`). Keycloak SKIPS the import when
+#                           the realm already exists, so later changes are
+#                           made in the admin console (persisted in the DB),
+#                           not here.
+#   <release>-keycloak-secret  see `secret` below (SealedSecret on instances).
+#
+# The public Ingress (auth.<domain>) is rendered by the umbrella chart
+# (templates/keycloak-ingress.yaml): the umbrella owns everything exposed.
+# The public hostname and realm name come from `global.keycloak`, so the BFFs
+# chart can point at the same issuer URL.
+
+enabled: true
+
+image:
+  repository: quay.io/keycloak/keycloak
+  # Pinned: a Keycloak upgrade migrates its database schema on start and
+  # cannot be rolled back, so it must be a deliberate bump.
+  tag: "26.7.4"
+  pullPolicy: IfNotPresent
+
+# Bootstrap admin of the master realm (KC_BOOTSTRAP_ADMIN_*). Keycloak only
+# creates it on the FIRST start of an empty database; afterwards the account
+# lives in Keycloak's DB and the sealed password is not read again. The
+# password comes from the Secret (key KEYCLOAK_ADMIN_PASSWORD).
+admin:
+  username: "admin"
+
+# Secret <release>-keycloak-secret:
+#   KEYCLOAK_ADMIN_PASSWORD  bootstrap admin password (first start only)
+#   KEYCLOAK_DB_PASSWORD     password of the `keycloak` Postgres role
+#   BFF_USER_CLIENT_SECRET   client secret of the confidential `bff-user`
+#                            OIDC client, substituted into the realm at import
+# create: true  -> built from `env` below (throwaway local cluster ONLY)
+# create: false -> provided by a SealedSecret (scripts/seal-secrets.sh)
+secret:
+  create: false
+env:
+  KEYCLOAK_ADMIN_PASSWORD: ""
+  KEYCLOAK_DB_PASSWORD: ""
+  BFF_USER_CLIENT_SECRET: ""
+
+# Realm imported at first start. Placeholders `${VAR}` in the rendered JSON
+# are resolved by Keycloak from the container's environment, which is how the
+# client secret and the SMTP password reach the realm without ever being in
+# the ConfigMap. The realm NAME is `global.keycloak.realm` (shared with the
+# BFFs), everything else is here.
+realm:
+  displayName: "Mairie 360"
+  defaultLocale: "fr"
+  supportedLocales: ["fr", "en"]
+  # Realm roles, mirroring the roles the Devops/Database changelog seeds in
+  # `roles` (v1.0.0/03__init_roles.sql), so an account keeps the same role
+  # names on both sides once MAIR-141 migrates users.
+  roles:
+    - { name: "Admin", description: "System administrator" }
+    - { name: "Maire", description: "Mayor" }
+    - { name: "Responsable", description: "Head of department" }
+    - { name: "User", description: "Standard user" }
+    - { name: "Guest", description: "Guest" }
+  clients:
+    # Login_Web_Service: public client, authorization code + PKCE, no secret.
+    loginFront:
+      clientId: "login-front"
+      # Empty = https://login.<global.domain>/* (redirect) and
+      # https://login.<global.domain> (web origin).
+      redirectUris: []
+      webOrigins: []
+    # BFF_user: confidential client (secret = BFF_USER_CLIENT_SECRET), the one
+    # that exchanges the authorization code and can call Keycloak with its
+    # service account.
+    bffUser:
+      clientId: "bff-user"
+      redirectUris: []
+      webOrigins: []
+  # Outbound e-mail of the realm (password reset, invitations of MAIR-142).
+  # Same Resend relay as core-api: the API key is read from the SMTP_PASSWORD
+  # key of <release>-app-secrets (optional: an instance sealed without it
+  # starts, e-mails fail). Left with an empty `from`, no SMTP is configured.
+  smtp:
+    from: ""
+    fromDisplayName: "Mairie 360"
+    host: "smtp.resend.com"
+    port: "587"
+    user: "resend"
+    starttls: true
+
+# Keycloak's own PostgreSQL.
+db:
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  name: "keycloak"
+  user: "keycloak"
+  persistence:
+    size: 1Gi
+    # "" = cluster default StorageClass (local-path on k3s / standard on Kind).
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  # The alpine postgres image runs as uid 70; on local-path fsGroup is not
+  # enough for the data directory, a root initContainer does the chown.
+  initChown:
+    enabled: true
+  resources:
+    requests: { memory: "64Mi", cpu: "50m" }
+    limits:   { memory: "256Mi", cpu: "500m" }
+
+# Extra env vars on the Keycloak container (KC_* options, see
+# https://www.keycloak.org/server/all-config), rendered through `tpl`.
+extraEnv: []
+
+# JVM sizing (the image reads JAVA_OPTS_KC_HEAP). Keycloak 26 idles around
+# 400 MiB; the limit below leaves room for the import and the admin console.
+resources:
+  requests: { memory: "512Mi", cpu: "100m" }
+  limits:   { memory: "1Gi", cpu: "1000m" }
+
+# Keycloak's own startup (build + realm import) takes 1-2 minutes on a small
+# machine: the startup probe tolerates up to failureThreshold * periodSeconds.
+startupProbe:
+  periodSeconds: 5
+  failureThreshold: 60

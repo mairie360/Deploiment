@@ -93,3 +93,43 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: '(?s)-D[a-z_]+_password.*\bupdate\b'
+
+  - it: "MAIR-170: Liquibase forwards the admin account's e-mail/password as changelog parameters, optional in the secret"
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ADMIN_EMAIL
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: ADMIN_EMAIL, optional: true }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: ADMIN_PASSWORD, optional: true }
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Dadmin_email="\$ADMIN_EMAIL"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Dadmin_password="\$ADMIN_PASSWORD"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)\bupdate\b.*-Dadmin_email'
+
+  - it: "MAIR-170: the database Secret carries ADMIN_EMAIL/ADMIN_PASSWORD when created by the chart, empty by default"
+    set:
+      database.secret.create: true
+      database.env.POSTGRES_PASSWORD: "test-only"
+      database.rolePasswords:
+        core-api: "test-only"
+        project-api: "test-only"
+        calendar-api: "test-only"
+        message-api: "test-only"
+        elearning-api: "test-only"
+    templates: [charts/database/templates/secret.yaml]
+    asserts:
+      - equal: { path: stringData.ADMIN_EMAIL, value: "" }
+      - equal: { path: stringData.ADMIN_PASSWORD, value: "" }

@@ -40,6 +40,22 @@ database:
     # The instances ask for k3s's "local-path"; Kind's provisioner is "standard".
     storageClass: ""
 
+# MAIR-139: Keycloak keeps its real image too — the realm import (roles,
+# clients, the client secret substituted from the Secret) is part of what
+# the data-access test checks.
+keycloak:
+  secret:
+    create: true
+  env:
+    KEYCLOAK_ADMIN_PASSWORD: "e2e-keycloak-admin"
+    KEYCLOAK_DB_PASSWORD: "e2e-keycloak-db"
+    BFF_USER_CLIENT_SECRET: "e2e-bff-user-client-secret"
+  db:
+    persistence:
+      size: "1Gi"
+      # Same as database above: Kind has no "local-path".
+      storageClass: ""
+
 redis:
   secret:
     create: true
