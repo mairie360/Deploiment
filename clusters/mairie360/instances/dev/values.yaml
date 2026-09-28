@@ -139,7 +139,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-aa4a651" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-2df6715" }
       env:
         - name: PUBLIC_URL
           value: "https://login.dev.mairie360-eip.fr"
