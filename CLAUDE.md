@@ -65,7 +65,9 @@ CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
 `helm lint` → render **and `kubeconform`** every instance →
 `scripts/check-image-tags.sh` → `helm unittest`, all blocking. `gitleaks`
 and `trivy config` are not wired yet. The Kind + Cilium end-to-end suite runs
-separately (`.github/workflows/k8s-e2e.yaml`).
+separately (`.github/workflows/k8s-e2e.yaml`). `.github/workflows/promote.yaml`
+is the manual main → staging → prod promotion (it calls `cicd.yaml` as a
+reusable workflow on the promoted commit).
 
 ## Architecture
 
@@ -415,10 +417,28 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 - **Subchart directory names are capitalized** (`APIs`, `BFFs`, `Fronts`) and must
   match the top-level values keys exactly.
-- **`targetRevision` is `main` everywhere.** When working on a branch, Ansible's
-  `repo_branch` variable repoints both `platform-app.yaml` and the rendered
-  instances AppSet — do not let the two diverge, or Argo CD silently serves the
-  old appsets from `main` while you edit the branch.
+- **Each environment follows its own branch (ADR 0002).** The instances AppSet
+  gives every Application a `targetRevision` from Ansible's
+  `deploiment_env_revisions`: `dev` → `main`, `staging` → `staging`, `prod` →
+  `prod` (chart, `values.yaml` and `secrets.yaml` are all read at that revision).
+  So **a merge on `main` only reaches dev**; staging then prod move with the
+  `Promote` workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`):
+  fast-forward only, a commit must already be in `main` to reach `staging` and
+  in `staging` to reach `prod`, the whole `cicd.yaml` re-runs on it, and `prod`
+  additionally needs the `staging_verified` box (run `scripts/verify.sh` on
+  staging first: GitHub runners cannot reach the instance API servers) and the
+  approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
+  the branch back to an older commit. Consequences: a change to
+  `clusters/mairie360/instances/prod/values.yaml` or a freshly sealed
+  `secrets.yaml` also needs a promotion; the AppSet generator still lists
+  directories on `main`, so a **new environment directory must be promoted
+  before its Application can render**. The bootstrap appsets (`bootstrap/`,
+  cert-manager, ingress-nginx, sealed-secrets, cluster-addons) are **not**
+  covered: the root `platform` app follows `main` and hits every instance at once.
+  Also, when working on a branch, Ansible's `deploiment_repo_branch` repoints
+  `platform-app.yaml`, the instances AppSet generator and the `dev` revision —
+  do not let them diverge, or Argo CD silently serves the old appsets from
+  `main` while you edit the branch.
 - **SealedSecrets are per-machine.** The sealing key belongs to one cluster's
   controller; `clusters/<org>/instances/<env>/secrets.yaml` must be generated on
   that machine with `scripts/seal-secrets.sh`. Back up every key — losing one

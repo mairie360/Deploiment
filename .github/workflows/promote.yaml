@@ -1,0 +1,182 @@
+name: Promote
+
+# Moves an environment's branch forward: main -> staging -> prod.
+#
+# Each Argo CD Application follows one branch of this repo (chart, values and
+# secrets are read at the same revision, see docs/adr/0002-environment-promotion.md):
+# dev follows `main`, staging follows `staging`, prod follows `prod`. Promoting
+# is therefore just a fast-forward of that branch to a commit that already went
+# through the previous environment.
+#
+#   target=staging  ref must be on `main`     (default: main's head)
+#   target=prod     ref must be on `staging`  (default: staging's head)
+#
+# Image tags are a separate lane (argocd-image-updater for dev/staging, a
+# semver in prod's values.yaml) and are not affected by this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to promote to
+        type: choice
+        options: [staging, prod]
+        required: true
+      ref:
+        description: Commit to promote (default is the head of the previous environment's branch)
+        type: string
+        required: false
+      staging_verified:
+        description: "prod only: scripts/verify.sh passed on staging for this commit"
+        type: boolean
+        default: false
+      rollback:
+        description: Move the branch BACK to ref (force push, skips the CI checks)
+        type: boolean
+        default: false
+
+# One promotion at a time, and never cancel a push half way.
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve and check the promotion
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      current: ${{ steps.resolve.outputs.current }}
+      changed: ${{ steps.resolve.outputs.changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the commit and check the promotion path
+        id: resolve
+        env:
+          TARGET: ${{ inputs.target }}
+          REF: ${{ inputs.ref }}
+          STAGING_VERIFIED: ${{ inputs.staging_verified }}
+          ROLLBACK: ${{ inputs.rollback }}
+        run: |
+          set -euo pipefail
+
+          case "$TARGET" in
+            staging) SOURCE=main ;;
+            prod)    SOURCE=staging ;;
+            *) echo "::error::Unknown target '$TARGET'"; exit 1 ;;
+          esac
+
+          if ! git rev-parse --verify --quiet "origin/$SOURCE" >/dev/null; then
+            echo "::error::Branch '$SOURCE' does not exist: promote it first."
+            exit 1
+          fi
+          SHA=$(git rev-parse --verify "${REF:-origin/$SOURCE}^{commit}")
+
+          # Never skip an environment: the commit must already be in the
+          # source branch (main for staging, staging for prod).
+          if ! git merge-base --is-ancestor "$SHA" "origin/$SOURCE"; then
+            echo "::error::$SHA is not on '$SOURCE': it has not been through the previous environment."
+            exit 1
+          fi
+
+          CURRENT=""
+          if git rev-parse --verify --quiet "origin/$TARGET" >/dev/null; then
+            CURRENT=$(git rev-parse "origin/$TARGET")
+          fi
+
+          CHANGED=true
+          if [ "$ROLLBACK" = "true" ]; then
+            [ -n "$CURRENT" ] || { echo "::error::'$TARGET' does not exist, nothing to roll back."; exit 1; }
+            if ! git merge-base --is-ancestor "$SHA" "$CURRENT"; then
+              echo "::error::Rollback needs a commit that is already in '$TARGET' history."
+              exit 1
+            fi
+          else
+            if [ "$TARGET" = "prod" ] && [ "$STAGING_VERIFIED" != "true" ]; then
+              echo "::error::Run scripts/verify.sh against staging, then tick 'staging_verified'."
+              exit 1
+            fi
+            if [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
+              echo "::error::'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
+              exit 1
+            fi
+          fi
+          if [ "$CURRENT" = "$SHA" ]; then
+            CHANGED=false
+          fi
+
+          {
+            echo "sha=$SHA"
+            echo "current=$CURRENT"
+            echo "changed=$CHANGED"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Promote \`$TARGET\`"
+            echo
+            echo "- From: \`${CURRENT:-<new branch>}\`"
+            echo "- To: \`$SHA\` (rollback: $ROLLBACK)"
+            if [ "$CHANGED" = "false" ]; then
+              echo "- Nothing to do, \`$TARGET\` is already at this commit."
+            elif [ -n "$CURRENT" ] && [ "$ROLLBACK" != "true" ]; then
+              echo
+              echo "Commits:"
+              echo '```'
+              git log --oneline "$CURRENT..$SHA"
+              echo '```'
+              echo "Changed under \`clusters/\` and \`charts/\`:"
+              echo '```'
+              git diff --stat "$CURRENT" "$SHA" -- clusters charts | tail -n 40
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate:
+    name: Validate the commit
+    needs: resolve
+    # A rollback goes back to a commit that was already validated.
+    if: needs.resolve.outputs.changed == 'true' && !inputs.rollback
+    uses: ./.github/workflows/cicd.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  promote:
+    name: Advance the branch
+    needs: [resolve, validate]
+    if: ${{ !cancelled() && needs.resolve.outputs.changed == 'true' && needs.validate.result != 'failure' }}
+    runs-on: ubuntu-latest
+    # Create `promote-prod` in the repo settings with required reviewers: that
+    # is the human approval before prod moves.
+    environment: promote-${{ inputs.target }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push the branch
+        env:
+          TARGET: ${{ inputs.target }}
+          ROLLBACK: ${{ inputs.rollback }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          CURRENT: ${{ needs.resolve.outputs.current }}
+        run: |
+          set -euo pipefail
+          if [ "$ROLLBACK" = "true" ]; then
+            # Refuse if the branch moved since it was resolved.
+            git push --force-with-lease="refs/heads/$TARGET:$CURRENT" origin "$SHA:refs/heads/$TARGET"
+          else
+            # No force: git rejects anything that is not a fast-forward, which
+            # also covers a push landing on the branch during the approval.
+            git push origin "$SHA:refs/heads/$TARGET"
+          fi
+          echo "\`$TARGET\` is now at \`$SHA\`. Argo CD picks it up on its next refresh." >> "$GITHUB_STEP_SUMMARY"
