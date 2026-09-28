@@ -70,7 +70,7 @@ redis:
 
 liquibase:
   image:
-    tag: "dev-4d7edf8"
+    tag: "dev-0aaede5"
   db:
     name: "mairie_db_dev"
 
