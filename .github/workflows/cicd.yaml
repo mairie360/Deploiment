@@ -4,6 +4,14 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
+  # Called by promote.yaml to re-run every check on the exact commit that is
+  # about to reach staging or prod.
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to validate (default is the triggering ref)
+        type: string
+        default: ""
 
 jobs:
   # ================================
@@ -15,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Helm
         uses: azure/setup-helm@v4

@@ -77,6 +77,23 @@ backup:
     bucket: "mairie360-backup-staging"
     region: "fr-par"
 
+# Keycloak (MAIR-139): the instance's identity provider, on
+# https://auth.<global.domain> (DNS record required, like the fronts). Realm
+# and clients: charts/mairie360-stack/charts/keycloak/values.yaml. Its own
+# Postgres is NOT covered by the backup CronJob above. Requires
+# <release>-keycloak-secret in secrets.yaml (scripts/seal-secrets.sh).
+keycloak:
+  enabled: true
+  realm:
+    # Same Resend relay and verified domain as core-api's EMAIL_FROM above.
+    smtp:
+      from: "noreply@mairie360-eip.fr"
+      fromDisplayName: "Mairie360 (staging)"
+  db:
+    persistence:
+      size: "2Gi"
+      storageClass: "local-path"
+
 APIs:
   instances:
     core-api:

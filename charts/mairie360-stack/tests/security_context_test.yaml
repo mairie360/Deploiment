@@ -1,0 +1,125 @@
+suite: security context (MAIR-229)
+# Every API, BFF and front Deployment runs as a fixed non-root uid/gid, with
+# a read-only root filesystem, no privilege escalation, no capability, the
+# RuntimeDefault seccomp profile and no ServiceAccount token. The asserts
+# apply to every Deployment the template renders (one per enabled instance).
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: APIs run as distroless nonroot (65532) with a read-only root filesystem
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - isKind: { of: Deployment }
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - { name: tmp, mountPath: /tmp }
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+
+  - it: BFFs run as the node user (1000) with a writable /tmp only
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - isKind: { of: Deployment }
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - { name: tmp, mountPath: /tmp }
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+
+  - it: fronts run as nextjs (1001) with writable /tmp and .next/cache
+    templates: [charts/Fronts/templates/deployment.yaml]
+    asserts:
+      - isKind: { of: Deployment }
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - { name: tmp, mountPath: /tmp }
+            - { name: next-cache, mountPath: /app/.next/cache }
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+            - { name: next-cache, emptyDir: { sizeLimit: 256Mi } }
+
+  - it: no instance can opt back into root through the defaults
+    templates:
+      - charts/APIs/templates/deployment.yaml
+      - charts/BFFs/templates/deployment.yaml
+      - charts/Fronts/templates/deployment.yaml
+    asserts:
+      - notEqual:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 0
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: an empty writableDirs list renders no volume at all
+    templates: [charts/APIs/templates/deployment.yaml]
+    set:
+      APIs.writableDirs: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts

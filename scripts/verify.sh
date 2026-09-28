@@ -12,6 +12,8 @@ set -uo pipefail
 CTX="${1:?usage: $0 <contexte-kube> <env> [domaine]}"
 ENV="${2:?}"
 DOMAIN="${3:-}"
+# Realm provisioned by charts/keycloak (global.keycloak.realm).
+KEYCLOAK_REALM="${KEYCLOAK_REALM:-mairie360}"
 # Une machine = un cluster = un namespace mairie360-<env>.
 NS="mairie360-${ENV}"
 RELEASE="${ENV}"
@@ -40,7 +42,7 @@ done
 [ -z "$EMPTY" ] && ok "tous les Services pointent sur des pods" || ko "Services sans endpoint :$EMPTY"
 
 step 4 "Les secrets attendus existent"
-for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis"; do
+for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis" "${RELEASE}-keycloak-secret"; do
   $K get secret "$s" >/dev/null 2>&1 && ok "$s" || ko "$s absent (scripts/seal-secrets.sh ?)"
 done
 
@@ -136,24 +138,45 @@ else
   ok "backup not enabled for this instance"
 fi
 
-if [ -n "$DOMAIN" ]; then
-  step 12 "Certificat TLS vérifié sur https://login.${DOMAIN}"
-  ISSUER=$(echo | openssl s_client -connect "login.${DOMAIN}:443" \
-             -servername "login.${DOMAIN}" 2>/dev/null \
-           | openssl x509 -noout -issuer 2>/dev/null || true)
-  case "$ISSUER" in
-    *"Let's Encrypt"*) ok "émis par Let's Encrypt" ;;
-    *STAGING*|*"(STAGING)"*) ko "certificat Let's Encrypt STAGING (non vérifié par les navigateurs)" ;;
-    *) ko "certificat inattendu : ${ISSUER:-aucun}" ;;
-  esac
+step 12 "MAIR-139: Keycloak serves the ${KEYCLOAK_REALM} realm"
+if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
+  if $K rollout status "deploy/${RELEASE}-keycloak" --timeout=10s >/dev/null 2>&1; then
+    ok "keycloak Deployment available"
+  else
+    ko "keycloak Deployment not available (kubectl logs deploy/${RELEASE}-keycloak)"
+  fi
+  if $K run kc-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
+       --labels="app.kubernetes.io/component=bff" --timeout=60s \
+       -- curl -sf -m 10 "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
+       2>/dev/null | grep -q '"issuer":"https://'; then
+    ok "realm ${KEYCLOAK_REALM} imported, issuer on https"
+  else
+    ko "realm ${KEYCLOAK_REALM} not served from a bff pod (import failed, or NetworkPolicy)"
+  fi
+else
+  ok "keycloak not enabled for this instance"
+fi
 
-  step 13 "Le HTTP redirige vers le HTTPS"
+if [ -n "$DOMAIN" ]; then
+  step 13 "Certificat TLS vérifié sur https://login.${DOMAIN} et https://auth.${DOMAIN}"
+  for host in "login.${DOMAIN}" "auth.${DOMAIN}"; do
+    ISSUER=$(echo | openssl s_client -connect "${host}:443" \
+               -servername "${host}" 2>/dev/null \
+             | openssl x509 -noout -issuer 2>/dev/null || true)
+    case "$ISSUER" in
+      *"Let's Encrypt"*) ok "${host} : émis par Let's Encrypt" ;;
+      *STAGING*|*"(STAGING)"*) ko "${host} : certificat Let's Encrypt STAGING (non vérifié par les navigateurs)" ;;
+      *) ko "${host} : certificat inattendu : ${ISSUER:-aucun}" ;;
+    esac
+  done
+
+  step 14 "Le HTTP redirige vers le HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
   case "$CODE" in 301|302|308) ok "redirection $CODE" ;; *) ko "code $CODE" ;; esac
 
-  step 14 "Seuls les fronts sont exposés (6443 doit être sur le VPN, pas public)"
+  step 15 "Seuls les fronts et Keycloak sont exposés (6443 doit être sur le VPN, pas public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
-  for p in 3000 4000 5432 6379 6443; do
+  for p in 3000 4000 5432 6379 6443 8080 9000; do
     if timeout 3 bash -c "</dev/tcp/${IP}/${p}" 2>/dev/null; then
       ko "port ${p} ouvert sur Internet"
     else

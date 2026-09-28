@@ -4,6 +4,9 @@
 #    the `default` account is off.
 #  - Postgres (MAIR-114): the role password the chart passes to Liquibase
 #    is the one the API receives, so the API role can log in.
+#  - Keycloak (MAIR-139): the realm was imported at first start with its
+#    roles and clients, and the `${BFF_USER_CLIENT_SECRET}` placeholder was
+#    resolved from the Secret: bff-user can get a token with that secret.
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
@@ -29,6 +32,14 @@ spec:
             apiVersion: v1
             kind: Pod
             name: client-postgres
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            name: client-keycloak
             timeout: 2m
             for:
               condition:
@@ -91,6 +102,47 @@ spec:
                 else
                   echo "FAIL  core_api is a superuser"; FAILED=1
                 fi
+                exit $FAILED
+              '
+            check:
+              ($error): ~
+
+    - name: keycloak realm
+      try:
+        - script:
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-keycloak -- sh -c '
+                FAILED=0
+                REALM="$KEYCLOAK_URL/realms/mairie360"
+                disco=$(curl -sf -m 10 "$REALM/.well-known/openid-configuration" 2>&1)
+                case "$disco" in
+                  *"\"issuer\":\"https://auth."*"/realms/mairie360\""*) echo "ok    realm imported, issuer is the public hostname" ;;
+                  *) echo "FAIL  realm discovery: $disco"; FAILED=1 ;;
+                esac
+                token=$(curl -s -m 10 -X POST "$REALM/protocol/openid-connect/token" \
+                  -d grant_type=client_credentials -d client_id=bff-user \
+                  -d client_secret="$CLIENT_SECRET" 2>&1)
+                case "$token" in
+                  *access_token*) echo "ok    bff-user authenticates with the secret from the Secret" ;;
+                  *) echo "FAIL  bff-user client_credentials: $token"; FAILED=1 ;;
+                esac
+                wrong=$(curl -s -m 10 -X POST "$REALM/protocol/openid-connect/token" \
+                  -d grant_type=client_credentials -d client_id=bff-user \
+                  -d client_secret=wrong 2>&1)
+                case "$wrong" in
+                  *access_token*) echo "FAIL  bff-user authenticates with a wrong secret"; FAILED=1 ;;
+                  *) echo "ok    wrong client secret is refused" ;;
+                esac
+                pub=$(curl -s -m 10 -X POST "$REALM/protocol/openid-connect/token" \
+                  -d grant_type=client_credentials -d client_id=login-front 2>&1)
+                case "$pub" in
+                  *access_token*) echo "FAIL  login-front (public client) got a service-account token"; FAILED=1 ;;
+                  *) echo "ok    login-front is a public client without service account" ;;
+                esac
                 exit $FAILED
               '
             check:
