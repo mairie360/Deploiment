@@ -1,0 +1,108 @@
+suite: observability (MAIR-131)
+# POC: one OpenTelemetry Collector per instance relaying core-api traces and
+# pod CPU/RAM to Scaleway Cockpit. Off by default; one flag turns on the
+# collector and the OTEL_* variables of the APIs together.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: renders nothing while global.observability.enabled=false (default)
+    templates:
+      - charts/observability/templates/deployment.yaml
+      - charts/observability/templates/configmap.yaml
+      - charts/observability/templates/service.yaml
+      - charts/observability/templates/rbac.yaml
+      - charts/observability/templates/network-policy.yaml
+      - charts/observability/templates/secret.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: refuses to render without the Cockpit endpoints
+    set:
+      global.observability.enabled: true
+    templates: [charts/observability/templates/deployment.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "observability.cockpit.metricsEndpoint is required"
+
+  - it: only the API pods may send OTLP to the collector
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+    templates: [charts/observability/templates/network-policy.yaml]
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: telemetry
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: api
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - { protocol: TCP, port: 4317 }
+            - { protocol: TCP, port: 4318 }
+
+  - it: the Cockpit token is only read from the Secret, never inlined
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+    templates:
+      - charts/observability/templates/deployment.yaml
+      - charts/observability/templates/secret.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COCKPIT_TOKEN
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-cockpit-secret, key: COCKPIT_TOKEN }
+        template: charts/observability/templates/deployment.yaml
+      # secret.create defaults to false: a SealedSecret provides it
+      - hasDocuments: { count: 0 }
+        template: charts/observability/templates/secret.yaml
+
+  - it: core-api gets the OTEL_* SDK variables pointing at the collector when enabled
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: OTEL_SERVICE_NAME, value: core-api }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://RELEASE-NAME-otel-collector:4318" }
+
+  - it: the other APIs get no OTEL_* variable (POC on core-api only)
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-project-api
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: OTEL_SERVICE_NAME, value: project-api }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "http/protobuf" }
+
+  - it: no API gets an OTEL_* variable while disabled
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: OTEL_SERVICE_NAME, value: core-api }
