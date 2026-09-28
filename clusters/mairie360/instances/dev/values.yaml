@@ -44,6 +44,11 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 
+# Memory sizing (dev, 4 GB machine, no headroom). Every value below is set from
+# the working set measured on the running instance (crictl stats, 2026-09-28):
+# fronts 40-55 MiB, BFFs 26-50 MiB, APIs ~5 MiB, Postgres 40 MiB, Redis 6 MiB.
+# Requests are about the idle usage, limits leave 3-4x for startup and peaks.
+# The chart defaults (256-512 MiB limits) stay as is for staging and prod.
 database:
   image:
     tag: "dev-4d7edf8"
@@ -52,10 +57,16 @@ database:
   persistence:
     size: "5Gi"
     storageClass: "local-path"
+  resources:
+    requests: { memory: "96Mi", cpu: "100m" }
+    limits:   { memory: "384Mi", cpu: "1000m" }
 
 redis:
   secret:
     create: false
+  resources:
+    requests: { memory: "32Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
 
 liquibase:
   image:
@@ -87,6 +98,15 @@ backup:
 # <release>-keycloak-secret in secrets.yaml (scripts/seal-secrets.sh).
 keycloak:
   enabled: true
+  # Keycloak idles around 400 MiB. Cap the heap explicitly: without it the JVM
+  # sizes it as a percentage of the limit and the rest (metaspace, threads,
+  # code cache) can push the container over the limit during the realm import.
+  extraEnv:
+    - name: JAVA_OPTS_KC_HEAP
+      value: "-Xms64m -Xmx512m"
+  resources:
+    requests: { memory: "400Mi", cpu: "100m" }
+    limits:   { memory: "1Gi", cpu: "1000m" }
   realm:
     # Same Resend relay and verified domain as core-api's EMAIL_FROM above.
     smtp:
@@ -98,6 +118,9 @@ keycloak:
       storageClass: "local-path"
 
 APIs:
+  resources:
+    requests: { memory: "24Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     core-api:
       enabled: true
@@ -164,6 +187,9 @@ APIs:
               key: S3_SECRET_KEY
 
 BFFs:
+  resources:
+    requests: { memory: "48Mi", cpu: "20m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     user-bff:
       enabled: true
@@ -204,6 +230,9 @@ BFFs:
       image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-014923a8b66439d530530fe1dea16a83fc0e4a87" }
 
 Fronts:
+  resources:
+    requests: { memory: "48Mi", cpu: "50m" }
+    limits:   { memory: "192Mi", cpu: "500m" }
   instances:
     login-front:
       enabled: true
