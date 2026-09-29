@@ -282,11 +282,11 @@ Fronts:
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-6646766" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-d987597" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-beb8882" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-3058c8c" }
     elearning-front:
       enabled: true
       port: 5006
