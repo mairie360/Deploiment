@@ -160,9 +160,9 @@ Ingress uses `pathType: Exact` (MAIR-228).
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.6.x)
 
-Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `backup`, `keycloak`, `observability`, `APIs`,
-`BFFs`, `Fronts`.
+Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
+`database`, `redis`, `liquibase`, `backup`, `retention`, `keycloak`,
+`observability`, `APIs`, `BFFs`, `Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
   `range $name, $cfg := .Values.instances` and emits one Deployment + Service per
@@ -264,6 +264,17 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
   `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
+- **`retention` (MAIR-236), on by default.** A daily CronJob running
+  `SELECT * FROM fn_apply_retention_policies()`, which itself creates the
+  next few months of `access_logs` partitions
+  (`fn_ensure_access_logs_partitions`) before applying every
+  `retention_policies` row (`Devops/Database`). Both functions are
+  `SECURITY DEFINER` with `REVOKE ALL ... FROM PUBLIC`, so this Job
+  authenticates as the same Postgres superuser as Liquibase and `backup`
+  (`<release>-database-secret`) — no separate secret, unlike `backup` it
+  needs no external provisioning and is on everywhere by default. Scheduled
+  after the backup CronJob's default run so a dump always has yesterday's
+  rows before retention can prune them.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
   (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
@@ -301,8 +312,9 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
   not a DaemonSet: it only sees the kubelet of its own node, which is enough
   on single-node instances.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
-  data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup CronJob
-  and the collector → `2` APIs and Keycloak → `3` BFFs → `4` Fronts → `5` Ingresses.
+  data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup
+  CronJob, the retention CronJob and the collector → `2` APIs and Keycloak →
+  `3` BFFs → `4` Fronts → `5` Ingresses.
 
 ### Keycloak (MAIR-139, `charts/keycloak`)
 
@@ -375,6 +387,9 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
                                  │  └──────────► redis
                                  └─────────────► redis
               liquibase job ──────────────────► postgres
+              backup CronJob ─────────────────► postgres
+              backup CronJob ─────────────────► keycloak-db   (MAIR-231)
+              retention CronJob ──────────────► postgres      (MAIR-236)
 ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
                 bffs / apis ─► keycloak
                         apis ──OTLP 4317/4318──► otel-collector (component: telemetry)

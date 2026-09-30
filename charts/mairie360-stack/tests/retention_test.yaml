@@ -1,0 +1,58 @@
+# MAIR-236: daily retention policies CronJob (fn_apply_retention_policies).
+suite: retention (MAIR-236)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+tests:
+  - it: renders a Forbid-concurrency CronJob labelled component=retention by default (on everywhere)
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: retention
+      - notExists:
+          path: metadata.annotations["argocd.argoproj.io/hook"]
+
+  - it: renders nothing when retention.enabled=false
+    set:
+      retention: { enabled: false }
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: authenticates to Postgres as the superuser, same Secret as Liquibase and backup
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGUSER
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_USER }
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PGPASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
+
+  - it: calls fn_apply_retention_policies() through psql
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'psql -v ON_ERROR_STOP=1 -c "SELECT \* FROM fn_apply_retention_policies\(\);"'
+
+  - it: the schedule is required
+    set:
+      retention: { schedule: "" }
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "retention.schedule is required"
+
+  # The database NetworkPolicy's admission of the retention component is
+  # covered by tests/network_policy_test.yaml.

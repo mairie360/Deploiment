@@ -68,6 +68,11 @@ backup    $API       deny
 backup    $REDIS     deny
 backup    $KCDB      allow
 
+retention $DB        allow
+retention $API       deny
+retention $REDIS     deny
+retention $KCDB      deny
+
 keycloak  $KCDB      allow
 keycloak  $DB        deny
 keycloak  $API       deny

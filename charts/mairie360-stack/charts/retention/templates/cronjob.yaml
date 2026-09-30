@@ -1,0 +1,50 @@
+{{- if .Values.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "retention.fullname" . }}
+  labels:
+    {{- include "retention.labels" . | nindent 4 }}
+  annotations:
+    # Ordinary resource, not an Argo CD Sync hook: it must persist across
+    # syncs (a CronJob, not a one-shot Job) and only needs the database
+    # (wave 0) to exist before its first scheduled run fires.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ required "retention.schedule is required when retention.enabled=true" .Values.schedule | quote }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "retention.podLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.global.imagePullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          containers:
+            - name: retention
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                {{- include "retention.env" . | nindent 16 }}
+              # fn_apply_retention_policies() creates the next access_logs
+              # partitions, then applies every retention_policies row
+              # (Devops/Database, MAIR-236). SECURITY DEFINER + REVOKE ALL
+              # FROM PUBLIC: only the superuser this Job authenticates as
+              # can call it.
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  psql -v ON_ERROR_STOP=1 -c "SELECT * FROM fn_apply_retention_policies();"
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+{{- end }}
