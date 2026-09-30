@@ -1,5 +1,5 @@
 # The public entry point through Traefik (MAIR-260), with the chart's own
-# Ingress and the platform's Traefik values (bootstrap/values/traefik.yaml):
+# Ingress and the platform's Traefik chart (bootstrap/addons/traefik):
 #  - cert-manager obtains the fronts certificate over HTTP-01 from Pebble,
 #    through a solver Ingress of class traefik (the ClusterIssuer says nginx:
 #    the chart's annotation overrides it) with pathType Exact, which the

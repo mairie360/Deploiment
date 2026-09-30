@@ -6,18 +6,18 @@
 # which. k3s ServiceLB binds the LoadBalancer Service to
 # ports 80/443 of the machine.
 #
-# ingress-nginx was retired upstream in March 2026: 4.15.1 (controller
-# v1.15.1) is its last release and no further security fix will ship. It is
-# being replaced by Traefik (traefik-appset.yaml, MAIR-260) one machine at a
-# time; this file is deleted once prod has switched
-# (docs/adr/0001-replace-ingress-nginx.md). Do not treat this pin as
-# maintained.
+# Version and values live in the wrapper chart bootstrap/addons/ingress-nginx,
+# read at the machine's own revision (MAIR-346). ingress-nginx was retired
+# upstream in March 2026 and is being replaced by Traefik (traefik-appset.yaml,
+# MAIR-260) one machine at a time; this file and that chart are deleted once
+# prod has switched (docs/adr/0001-replace-ingress-nginx.md).
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: ingress-nginx
   namespace: argocd
 spec:
+  goTemplate: true
   generators:
     - clusters:
         # Selector: only the group's INSTANCE machines. Ansible registers
@@ -36,9 +36,13 @@ spec:
             - key: mairie360.fr/ingress
               operator: NotIn
               values: ["traefik"]
+        values:
+          # See cert-manager-appset.yaml: the machine's revision, `main` when
+          # the mairie360.fr/revision annotation is absent.
+          revision: '{{ if .metadata.annotations }}{{ index .metadata.annotations "mairie360.fr/revision" | default "main" }}{{ else }}main{{ end }}'
   template:
     metadata:
-      name: 'ingress-nginx-{{name}}'
+      name: 'ingress-nginx-{{ .name }}'
       # When a machine switches to Traefik, its Application is deleted; the
       # finalizer deletes ingress-nginx's resources with it, which frees
       # ports 80/443 for Traefik. Also what removes it everywhere once this
@@ -48,56 +52,13 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://kubernetes.github.io/ingress-nginx
-        chart: ingress-nginx
-        # PINNED version: with '*', a major release would break the cluster
-        # without any commit changing. Upgrades go through Renovate.
-        # >= 4.11.5 / 4.12.1 is required for CVE-2025-1974 ("IngressNightmare",
-        # unauthenticated RCE through the admission webhook) and
-        # CVE-2025-1097/1098/24514/24513 (MAIR-228). Controller >= v1.13.2 is
-        # also required by cert-manager >= 1.18, whose HTTP-01 solver Ingress
-        # uses `pathType: Exact` (rejected by older controllers with
-        # strict-validate-path-type, the default since v1.12).
-        targetRevision: 4.15.1
+        repoURL: https://github.com/mairie360/Deploiment.git
+        targetRevision: '{{ .values.revision }}'
+        path: bootstrap/addons/ingress-nginx
         helm:
           releaseName: ingress-nginx
-          values: |
-            controller:
-              ingressClassResource:
-                default: true
-              service:
-                type: LoadBalancer
-                # Keeps the client's real source IP: without it every access
-                # log shows the node's internal IP and any per-IP rate limit
-                # is useless.
-                externalTrafficPolicy: Local
-              config:
-                # Nothing sits in front of the controller (ServiceLB only
-                # DNATs), so it must NOT trust the X-Forwarded-* headers
-                # sent by clients: with "true" and the default
-                # proxy-real-ip-cidr (0.0.0.0/0), a client-chosen
-                # X-Forwarded-For became $remote_addr and was forwarded
-                # upstream, letting anyone pick the IP the BFFs rate-limit
-                # on (MAIR-226). With "false" the realip module is off and
-                # the controller sends X-Forwarded-For = the TCP peer
-                # (compute-full-forwarded-for stays off: it would append to,
-                # not replace, the client's header) and X-Forwarded-Proto =
-                # its own scheme, since TLS terminates here. Set it back to
-                # "true" only together with proxy-real-ip-cidr = the CIDR of
-                # a trusted load balancer/CDN placed in front.
-                use-forwarded-headers: "false"
-                ssl-protocols: "TLSv1.2 TLSv1.3"
-                hsts: "true"
-              metrics:
-                enabled: true
-              resources:
-                requests: { memory: 128Mi, cpu: 100m }
-              tolerations:
-                - key: "node-role.kubernetes.io/control-plane"
-                  operator: Exists
-                  effect: NoSchedule
       destination:
-        server: '{{server}}'
+        server: '{{ .server }}'
         namespace: ingress-nginx
       syncPolicy:
         automated: { prune: true, selfHeal: true }

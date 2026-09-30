@@ -61,8 +61,9 @@ k3s bundles a Traefik, and ansible `k8s_node` disables it
 disabled**: the bundled one follows the k3s release (its version changes with
 every k3s bump, outside GitOps) and is configured through a `HelmChartConfig`
 on each machine. Traefik is instead installed by Argo CD, with its chart
-version pinned in `traefik-appset.yaml` and its values in
-`bootstrap/values/traefik.yaml`, the same file `tests/e2e/run.sh` installs.
+version and values pinned in the wrapper chart `bootstrap/addons/traefik`
+(MAIR-346, deployed by `traefik-appset.yaml`), the same chart
+`tests/e2e/run.sh` installs.
 
 ### One controller per machine
 
@@ -88,7 +89,7 @@ derives everything controller-specific:
 | | nginx | traefik |
 |---|---|---|
 | `ingressClassName` | `nginx` | `traefik` |
-| HTTP -> HTTPS | `nginx.ingress.kubernetes.io/ssl-redirect` + `force-ssl-redirect` | web entrypoint redirect (301 for GET/HEAD, 308 otherwise) in `bootstrap/values/traefik.yaml`, priority 1; fronts routers on `websecure` only |
+| HTTP -> HTTPS | `nginx.ingress.kubernetes.io/ssl-redirect` + `force-ssl-redirect` | web entrypoint redirect (301 for GET/HEAD, 308 otherwise) in `bootstrap/addons/traefik/values.yaml`, priority 1; fronts routers on `websecure` only |
 | body limit (`ingress.maxBodySizeMiB`, 50) | `proxy-body-size: 50m` | `buffering` Middleware (`maxRequestBodyBytes`), `router.middlewares` annotation |
 | HTTP-01 solver class | annotation `acme.cert-manager.io/http01-ingress-ingressclassname: nginx` | same annotation, `traefik` (the shared ClusterIssuers keep `nginx` as default) |
 | client `X-Forwarded-For` | `use-forwarded-headers: "false"` (MAIR-226) | `forwardedHeaders` with no `trustedIPs`, `insecure: false` |
@@ -163,7 +164,8 @@ without `mairie360.fr/ingress=traefik`):
 
 1. Delete `bootstrap/appsets/ingress-nginx-appset.yaml` (separate PR). The
    platform app prunes the AppSet; it selects no machine anymore, so nothing
-   else is removed.
+   else is removed. Its wrapper chart `bootstrap/addons/ingress-nginx`
+   (MAIR-346) goes in the same PR: no Application reads it anymore.
 2. Make `traefik` the default of `global.ingressController` and of ansible
    `ingress_controller`, drop the `nginx` branches of
    `templates/_helpers.tpl`, and switch the ClusterIssuers' default solver

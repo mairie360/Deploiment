@@ -67,6 +67,43 @@ jobs:
           kubeconform -strict -summary -schema-location default \
             -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
 
+      # MAIR-346: the platform app applies bootstrap/appsets/ from `main` to
+      # every machine at once, so versions and values must stay in the
+      # wrapper charts of bootstrap/addons/, read at each machine's own
+      # revision. Render each one, and refuse an instance AppSet that pins a
+      # revision or points at a Helm repository again.
+      - name: Render the bootstrap wrapper charts
+        run: |
+          CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          for chart in bootstrap/addons/*/; do
+            name=$(basename "$chart")
+            echo "Rendering $chart"
+            helm dependency build "$chart"
+            helm lint "$chart"
+            helm template "$name" "$chart" --include-crds \
+              | kubeconform -strict -summary -schema-location default \
+                  -schema-location "$CRDS" -skip CustomResourceDefinition
+          done
+
+      - name: Bootstrap AppSets follow each machine's revision
+        run: |
+          FAILED=0
+          for f in bootstrap/appsets/*.yaml; do
+            grep -q 'mairie360.fr/role: instance' "$f" || continue
+            if ! grep -q "targetRevision: '{{ .values.revision }}'" "$f" \
+               || grep -qE '^\s*(chart:|targetRevision: *main)' "$f"; then
+              echo "::error file=$f::instance AppSets read bootstrap/ at '{{ .values.revision }}' (mairie360.fr/revision), never a chart repository or 'main'"
+              FAILED=1
+            fi
+          done
+          # MAIR-157: cert-manager's configuration is shared by every group.
+          if grep -nE 'mairie360-eip|([0-9]{1,3}\.){3}[0-9]{1,3}' \
+               bootstrap/appsets/cert-manager-appset.yaml bootstrap/addons/cert-manager/values.yaml; then
+            echo "::error::cert-manager's AppSet and values must name no domain and no IP (MAIR-157)"
+            FAILED=1
+          fi
+          exit "$FAILED"
+
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and
       # exist on their registry. skopeo is preinstalled on ubuntu-latest.

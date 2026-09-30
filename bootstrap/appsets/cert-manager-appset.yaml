@@ -1,44 +1,44 @@
+# cert-manager, on every INSTANCE machine.
+#
+# Version and values live in the wrapper chart bootstrap/addons/cert-manager,
+# read at the machine's own revision (MAIR-346): this file only says where and
+# at which revision, it must stay free of versions, values, domains and IPs
+# (MAIR-157, shared by every group and every instance).
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: cert-manager
   namespace: argocd
 spec:
-  # Instance clusters only (label set by ansible, role k8s_instance_link): the
-  # Argo CD machine itself (in-cluster, unlabelled) serves no public host.
+  goTemplate: true
   generators:
     - clusters:
+        # Instance clusters only (label set by ansible, role
+        # k8s_instance_link): the Argo CD machine itself (in-cluster,
+        # unlabelled) serves no public host.
         selector:
           matchLabels:
             mairie360.fr/role: instance
+        values:
+          # Revision of this repo the machine follows: the annotation ansible
+          # writes on the Argo CD cluster Secret from deploiment_env_revisions
+          # (dev -> main, staging -> staging, prod -> prod), `main` when it
+          # is absent. Same expression in every bootstrap AppSet; see
+          # docs/adr/0002-environment-promotion.md.
+          revision: '{{ if .metadata.annotations }}{{ index .metadata.annotations "mairie360.fr/revision" | default "main" }}{{ else }}main{{ end }}'
   template:
     metadata:
-      name: 'cert-manager-{{name}}'
+      name: 'cert-manager-{{ .name }}'
     spec:
       project: default
       source:
-        repoURL: https://charts.jetstack.io
-        chart: cert-manager
-        # PINNED to a supported minor (MAIR-228): 1.16 is out of support.
-        # Supported releases and their Kubernetes range:
-        # https://cert-manager.io/docs/releases/ (1.21: Kubernetes 1.33-1.36).
-        # Read the upgrade notes of every minor you skip before bumping.
-        targetRevision: v1.21.2
+        repoURL: https://github.com/mairie360/Deploiment.git
+        targetRevision: '{{ .values.revision }}'
+        path: bootstrap/addons/cert-manager
         helm:
           releaseName: cert-manager
-          values: |
-            crds:
-              enabled: true
-              keep: true
-            # Shared by every group and every instance: nothing here may name
-            # a domain or an IP (MAIR-157). The HTTP-01 self-check resolves
-            # the front hosts through public DNS. On the instance machines the
-            # public IP sits on the interface, so ServiceLB publishes it as
-            # the ingress-nginx LoadBalancer IP and kube-proxy routes the
-            # pod's request to that IP straight to ingress-nginx: no hairpin
-            # through the provider, no hostAliases needed.
       destination:
-        server: '{{server}}'
+        server: '{{ .server }}'
         namespace: cert-manager
       syncPolicy:
         automated:
