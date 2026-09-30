@@ -54,6 +54,19 @@ spec:
                     --keep-weekly {{ .Values.retention.keepWeekly }} \
                     --keep-monthly {{ .Values.retention.keepMonthly }} \
                     --prune
+                  {{- if .Values.keycloak.enabled }}
+                  # MAIR-231: Keycloak's own PostgreSQL, same repository, its
+                  # own --host so it lands as a separate snapshot lineage.
+                  PGHOST="$KEYCLOAK_PGHOST" PGPORT="$KEYCLOAK_PGPORT" \
+                  PGUSER="$KEYCLOAK_PGUSER" PGPASSWORD="$KEYCLOAK_PGPASSWORD" \
+                    pg_dump -Fc "$KEYCLOAK_PGDATABASE" \
+                    | restic backup --stdin --stdin-filename "${KEYCLOAK_PGDATABASE}.dump" --host "keycloak-${KEYCLOAK_PGDATABASE}" --tag scheduled
+                  restic forget --host "keycloak-${KEYCLOAK_PGDATABASE}" \
+                    --keep-daily {{ .Values.retention.keepDaily }} \
+                    --keep-weekly {{ .Values.retention.keepWeekly }} \
+                    --keep-monthly {{ .Values.retention.keepMonthly }} \
+                    --prune
+                  {{- end }}
                   restic check --read-data-subset=5%
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}

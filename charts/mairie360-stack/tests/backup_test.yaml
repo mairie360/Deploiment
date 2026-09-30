@@ -4,6 +4,10 @@ values:
   - ../../../clusters/mairie360/instances/staging/values.yaml
 tests:
   - it: "renders nothing when backup.enabled=false (default: no bucket/secret provisioned yet)"
+    set:
+      # staging/values.yaml now enables backup (MAIR-231); this test is about
+      # the umbrella chart's own default, so override it back off.
+      backup: { enabled: false }
     templates:
       - charts/backup/templates/cronjob.yaml
       - charts/backup/templates/restore-job.yaml
@@ -128,6 +132,52 @@ tests:
           path: spec.template.spec.containers[0].args[0]
           pattern: 'pg_restore --clean --if-exists --no-owner'
 
-  # The database NetworkPolicy's admission of the backup component is
-  # covered by tests/network_policy_test.yaml, alongside the rest of the
-  # ingress/fronts/bffs/apis/data chain it asserts on.
+  - it: "MAIR-231: no Keycloak dump wired in when backup.keycloak.enabled is left off"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        keycloak: { enabled: false }
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: BACKUP_KEYCLOAK
+            value: "true"
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'KEYCLOAK_PGDATABASE'
+
+  - it: "MAIR-231: dumps Keycloak's own PostgreSQL as a second snapshot lineage when enabled"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        keycloak: { enabled: true }
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_PGHOST
+            value: RELEASE-NAME-keycloak-db
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_PGPASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: KEYCLOAK_DB_PASSWORD }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'pg_dump -Fc "\$KEYCLOAK_PGDATABASE"'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '--host "keycloak-\$\{KEYCLOAK_PGDATABASE\}"'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'restic forget --host "keycloak-\$\{KEYCLOAK_PGDATABASE\}"'
+
+  # The database/keycloak-db NetworkPolicies' admission of the backup
+  # component is covered by tests/network_policy_test.yaml, alongside the
+  # rest of the ingress/fronts/bffs/apis/data chain it asserts on.

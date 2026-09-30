@@ -51,6 +51,26 @@ target).
 Argo CD picks up the change on the next sync; there is no hook, so the
 CronJob is created/updated like any other resource.
 
+## Keycloak (MAIR-231)
+
+Set `backup.keycloak.enabled: true` on an instance where Keycloak is deployed
+(`keycloak.enabled: true`, the default everywhere) to add a second
+`pg_dump`/`restic backup` pass, right after the Mairie360 database, against
+Keycloak's own PostgreSQL (`<release>-keycloak-db`). It authenticates with
+`KEYCLOAK_DB_PASSWORD` from `<release>-keycloak-secret` (nothing new to seal)
+and lands in the **same** S3 repository, tagged with its own `--host
+keycloak-<db-name>` so it is a separate snapshot lineage from the Mairie360
+database's, with its own retention. `charts/keycloak/templates/network-policy.yaml`
+admits `app.kubernetes.io/component: backup` on `keycloak-db:5432` for this.
+
+Sibling subcharts don't see each other's values, so this is independent from
+the umbrella chart's `keycloak.enabled`: don't turn it on for an instance
+without Keycloak. The restore Job (`templates/restore-job.yaml`) is not
+wired up for the Keycloak dump yet — restoring it today means dumping the
+snapshot by hand (`restic dump --host keycloak-<db-name> <snapshot> ... |
+pg_restore` against `<release>-keycloak-db`), same connection details as
+`charts/keycloak/templates/db-statefulset.yaml`.
+
 ## Restoring
 
 `templates/restore-job.yaml` renders nothing unless `backup.restore.enabled`
