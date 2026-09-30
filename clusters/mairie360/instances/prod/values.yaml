@@ -220,7 +220,7 @@ Fronts:
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "0.3.0" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "0.3.2" }
       env:
         - name: COOKIE_DOMAIN
           value: ".prod.mairie360-eip.fr"
