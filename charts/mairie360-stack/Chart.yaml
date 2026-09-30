@@ -14,6 +14,8 @@ dependencies:
     version: "0.3.0"
   - name: backup
     version: "0.1.0"
+  - name: retention
+    version: "0.1.0"
   - name: keycloak
     version: "0.1.0"
   - name: observability

@@ -37,7 +37,7 @@ spec:
       {{- end }}
       containers:
         - name: database
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ required "database.image.tag est obligatoire (pas de :latest)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - "-c"

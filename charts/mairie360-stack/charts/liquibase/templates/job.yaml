@@ -46,7 +46,7 @@ spec:
               done
       containers:
         - name: liquibase
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ required "liquibase.image.tag est obligatoire (pas de :latest)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           workingDir: /migrations
           env:

@@ -8,7 +8,10 @@ enabled: true
 
 image:
   repository: "ghcr.io/mairie360/database"
-  tag: "latest"
+  # No default (MAIR-236): an instance without an explicit tag must fail to
+  # render, not silently pull whatever `latest` currently points to. Set it
+  # per instance (clusters/<org>/instances/<env>/values.yaml).
+  tag: ""
   pullPolicy: "IfNotPresent"
 
 # Secret POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB.

@@ -33,6 +33,22 @@ tests:
       - failedTemplate:
           errorPattern: "image.tag est obligatoire"
 
+  - it: "MAIR-236: refuse database.image.tag sans valeur explicite (pas de :latest)"
+    set:
+      database.image.tag: ""
+    templates: [charts/database/templates/statefulset.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "database.image.tag est obligatoire"
+
+  - it: "MAIR-236: refuse liquibase.image.tag sans valeur explicite (pas de :latest)"
+    set:
+      liquibase.image.tag: ""
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "liquibase.image.tag est obligatoire"
+
   - it: ne rend aucun Ingress quand aucun front n'est activé (un Ingress sans rules est refusé par l'API server)
     set:
       Fronts.instances: null

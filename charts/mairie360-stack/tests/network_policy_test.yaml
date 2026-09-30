@@ -48,12 +48,12 @@ tests:
           path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
           value: ingress-nginx
 
-  - it: la base n'accepte que api, migration et backup, jamais bff ni frontend (MAIR-114/MAIR-119)
+  - it: "la base n'accepte que api, migration, backup et retention, jamais bff ni frontend (MAIR-114/MAIR-119/MAIR-236)"
     templates: [charts/database/templates/network-policy.yaml]
     asserts:
       - lengthEqual:
           path: spec.ingress[0].from
-          count: 3
+          count: 4
       - equal:
           path: spec.ingress[0].ports[0].port
           value: 5432
@@ -75,6 +75,12 @@ tests:
             podSelector:
               matchLabels:
                 app.kubernetes.io/component: backup
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: retention
       - notContains:
           path: spec.ingress[0].from
           content:

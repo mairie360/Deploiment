@@ -195,7 +195,8 @@ extraObjects: []
 
 # -----------------------------------------------------------------------------
 # Sous-charts. Les clés doivent correspondre EXACTEMENT aux noms des dossiers
-# dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase, backup, keycloak).
+# dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase, backup,
+# retention, keycloak).
 # Les `instances` sont renseignées par environnement.
 # -----------------------------------------------------------------------------
 database:
@@ -208,6 +209,10 @@ liquibase:
 # first. See charts/backup/README.md (MAIR-119).
 backup:
   enabled: false
+# Daily CronJob applying the Devops/Database retention policies (MAIR-236).
+# On by default: no external provisioning needed, see charts/retention/values.yaml.
+retention:
+  enabled: true
 # Keycloak + its own Postgres (MAIR-139). Realm, clients and sizing in
 # charts/keycloak/values.yaml; <release>-keycloak-secret must be sealed
 # (scripts/seal-secrets.sh) like the other per-instance Secrets.
