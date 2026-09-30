@@ -34,8 +34,10 @@ spec:
         - protocol: TCP
           port: 8080
 ---
-# Keycloak's database is Keycloak's alone: not even the APIs, the migration
-# Job or the backup CronJob (all admitted on the Mairie360 database) reach it.
+# Keycloak's database is Keycloak's alone: not the APIs, not the migration
+# Job — only Keycloak itself and, since MAIR-231, the backup CronJob (it
+# authenticates with its own KEYCLOAK_DB_PASSWORD, never the Mairie360
+# database's superuser).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -55,6 +57,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: keycloak
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backup
       ports:
         - protocol: TCP
           port: 5432

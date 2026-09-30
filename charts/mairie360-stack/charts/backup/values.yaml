@@ -35,6 +35,20 @@ activeDeadlineSeconds: 3600
 db:
   port: 5432
 
+# Keycloak's own PostgreSQL (MAIR-231), dumped as a second pg_dump/restic
+# pass in the same Job right after the Mairie360 database, tagged with its
+# own --host so it lands as a separate snapshot in the same S3 repository.
+# Off by default: keycloak.enabled here is independent from the umbrella
+# chart's keycloak.enabled (sibling subcharts don't see each other's
+# values), so an instance without Keycloak must not turn this on. Reads
+# KEYCLOAK_DB_PASSWORD from <release>-keycloak-secret (charts/keycloak).
+keycloak:
+  enabled: false
+  db:
+    name: "keycloak"
+    user: "keycloak"
+    port: 5432
+
 # S3-compatible endpoint holding the restic repository. None of this is
 # secret — the access keys and RESTIC_PASSWORD are (see secret.create below).
 # repository = s3:<endpoint>/<bucket>

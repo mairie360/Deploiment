@@ -9,9 +9,9 @@ Argo CD watches this repo and deploys everything with Helm. There is no applicat
 code here — only Helm charts, per-environment values, and Argo CD bootstrap manifests.
 
 The platform is 5 backend APIs (Rust), 7 BFFs (Node), and 8 frontends (Node), plus
-PostgreSQL, Redis, a Liquibase migration job, an optional backup CronJob, an optional
-OpenTelemetry Collector (MAIR-131 POC) and, since MAIR-139, one Keycloak (with its own
-PostgreSQL) per instance.
+PostgreSQL, Redis, a Liquibase migration job, a backup CronJob (MAIR-119/MAIR-231, on
+for every tracked instance), an optional OpenTelemetry Collector (MAIR-131 POC) and,
+since MAIR-139, one Keycloak (with its own PostgreSQL) per instance.
 APIs: `core`, `project`, `calendar`, `message`, `elearning`. BFFs and fronts add
 `dashboard` and `settings`, which have no API of their own (MAIR-134, they
 replaced the never-built `email` / `files` services), plus `user`/`login` and an
@@ -238,22 +238,32 @@ Umbrella `type: application` chart with 8 local subcharts (`file://` deps):
   `component: migration` and `component: backup` pods on 5432 — BFFs and
   fronts have no network path to Postgres at all, they only ever reach it
   through an API.
-- **`backup` (MAIR-119), off by default.** A CronJob that streams
-  `pg_dump -Fc` straight into `restic backup --stdin` against an
-  S3-compatible bucket — restic brings encryption at rest, dedup and
-  retention (`restic forget --prune`), so the dump itself never touches a
-  disk on either side. Authenticates to Postgres as the same superuser as
-  Liquibase (`<release>-database-secret`), because no single per-API role
-  can read every module's schema. `<release>-backup-secret`
+- **`backup` (MAIR-119/MAIR-231), enabled on every tracked instance.** A
+  CronJob that streams `pg_dump -Fc` straight into `restic backup --stdin`
+  against an S3-compatible bucket — restic brings encryption at rest, dedup
+  and retention (`restic forget --prune`), so the dump itself never touches
+  a disk on either side. Authenticates to the Mairie360 database as the
+  same superuser as Liquibase (`<release>-database-secret`), because no
+  single per-API role can read every module's schema; when
+  `backup.keycloak.enabled` (also on everywhere Keycloak is deployed), the
+  same Job dumps `<release>-keycloak-db` right after, with its own
+  `KEYCLOAK_DB_PASSWORD` and its own `--host keycloak-<db-name>`, into the
+  **same** S3 repository as a separate snapshot lineage.
+  `<release>-backup-secret`
   (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`RESTIC_PASSWORD`) is sealed
   the same way as the other per-instance secrets, but those AWS keys can't
   be generated — `scripts/seal-secrets.sh` only writes that Secret when
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are exported before calling
-  it. `templates/restore-job.yaml` (disabled by default, `restore.enabled`)
-  is the disaster-recovery counterpart: no Argo CD hook annotation, run by
-  hand via `helm template … | kubectl apply -f -` (see
-  `charts/backup/README.md`) rather than left enabled in a tracked values
-  file, or Argo CD would recreate it every sync.
+  it, so a real bucket and key pair per instance is a manual, one-time infra
+  step (`charts/backup/README.md`) that this repo's values files enabling
+  `backup.enabled` don't perform by themselves — until it's done, the
+  CronJob's pod sits in `CreateContainerConfigError` like any Secret-less
+  new resource (see Gotchas). `templates/restore-job.yaml` (disabled by
+  default, `restore.enabled`) is the disaster-recovery counterpart for the
+  Mairie360 database (Keycloak's dump is restored by hand, see
+  `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
+  `helm template … | kubectl apply -f -` rather than left enabled in a
+  tracked values file, or Argo CD would recreate it every sync.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
   (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
@@ -312,8 +322,10 @@ subchart renders, all named `<release>-keycloak*`:
 - **`<release>-keycloak-db`**: its own PostgreSQL StatefulSet (stock
   `postgres:17-alpine`, uid 70) + headless and client Services. Deliberately
   **not** the Mairie360 database: Keycloak owns its schema, nothing of the
-  `Devops/Database` changelog applies, the `database` NetworkPolicy stays as
-  is, and the `backup` CronJob does **not** cover it (known gap).
+  `Devops/Database` changelog applies, and the `database` NetworkPolicy
+  stays as is. Covered by the `backup` CronJob as a separate dump
+  (`backup.keycloak.enabled`, MAIR-231) — its own NetworkPolicy admits
+  `component: backup` on 5432 alongside Keycloak itself.
 - **`<release>-keycloak-realm`** ConfigMap, mounted at
   `/opt/keycloak/data/import`: the `global.keycloak.realm` realm (`mairie360`)
   with the five `Database` roles (`Admin`, `Maire`, `Responsable`, `User`,
@@ -591,9 +603,11 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 ## Known gaps (not addressed in this chart)
 
-- **Keycloak's Postgres has no backup** and Keycloak runs one replica with a
-  local cache (`KC_CACHE=local`): scaling it needs Infinispan clustering, not
-  just `replicas`.
+- **Keycloak runs one replica with a local cache** (`KC_CACHE=local`):
+  scaling it needs Infinispan clustering, not just `replicas`. Its Postgres
+  is now backed up (`backup.keycloak.enabled`, MAIR-231), but the restore
+  Job only automates the Mairie360 database — restoring the Keycloak dump
+  is still a manual `restic dump | pg_restore` (`charts/backup/README.md`).
 - **No PITR, no failover.** `database` is still a plain single-replica
   StatefulSet — the `backup` subchart (MAIR-119) covers point-in-time
   snapshots to off-machine S3 storage with a documented restore procedure,

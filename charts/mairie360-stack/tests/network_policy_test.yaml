@@ -140,7 +140,7 @@ tests:
           path: spec.ingress[0].ports
           value: [{ protocol: TCP, port: 8080 }]
 
-  - it: "MAIR-139: Keycloak's database only accepts Keycloak, never the APIs, the migration Job or the backup"
+  - it: "MAIR-139/MAIR-231: Keycloak's database only accepts Keycloak and the backup CronJob, never the APIs or the migration Job"
     templates: [charts/keycloak/templates/network-policy.yaml]
     documentIndex: 1
     asserts:
@@ -153,6 +153,9 @@ tests:
             - podSelector:
                 matchLabels:
                   app.kubernetes.io/component: keycloak
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: backup
       - equal:
           path: spec.ingress[0].ports
           value: [{ protocol: TCP, port: 5432 }]

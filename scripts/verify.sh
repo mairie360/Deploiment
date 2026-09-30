@@ -124,7 +124,7 @@ else
   ko "hubble-relay unavailable"
 fi
 
-step 11 "MAIR-119: the latest backup Job succeeded"
+step 11 "MAIR-119/MAIR-231: the latest backup Job succeeded (Mairie360 DB + Keycloak DB when enabled)"
 if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
   LATEST=$($K get jobs -l app.kubernetes.io/component=backup \
              --sort-by=.status.startTime -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
@@ -132,6 +132,8 @@ if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
     ok "backup CronJob present, no Job has run yet"
   else
     S=$($K get job "$LATEST" -o jsonpath='{.status.succeeded}' 2>/dev/null)
+    # A single Job dumps both databases in sequence (set -euo pipefail), so
+    # "succeeded" already covers the Keycloak dump when backup.keycloak.enabled.
     [ "${S:-0}" -ge 1 ] && ok "backup $LATEST succeeded" || ko "backup $LATEST failed or still running"
   fi
 else

@@ -41,6 +41,11 @@ read every module's schema, which no single per-API role is granted. */}}
 {{- .Values.secretName | default (printf "%s-secret" (include "backup.fullname" .)) -}}
 {{- end -}}
 
+{{/* Keycloak's own Secret (charts/keycloak), read only for KEYCLOAK_DB_PASSWORD. */}}
+{{- define "backup.keycloakSecretName" -}}
+{{- printf "%s-keycloak-secret" .Release.Name -}}
+{{- end -}}
+
 {{/* restic repository URL: s3:<endpoint>/<bucket>. */}}
 {{- define "backup.repository" -}}
 {{- printf "s3:%s/%s" .Values.s3.endpoint .Values.s3.bucket -}}
@@ -76,4 +81,19 @@ so pg_dump/pg_restore need no flags for them) plus the restic S3 repo. */}}
   value: {{ include "backup.repository" . | quote }}
 - name: AWS_DEFAULT_REGION
   value: {{ .Values.s3.region | quote }}
+{{- if .Values.keycloak.enabled }}
+- name: BACKUP_KEYCLOAK
+  value: "true"
+- name: KEYCLOAK_PGHOST
+  value: {{ printf "%s-keycloak-db" .Release.Name | quote }}
+- name: KEYCLOAK_PGPORT
+  value: {{ .Values.keycloak.db.port | quote }}
+- name: KEYCLOAK_PGUSER
+  value: {{ .Values.keycloak.db.user | quote }}
+- name: KEYCLOAK_PGPASSWORD
+  valueFrom:
+    secretKeyRef: { name: {{ include "backup.keycloakSecretName" . }}, key: KEYCLOAK_DB_PASSWORD }
+- name: KEYCLOAK_PGDATABASE
+  value: {{ .Values.keycloak.db.name | quote }}
+{{- end -}}
 {{- end -}}

@@ -54,13 +54,17 @@ liquibase:
   db:
     name: "mairie_db_prod"
 
-# Off-machine encrypted Postgres backups (MAIR-119, charts/backup/README.md).
-# Turn `enabled` on once the bucket below exists and <release>-backup-secret
-# is sealed (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY exported when running
-# scripts/seal-secrets.sh). Schedule and retention are applied by Argo CD on
-# the next sync.
+# Off-machine encrypted Postgres backups (MAIR-119/MAIR-231,
+# charts/backup/README.md). Needs the bucket below to exist and
+# <release>-backup-secret sealed (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+# exported when running scripts/seal-secrets.sh) before the first sync after
+# this change — until then the CronJob's pod sits in
+# CreateContainerConfigError, same as any new Secret (see the root
+# CLAUDE.md Gotchas). Schedule and retention are applied by Argo CD on the
+# next sync. keycloak.enabled also dumps <release>-keycloak-db into the same
+# repository (KEYCLOAK_DB_PASSWORD, no extra secret to seal).
 backup:
-  enabled: false
+  enabled: true
   schedule: "0 3 * * *"
   retention:
     keepDaily: 7
@@ -70,12 +74,15 @@ backup:
     endpoint: "https://s3.fr-par.scw.cloud"
     bucket: "ville-exemple-backup-prod"
     region: "fr-par"
+  keycloak:
+    enabled: true
 
 # Keycloak (MAIR-139): the instance's identity provider, on
 # https://auth.<global.domain> (DNS record required, like the fronts). Realm
 # and clients: charts/mairie360-stack/charts/keycloak/values.yaml. Its own
-# Postgres is NOT covered by the backup CronJob above. Requires
-# <release>-keycloak-secret in secrets.yaml (scripts/seal-secrets.sh).
+# Postgres is covered by the backup CronJob above (backup.keycloak.enabled,
+# MAIR-231). Requires <release>-keycloak-secret in secrets.yaml
+# (scripts/seal-secrets.sh).
 keycloak:
   enabled: true
   realm:

@@ -66,7 +66,7 @@ migration $REDIS     deny
 backup    $DB        allow
 backup    $API       deny
 backup    $REDIS     deny
-backup    $KCDB      deny
+backup    $KCDB      allow
 
 keycloak  $KCDB      allow
 keycloak  $DB        deny
