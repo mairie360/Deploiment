@@ -125,18 +125,24 @@ Alternatives rejected:
   `global.domain` of `clusters/mairie360/instances/staging/values.yaml` at
   the promoted commit (read by the `resolve` job). `promote` requires it to
   succeed for prod; `staging_verified` is gone.
-- Only `staging`'s head can be promoted to prod: that is the commit the live
-  staging instance can vouch for. Staging's instance Application is synced by
-  hand (`deploiment_auto_sync_envs`), so the job also checks that the staging
-  Applications (instance and bootstrap) are Synced and Healthy at that commit
-  when Ansible provides a kubeconfig of the Argo CD machine's own cluster
-  limited to reading them (`/home/gh-runner/.kube/argocd-applications.yaml`);
-  without it the job warns and the approver checks it in Argo CD.
+- **Only `staging`'s head can be promoted to prod** (the `resolve` job
+  refuses any other commit): it is the only commit the live staging instance
+  can vouch for. Promoting an older staging commit is no longer possible.
 - The runner never sees pull request code: `promote.yaml` has no other
   trigger, `cicd.yaml` and `k8s-e2e.yaml` run on GitHub-hosted runners, and
   the repository requires approval before running workflows from outside
   contributors' fork pull requests (a fork PR could otherwise add a job
   targeting the label).
+
+### Not covered / follow-up
+
+- **The workflow does not check that staging actually runs the promoted
+  commit.** Staging's instance Application is synced by hand
+  (`deploiment_auto_sync_envs`), so right after a promotion to staging
+  `verify.sh` may vouch for the previous commit. Until then, sync staging in
+  Argo CD before promoting to prod. Checking that the live staging
+  Applications are Synced and Healthy at the promoted SHA is handled in a
+  later epic on verifying prod promotions.
 
 ## Consequences
 

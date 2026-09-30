@@ -550,10 +550,10 @@ and maintaining a parallel Kind topology is what produced the earlier
   API servers over WireGuard, with `KUBECONFIG=/home/gh-runner/.kube/instance-staging.yaml`,
   context = that file's current context, domain = `global.domain` of the
   staging values) and the approval of the `promote-prod` GitHub environment.
-  Staging's instance Application is synced by hand: sync it in Argo CD before
-  promoting to prod, or verify.sh checks the previous commit (the job checks
-  the synced revisions itself once Ansible provides
-  `/home/gh-runner/.kube/argocd-applications.yaml`, otherwise it warns).
+  Only `staging`'s head can be promoted to prod. Staging's instance
+  Application is synced by hand: sync it in Argo CD before promoting to prod,
+  or verify.sh checks the previous commit (not checked by the workflow yet,
+  left to a later epic on verifying prod promotions).
   `rollback: true` force-moves the branch back to an older commit, without
   verification. Consequences: a change to
   `clusters/mairie360/instances/prod/values.yaml`, a freshly sealed
