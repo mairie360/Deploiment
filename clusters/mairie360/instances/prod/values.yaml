@@ -235,7 +235,7 @@ Fronts:
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "0.2.0" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "0.2.2" }
       env:
         - name: COOKIE_DOMAIN
           value: ".prod.mairie360-eip.fr"
