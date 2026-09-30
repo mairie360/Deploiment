@@ -242,7 +242,7 @@ Fronts:
     admin-front:
       enabled: false  # no release published yet; re-enable with its first version
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "1.0.0" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "1.0.1" }
       env:
         - name: COOKIE_DOMAIN
           value: ".prod.mairie360-eip.fr"
