@@ -1,0 +1,18 @@
+# Wrapper chart: pins the cert-manager version and values of every INSTANCE
+# machine. Applied by bootstrap/appsets/cert-manager-appset.yaml at the
+# machine's own revision (Argo CD cluster annotation mairie360.fr/revision),
+# so a bump here reaches dev on merge and staging/prod only through the
+# Promote workflow (docs/adr/0002-environment-promotion.md).
+apiVersion: v2
+name: bootstrap-cert-manager
+description: cert-manager as installed on every Mairie360 instance machine
+type: application
+version: 0.1.0
+dependencies:
+  - name: cert-manager
+    # PINNED to a supported minor (MAIR-228): 1.16 is out of support.
+    # Supported releases and their Kubernetes range:
+    # https://cert-manager.io/docs/releases/ (1.21: Kubernetes 1.33-1.36).
+    # Read the upgrade notes of every minor you skip before bumping.
+    version: v1.21.2
+    repository: https://charts.jetstack.io

@@ -1,0 +1,12 @@
+# Values of the cert-manager subchart (everything sits under `cert-manager:`).
+#
+# Shared by every group and every instance: nothing here may name a domain or
+# an IP (MAIR-157). The HTTP-01 self-check resolves the front hosts through
+# public DNS. On the instance machines the public IP sits on the interface, so
+# ServiceLB publishes it as the ingress controller's LoadBalancer IP and
+# kube-proxy routes the pod's request to that IP straight to the controller:
+# no hairpin through the provider, no hostAliases needed.
+cert-manager:
+  crds:
+    enabled: true
+    keep: true
