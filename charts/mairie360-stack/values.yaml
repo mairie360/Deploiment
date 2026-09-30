@@ -181,7 +181,7 @@ ingress:
   maxBodySizeMiB: 50
   # HTTP -> HTTPS redirect: nginx gets ssl-redirect/force-ssl-redirect on the
   # Ingress; with traefik the redirect is done by the controller itself (web
-  # entrypoint, bootstrap/values/traefik.yaml) and the fronts' routers only
+  # entrypoint, bootstrap/addons/traefik/values.yaml) and the fronts' routers only
   # listen on websecure, so it cannot be turned off per instance.
   # Extra annotations, added as-is whatever the controller (they win over
   # the generated ones).

@@ -9,7 +9,20 @@ name: Promote
 # through the previous environment.
 #
 #   target=staging  ref must be on `main`     (default: main's head)
-#   target=prod     ref must be on `staging`  (default: staging's head)
+#   target=prod     ref must be `staging`'s head, and scripts/verify.sh must
+#                   pass against the staging instance (job verify-staging)
+#
+# That covers both the instances (chart, values, secrets) and bootstrap/
+# (cert-manager, sealed-secrets, ingress controller, ClusterIssuers): the
+# bootstrap AppSets read their wrapper charts at the revision annotated on
+# each Argo CD cluster (mairie360.fr/revision), so a bootstrap version bump
+# follows the same main -> staging -> prod path (MAIR-346).
+#
+# verify-staging runs on the self-hosted runner of the mairie360 group's Argo
+# CD machine (labels self-hosted, linux, mairie360-argocd-mairie360): the
+# instance API servers are only reachable over WireGuard from that machine.
+# It only ever runs from this workflow_dispatch workflow, never for pull
+# requests (see the job's comment).
 #
 # Image tags are a separate lane (argocd-image-updater for dev/staging, a
 # semver in prod's values.yaml) and are not affected by this workflow.
@@ -26,10 +39,6 @@ on:
         description: Commit to promote (default is the head of the previous environment's branch)
         type: string
         required: false
-      staging_verified:
-        description: "prod only: scripts/verify.sh passed on staging for this commit"
-        type: boolean
-        default: false
       rollback:
         description: Move the branch BACK to ref (force push, skips the CI checks)
         type: boolean
@@ -51,6 +60,7 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
       current: ${{ steps.resolve.outputs.current }}
       changed: ${{ steps.resolve.outputs.changed }}
+      staging_domain: ${{ steps.resolve.outputs.staging_domain }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -62,8 +72,8 @@ jobs:
         env:
           TARGET: ${{ inputs.target }}
           REF: ${{ inputs.ref }}
-          STAGING_VERIFIED: ${{ inputs.staging_verified }}
           ROLLBACK: ${{ inputs.rollback }}
+          STAGING_VALUES: clusters/mairie360/instances/staging/values.yaml
         run: |
           set -euo pipefail
 
@@ -99,8 +109,11 @@ jobs:
               exit 1
             fi
           else
-            if [ "$TARGET" = "prod" ] && [ "$STAGING_VERIFIED" != "true" ]; then
-              echo "::error::Run scripts/verify.sh against staging, then tick 'staging_verified'."
+            # verify-staging checks what the staging instance runs, which
+            # can only vouch for staging's head: an older staging commit
+            # would reach prod unverified.
+            if [ "$TARGET" = "prod" ] && [ "$SHA" != "$(git rev-parse origin/staging)" ]; then
+              echo "::error::Only staging's head can be promoted to prod: that is the commit verify-staging checks."
               exit 1
             fi
             if [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
@@ -112,10 +125,22 @@ jobs:
             CHANGED=false
           fi
 
+          # Domain verify-staging checks (TLS, redirect, closed ports), read
+          # from the promoted commit's staging values (yq is preinstalled on
+          # ubuntu-latest).
+          STAGING_DOMAIN=""
+          if [ "$TARGET" = "prod" ] && [ "$ROLLBACK" != "true" ]; then
+            STAGING_DOMAIN=$(git show "$SHA:$STAGING_VALUES" | yq -r '.global.domain')
+            case "$STAGING_DOMAIN" in
+              ""|null) echo "::error::No global.domain in $STAGING_VALUES"; exit 1 ;;
+            esac
+          fi
+
           {
             echo "sha=$SHA"
             echo "current=$CURRENT"
             echo "changed=$CHANGED"
+            echo "staging_domain=$STAGING_DOMAIN"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -131,9 +156,9 @@ jobs:
               echo '```'
               git log --oneline "$CURRENT..$SHA"
               echo '```'
-              echo "Changed under \`clusters/\` and \`charts/\`:"
+              echo "Changed under \`clusters/\`, \`charts/\` and \`bootstrap/\`:"
               echo '```'
-              git diff --stat "$CURRENT" "$SHA" -- clusters charts | tail -n 40
+              git diff --stat "$CURRENT" "$SHA" -- clusters charts bootstrap | tail -n 40
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -147,10 +172,67 @@ jobs:
     with:
       ref: ${{ needs.resolve.outputs.sha }}
 
+  # Acceptance test of the staging instance before prod moves, replacing the
+  # former `staging_verified` checkbox (MAIR-346).
+  #
+  # Runs on the self-hosted runner of the mairie360 group's Argo CD machine,
+  # the only place that reaches the staging API server (WireGuard). The
+  # runner is ephemeral, runs as the unprivileged user gh-runner, and its
+  # kubeconfig for staging is bound to a ServiceAccount limited to what
+  # scripts/verify.sh needs (listed at the top of that script): no Secret
+  # read, no exec, nothing outside mairie360-staging but two kube-system
+  # objects. It gives the runner no network path the machine did not have.
+  #
+  # This repository is public: this job is only ever triggered by
+  # workflow_dispatch (the only trigger of this workflow, repeated below),
+  # which needs write access to the repo, and it checks out the promoted
+  # commit, which is already on `staging`. Fork pull requests never run on
+  # this runner as long as the repository keeps "Require approval for all
+  # external contributors" (Settings > Actions) and no pull_request workflow
+  # names its label.
+  verify-staging:
+    name: Verify the staging instance
+    needs: [resolve, validate]
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && inputs.target == 'prod' && !inputs.rollback
+      && needs.resolve.outputs.changed == 'true'
+      && needs.validate.result == 'success'
+    runs-on: [self-hosted, linux, mairie360-argocd-mairie360]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # Written by ansible (MAIR-346) for staging only.
+      KUBECONFIG: /home/gh-runner/.kube/instance-staging.yaml
+    steps:
+      - name: Checkout the promoted commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Run scripts/verify.sh against staging
+        env:
+          DOMAIN: ${{ needs.resolve.outputs.staging_domain }}
+        run: |
+          set -euo pipefail
+          # The kubeconfig holds a single context (ansible names it after
+          # the environment); use it whatever its name.
+          CONTEXT=$(kubectl config current-context)
+          ./scripts/verify.sh "$CONTEXT" staging "$DOMAIN"
+          echo "scripts/verify.sh passed on staging (\`$DOMAIN\`, commit \`${{ needs.resolve.outputs.sha }}\`)." >> "$GITHUB_STEP_SUMMARY"
+
   promote:
     name: Advance the branch
-    needs: [resolve, validate]
-    if: ${{ !cancelled() && needs.resolve.outputs.changed == 'true' && needs.validate.result != 'failure' }}
+    needs: [resolve, validate, verify-staging]
+    # prod (unless rolling back) needs verify-staging to have passed; a
+    # skipped verification only counts for staging and rollbacks.
+    if: >-
+      !cancelled() && needs.resolve.outputs.changed == 'true'
+      && needs.validate.result != 'failure'
+      && (needs.verify-staging.result == 'success'
+          || (needs.verify-staging.result == 'skipped' && (inputs.target != 'prod' || inputs.rollback)))
     runs-on: ubuntu-latest
     # Create `promote-prod` in the repo settings with required reviewers: that
     # is the human approval before prod moves.

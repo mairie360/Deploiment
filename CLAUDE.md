@@ -38,6 +38,9 @@ for v in clusters/*/instances/*; do for c in nginx traefik; do
         -skip CiliumNetworkPolicy || echo "KO: $v ($c)"
 done; done
 kubeconform -strict -schema-location default -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons
+# Bootstrap wrapper charts (MAIR-346), as CI renders them
+for c in bootstrap/addons/*/; do helm dependency build "$c" && helm template "$(basename "$c")" "$c" --include-crds \
+  | kubeconform -strict -summary -schema-location default -schema-location "$CRDS" -skip CustomResourceDefinition; done
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
@@ -57,7 +60,9 @@ tests/e2e/run.sh
 # By hand, from /opt/Deploiment on that machine:
 KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
 
-# Acceptance test of a deployed instance (KEYCLOAK_REALM=… if not mairie360)
+# Acceptance test of a deployed instance (KEYCLOAK_REALM=… if not mairie360).
+# The Promote workflow runs it on staging before prod (MAIR-346); the RBAC it
+# needs is listed at the top of the script.
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
 
 # Argo CD admin password (on the group's Argo CD machine)
@@ -69,11 +74,15 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
 `helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
-and `bootstrap/` → `scripts/check-image-tags.sh` → `helm unittest`, all
-blocking. `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
+and `bootstrap/` → render the `bootstrap/addons/` wrapper charts and check
+that no instance AppSet pins a revision or a chart repository (MAIR-346) →
+`scripts/check-image-tags.sh` → `helm unittest`, all blocking. `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
-(it calls `cicd.yaml` as a reusable workflow on the promoted commit).
+(it calls `cicd.yaml` as a reusable workflow on the promoted commit, and, for
+prod, runs `scripts/verify.sh` against staging on the self-hosted runner of
+the Argo CD machine, see Gotchas). `.github/actionlint.yaml` declares that
+runner's label.
 
 ## Architecture
 
@@ -96,7 +105,17 @@ describes desired state.
 1. Ansible (`k8s_argocd`) installs Argo CD on the group's Argo CD machine, then
    applies `bootstrap/platform-app.yaml` **once**.
 2. `platform-app` is the root Application (app-of-apps). It syncs
-   `bootstrap/appsets/` recursively.
+   `bootstrap/appsets/` recursively, from `main`: those AppSet manifests hit
+   every machine at once, so they only say **where** and **at which
+   revision**. Versions and values live in the wrapper charts of
+   `bootstrap/addons/<addon>/` (`Chart.yaml` pins the upstream chart,
+   `Chart.lock` committed, `values.yaml` nests the upstream values under the
+   dependency name), which each instance AppSet reads at the machine's own
+   revision: the Argo CD cluster annotation **`mairie360.fr/revision`**
+   written by Ansible from `deploiment_env_revisions`, `main` when absent
+   (MAIR-346, ADR 0002). So a bootstrap version bump follows
+   main → staging → prod like the chart; changing an AppSet manifest itself
+   (selector, sync policy) still reaches every machine at once.
 3. Ansible also renders and applies the **instances ApplicationSet** from
    `roles/k8s_argocd/templates/instances-appset.yaml.j2` — it is not in this
    repo because it depends on `org_id` (which `clusters/<org>/` to scan).
@@ -109,12 +128,15 @@ describes desired state.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
-| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` | instances only |
-| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.21.2 | instances only |
+| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` from `bootstrap/addons/sealed-secrets` (2.17.3) | instances only |
+| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` from `bootstrap/addons/cert-manager` (v1.21.2) | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
-| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
-| `traefik-appset.yaml` | AppSet, clusters generator, multi-source | `traefik` chart 41.6.0 (v3.7.13), values `bootstrap/values/traefik.yaml` | instances labelled `mairie360.fr/ingress=traefik` |
-| `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
+| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/ingress-nginx` (4.15.1, last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
+| `traefik-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/traefik` (chart 41.6.0 = v3.7.13) | instances labelled `mairie360.fr/ingress=traefik` |
+| `image-updater-app.yaml` | Application | `argocd-image-updater` 1.3.1, pinned in the manifest, follows `main` | in-cluster (Argo CD machine) |
+
+All but `image-updater-app.yaml` read this repo at the `mairie360.fr/revision`
+of their cluster (`goTemplate`, clusters generator `values.revision`).
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
 Ansible sets it during `argocd cluster add`; the clusters generator selects on
@@ -142,7 +164,7 @@ the web entrypoint's redirect pinned at **priority 1**, so the solver router
 (`pathType: Exact`) always answers on port 80: keep it the lowest.
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
-**`cert-manager-appset.yaml` must stay free of any domain or IP** (MAIR-157):
+**`cert-manager-appset.yaml` and `bootstrap/addons/cert-manager/` must stay free of any domain or IP** (MAIR-157, checked by CI):
 it is shared by every group. The HTTP-01 self-check goes through public DNS;
 it works from inside the cluster because the instance's public IP is on its
 interface, so ServiceLB publishes it as the ingress controller's LoadBalancer IP and
@@ -476,7 +498,7 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   flow must *time out* (Cilium drops silently); a fast failure is reported
   as an error, so a broken Service can't pass as "deny".
 - `chainsaw/ingress` (MAIR-260): `run.sh` installs Traefik (versions read
-  from the AppSets, values `bootstrap/values/traefik.yaml`), cert-manager and
+  and values: the wrapper charts `bootstrap/addons/{traefik,cert-manager}`), cert-manager and
   **Pebble** (Let's Encrypt's test ACME server, `tests/e2e/pebble.yaml`),
   and rewrites `*.e2e.invalid` to Traefik in CoreDNS. The test asserts the
   fronts certificate is issued over HTTP-01 through Traefik (the e2e
@@ -521,16 +543,29 @@ and maintaining a parallel Kind topology is what produced the earlier
   `Promote` workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`):
   fast-forward only, a commit must already be in `main` to reach `staging` and
   in `staging` to reach `prod`, the whole `cicd.yaml` re-runs on it, and `prod`
-  additionally needs the `staging_verified` box (run `scripts/verify.sh` on
-  staging first: GitHub runners cannot reach the instance API servers) and the
-  approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
-  the branch back to an older commit. Consequences: a change to
-  `clusters/mairie360/instances/prod/values.yaml` or a freshly sealed
-  `secrets.yaml` also needs a promotion; the AppSet generator still lists
+  additionally needs: the commit to be `staging`'s head, the `verify-staging`
+  job to pass (MAIR-346: `scripts/verify.sh` against staging, run on the
+  **self-hosted runner** of the group's Argo CD machine, labels `self-hosted`,
+  `linux`, `mairie360-argocd-mairie360`, the only place reaching the instance
+  API servers over WireGuard, with `KUBECONFIG=/home/gh-runner/.kube/instance-staging.yaml`,
+  context = that file's current context, domain = `global.domain` of the
+  staging values) and the approval of the `promote-prod` GitHub environment.
+  Only `staging`'s head can be promoted to prod. Staging's instance
+  Application is synced by hand: sync it in Argo CD before promoting to prod,
+  or verify.sh checks the previous commit (not checked by the workflow yet,
+  left to a later epic on verifying prod promotions).
+  `rollback: true` force-moves the branch back to an older commit, without
+  verification. Consequences: a change to
+  `clusters/mairie360/instances/prod/values.yaml`, a freshly sealed
+  `secrets.yaml` or a bump in `bootstrap/addons/` or `bootstrap/cluster-addons/`
+  also needs a promotion; the AppSet generator still lists
   directories on `main`, so a **new environment directory must be promoted
-  before its Application can render**. The bootstrap appsets (`bootstrap/`,
-  cert-manager, ingress-nginx, sealed-secrets, cluster-addons) are **not**
-  covered: the root `platform` app follows `main` and hits every instance at once.
+  before its Application can render**. What stays on `main` for every machine
+  at once: `platform-app.yaml`, the AppSet manifests themselves and
+  `image-updater-app.yaml` (Argo CD machine only). A **new path** referenced by
+  an AppSet (a new addon) needs two PRs: add the path, promote it to staging
+  and prod, then reference it from the AppSet; otherwise those machines'
+  Applications fail with "path does not exist" until it is promoted.
   Also, when working on a branch, Ansible's `deploiment_repo_branch` repoints
   `platform-app.yaml`, the instances AppSet generator and the `dev` revision —
   do not let them diverge, or Argo CD silently serves the old appsets from

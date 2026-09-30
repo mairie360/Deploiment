@@ -4,3 +4,6 @@ mairie360/charts/*.tgz
 
 **/charts/*.tgz
 **/Chart.lock
+# The bootstrap wrapper charts commit their lock (digest pinning, checked by
+# Argo CD's `helm dependency build`); their downloaded .tgz stay ignored.
+!bootstrap/addons/*/Chart.lock

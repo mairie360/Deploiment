@@ -29,9 +29,12 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 CLUSTER="${CLUSTER:-mairie360-e2e}"
 NODE_IMAGE="${NODE_IMAGE:-kindest/node:v1.31.14}"   # k3s channel v1.31 on the machines
 CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"           # ansible group_vars/all.yml
-# Pinned in the platform AppSets: read from there so the two never diverge.
-TRAEFIK_CHART="$(awk '/chart: traefik/{f=1} f && /targetRevision:/{print $2; exit}' "$ROOT/bootstrap/appsets/traefik-appset.yaml")"
-CERT_MANAGER_VERSION="$(awk '/targetRevision:/{print $2; exit}' "$ROOT/bootstrap/appsets/cert-manager-appset.yaml")"
+# Traefik and cert-manager are installed from the very wrapper charts the
+# platform AppSets deploy (bootstrap/addons/, MAIR-346), versions and values
+# included, so the two never diverge. Versions only feed the log line.
+dep_version() { awk '/^ *version:/{v=$2} END{print v}' "$ROOT/bootstrap/addons/$1/Chart.yaml"; }
+TRAEFIK_CHART="$(dep_version traefik)"
+CERT_MANAGER_VERSION="$(dep_version cert-manager)"
 NAMESPACE=mairie360-e2e
 RELEASE=e2e
 CTX="kind-$CLUSTER"
@@ -119,18 +122,18 @@ cilium status --context "$CTX" --wait --wait-duration 5m >/dev/null
 $K wait --for=condition=Ready node --all --timeout=3m
 
 step "Ingress stack: Traefik $TRAEFIK_CHART, cert-manager $CERT_MANAGER_VERSION, Pebble"
-# Same chart versions as the platform AppSets and the very values file the
-# Traefik AppSet reads, so the ingress test exercises what the machines run.
-# Only the Service type differs: Kind has no ServiceLB, and
-# externalTrafficPolicy (kept from the values) needs NodePort at least.
-helm --kube-context "$CTX" upgrade --install traefik traefik \
-  --repo https://traefik.github.io/charts --version "$TRAEFIK_CHART" \
-  -n traefik --create-namespace \
-  -f "$ROOT/bootstrap/values/traefik.yaml" --set service.spec.type=NodePort \
+# The wrapper charts the platform AppSets deploy, same release names, so the
+# ingress test exercises what the machines run. Only the Service type
+# differs: Kind has no ServiceLB, and externalTrafficPolicy (kept from the
+# values) needs NodePort at least.
+for addon in traefik cert-manager; do
+  helm dependency build "$ROOT/bootstrap/addons/$addon" >/dev/null
+done
+helm --kube-context "$CTX" upgrade --install traefik "$ROOT/bootstrap/addons/traefik" \
+  -n traefik --create-namespace --set traefik.service.spec.type=NodePort \
   --wait --timeout 5m
-helm --kube-context "$CTX" upgrade --install cert-manager cert-manager \
-  --repo https://charts.jetstack.io --version "$CERT_MANAGER_VERSION" \
-  -n cert-manager --create-namespace --set crds.enabled=true \
+helm --kube-context "$CTX" upgrade --install cert-manager "$ROOT/bootstrap/addons/cert-manager" \
+  -n cert-manager --create-namespace \
   --wait --timeout 5m
 # *.e2e.invalid -> Traefik's Service, for Pebble (HTTP-01 validation),
 # cert-manager (its self-check) and the test pods: the part public DNS plays

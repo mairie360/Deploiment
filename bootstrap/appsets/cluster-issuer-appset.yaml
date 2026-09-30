@@ -1,9 +1,12 @@
+# cert-manager ClusterIssuers (bootstrap/cluster-addons/), on every INSTANCE
+# machine, read at the machine's own revision (MAIR-346).
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
   name: cluster-issuers
   namespace: argocd
 spec:
+  goTemplate: true
   # Instance clusters only (mairie360.fr/role=instance). Depends on
   # cert-manager (ClusterIssuer CRD): the retry policy absorbs the initial
   # "CRD not found".
@@ -12,19 +15,23 @@ spec:
         selector:
           matchLabels:
             mairie360.fr/role: instance
+        values:
+          # See cert-manager-appset.yaml: the machine's revision, `main` when
+          # the mairie360.fr/revision annotation is absent.
+          revision: '{{ if .metadata.annotations }}{{ index .metadata.annotations "mairie360.fr/revision" | default "main" }}{{ else }}main{{ end }}'
   template:
     metadata:
-      name: 'cluster-issuers-{{name}}'
+      name: 'cluster-issuers-{{ .name }}'
     spec:
       project: default
       source:
         repoURL: https://github.com/mairie360/Deploiment.git
-        targetRevision: main
+        targetRevision: '{{ .values.revision }}'
         path: bootstrap/cluster-addons
         directory:
           recurse: false
       destination:
-        server: '{{server}}'
+        server: '{{ .server }}'
         namespace: cert-manager
       syncPolicy:
         automated:
