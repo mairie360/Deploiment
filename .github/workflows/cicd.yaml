@@ -73,9 +73,11 @@ jobs:
       - name: Check image tags exist
         run: ./scripts/check-image-tags.sh
 
+      # Helm 4 verifies plugin signatures and refuses a git source, which
+      # cannot be verified: the version pin is what trusts the plugin here.
       - name: Helm unit tests
         run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2 --verify=false
           helm unittest ./charts/mairie360-stack
 
   # # ================================

@@ -25,7 +25,7 @@ Conventional ports: APIs `3000-3006`, BFFs `4000-4006`, Fronts `5000-5007`.
 helm lint ./charts/mairie360-stack
 
 # Unit tests: network policies, secrets, Argo CD compatibility
-helm plugin install https://github.com/helm-unittest/helm-unittest   # once
+helm plugin install https://github.com/helm-unittest/helm-unittest --verify=false   # once (Helm 4)
 helm unittest ./charts/mairie360-stack
 
 # Render + schema-validate every instance with both ingress controllers,
