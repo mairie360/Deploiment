@@ -100,7 +100,7 @@ realm:
 db:
   image:
     repository: postgres
-    tag: "17-alpine"
+    tag: "18-alpine"
     pullPolicy: IfNotPresent
   name: "keycloak"
   user: "keycloak"
