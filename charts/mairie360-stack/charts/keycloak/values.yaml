@@ -27,7 +27,7 @@ image:
   repository: quay.io/keycloak/keycloak
   # Pinned: a Keycloak upgrade migrates its database schema on start and
   # cannot be rolled back, so it must be a deliberate bump.
-  tag: "26.7.4"
+  tag: "26.8.0"
   pullPolicy: IfNotPresent
 
 # Bootstrap admin of the master realm (KC_BOOTSTRAP_ADMIN_*). Keycloak only
