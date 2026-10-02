@@ -1,0 +1,14 @@
+# ============================================================================
+# mairie360 / staging — image tags written by argocd-image-updater (MAIR-444)
+#
+# On the `staging` branch, argocd-image-updater commits the newest
+# staging-<sha> of every tracked image here (APIs, BFFs, fronts, database,
+# liquibase). The instances ApplicationSet reads this file right after
+# values.yaml, so these tags win over the ones pinned there (which only seed a
+# fresh instance).
+#
+# NEVER edit it on `main`: `Promote` merges main into staging only while the
+# commits that are only on staging touch nothing but this file, and main must
+# leave it untouched for that merge to stay conflict-free.
+# ============================================================================
+{}
