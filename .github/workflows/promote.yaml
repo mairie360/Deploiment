@@ -11,6 +11,14 @@ name: Promote
 #   target=staging  ref must be on `main`     (default: main's head)
 #   target=prod     ref must be on `staging`  (default: staging's head)
 #
+# One exception to the fast-forward (MAIR-444): argocd-image-updater commits
+# staging's image tags straight onto the `staging` branch, into
+# clusters/*/instances/staging/images.yaml. When `staging` carries such
+# commits and nothing else, promoting to staging MERGES ref into it instead
+# (main never edits images.yaml, so the merge cannot conflict). Any other
+# staging-only change is refused, as before. Prod still only fast-forwards to
+# a commit of `staging`.
+#
 # Image tags are a separate lane (argocd-image-updater for dev/staging, a
 # semver in prod's values.yaml) and are not affected by this workflow.
 
@@ -51,6 +59,7 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
       current: ${{ steps.resolve.outputs.current }}
       changed: ${{ steps.resolve.outputs.changed }}
+      mode: ${{ steps.resolve.outputs.mode }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -92,6 +101,7 @@ jobs:
           fi
 
           CHANGED=true
+          MODE=fast-forward
           if [ "$ROLLBACK" = "true" ]; then
             [ -n "$CURRENT" ] || { echo "::error::'$TARGET' does not exist, nothing to roll back."; exit 1; }
             if ! git merge-base --is-ancestor "$SHA" "$CURRENT"; then
@@ -103,9 +113,24 @@ jobs:
               echo "::error::Run scripts/verify.sh against staging, then tick 'staging_verified'."
               exit 1
             fi
-            if [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
-              echo "::error::'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
-              exit 1
+            if [ -n "$CURRENT" ] && git merge-base --is-ancestor "$SHA" "$CURRENT"; then
+              # Already in the target (staging merged it, or it is its head).
+              CHANGED=false
+            elif [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
+              # MAIR-444: staging may only be ahead by image-updater commits.
+              BASE=$(git merge-base "$SHA" "$CURRENT")
+              OTHER=$(git diff --name-only "$BASE" "$CURRENT" \
+                | grep -vE '^clusters/[^/]+/instances/staging/images\.yaml$' || true)
+              if [ "$TARGET" != "staging" ] || [ -n "$OTHER" ]; then
+                echo "::error::'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
+                [ -z "$OTHER" ] || printf '::error::Changed only on %s: %s\n' "$TARGET" "$(echo $OTHER)"
+                exit 1
+              fi
+              if [ -n "$(git diff --name-only "$BASE" "$SHA" -- 'clusters/*/instances/staging/images.yaml')" ]; then
+                echo "::error::$SHA edits a staging images.yaml on main: only argocd-image-updater writes it, on staging."
+                exit 1
+              fi
+              MODE=merge
             fi
           fi
           if [ "$CURRENT" = "$SHA" ]; then
@@ -116,13 +141,14 @@ jobs:
             echo "sha=$SHA"
             echo "current=$CURRENT"
             echo "changed=$CHANGED"
+            echo "mode=$MODE"
           } >> "$GITHUB_OUTPUT"
 
           {
             echo "### Promote \`$TARGET\`"
             echo
             echo "- From: \`${CURRENT:-<new branch>}\`"
-            echo "- To: \`$SHA\` (rollback: $ROLLBACK)"
+            echo "- To: \`$SHA\` (rollback: $ROLLBACK, $MODE)"
             if [ "$CHANGED" = "false" ]; then
               echo "- Nothing to do, \`$TARGET\` is already at this commit."
             elif [ -n "$CURRENT" ] && [ "$ROLLBACK" != "true" ]; then
@@ -196,8 +222,20 @@ jobs:
           ROLLBACK: ${{ inputs.rollback }}
           SHA: ${{ needs.resolve.outputs.sha }}
           CURRENT: ${{ needs.resolve.outputs.current }}
+          MODE: ${{ needs.resolve.outputs.mode }}
         run: |
           set -euo pipefail
+          if [ "$MODE" = "merge" ]; then
+            # MAIR-444: keep staging's image-updater commits, bring main in.
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git checkout --detach "$CURRENT"
+            git merge --no-ff --no-edit -m "chore: promote ${SHA::7} to $TARGET" "$SHA"
+            # Still no force: the merge commit descends from CURRENT.
+            git push origin "HEAD:refs/heads/$TARGET"
+            echo "\`$TARGET\` merged \`$SHA\` (kept its image-updater commits)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ "$ROLLBACK" = "true" ]; then
             # Refuse if the branch moved since it was resolved.
             git push --force-with-lease="refs/heads/$TARGET:$CURRENT" origin "$SHA:refs/heads/$TARGET"

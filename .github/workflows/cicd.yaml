@@ -2,7 +2,8 @@ name: Helm CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    # staging: argocd-image-updater commits its image tags there (MAIR-444).
+    branches: [ main, develop, staging ]
   pull_request:
   # Called by promote.yaml to re-run every check on the exact commit that is
   # about to reach staging or prod.
