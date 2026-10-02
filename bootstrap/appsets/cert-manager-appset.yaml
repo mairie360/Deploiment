@@ -15,7 +15,7 @@ spec:
     metadata:
       name: 'cert-manager-{{name}}'
     spec:
-      project: default
+      project: mairie360-platform
       source:
         repoURL: https://charts.jetstack.io
         chart: cert-manager

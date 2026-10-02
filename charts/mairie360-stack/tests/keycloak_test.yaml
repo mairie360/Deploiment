@@ -59,6 +59,21 @@ tests:
       - template: templates/keycloak-ingress.yaml
         equal: { path: "spec.rules[0].host", value: sso.ville.fr }
 
+  - it: "MAIR-414: auth.<domain> only routes the realms and their resources, never /admin"
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - lengthEqual: { path: "spec.rules[0].http.paths", count: 2 }
+      - equal: { path: "spec.rules[0].http.paths[0].path", value: "/realms/" }
+      - equal: { path: "spec.rules[0].http.paths[1].path", value: "/resources/" }
+      - equal: { path: "spec.rules[0].http.paths[0].backend.service.name", value: RELEASE-NAME-keycloak }
+
+  - it: "MAIR-414: the admin console is served on the port-forward address"
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME_ADMIN, value: "http://localhost:8080" }
+
   - it: probes the management port (9000), which is never exposed by the Service
     templates:
       - charts/keycloak/templates/deployment.yaml
@@ -290,6 +305,7 @@ tests:
 
   - it: every instance renders Keycloak (dev, staging, prod, client) with a hostname under its own domain
     values:
+      - ../../../clusters/_base/prod.yaml
       - ../../../clusters/mairie360/instances/prod/values.yaml
     templates: [charts/keycloak/templates/deployment.yaml]
     asserts:

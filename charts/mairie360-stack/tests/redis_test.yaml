@@ -26,7 +26,7 @@ tests:
           path: data["entrypoint.sh"]
           pattern: "user default off"
 
-  - it: injecte un mot de passe ACL dédié par API/BFF, jamais le compte partagé
+  - it: injects one dedicated ACL password per API, never the shared account, none for the BFFs (MAIR-414)
     templates: [charts/redis/templates/deployment.yaml]
     asserts:
       - contains:
@@ -35,7 +35,7 @@ tests:
             name: CORE_API_REDIS_PASSWORD
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-redis, key: core-api-password }
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: USER_BFF_REDIS_PASSWORD
@@ -68,21 +68,12 @@ tests:
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-api-password }
 
-  - it: chaque BFF reçoit son propre identifiant ACL Redis, pas le mot de passe partagé
+  - it: "MAIR-414: the BFFs get no Redis nor database credentials"
     templates: [charts/BFFs/templates/deployment.yaml]
-    documentIndex: 0 # premier document = "calendar-bff" (ordre alphabétique du range)
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: REDIS_USERNAME
-            value: "calendar-bff"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: REDIS_PASSWORD
-            valueFrom:
-              secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-bff-password }
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: '^(REDIS_|DB_)'
 
   - it: les fronts n'ont plus d'identifiants Redis
     templates: [charts/Fronts/templates/deployment.yaml]
@@ -96,12 +87,12 @@ tests:
           content:
             name: REDIS_PASSWORD
 
-  - it: la NetworkPolicy redis n'autorise plus les fronts
+  - it: "la NetworkPolicy redis n'autorise que les APIs (MAIR-414: plus les BFFs)"
     templates: [charts/redis/templates/network-policy.yaml]
     asserts:
-      - notContains:
+      - equal:
           path: spec.ingress[0].from
-          content:
-            podSelector:
-              matchLabels:
-                app.kubernetes.io/component: frontend
+          value:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: api

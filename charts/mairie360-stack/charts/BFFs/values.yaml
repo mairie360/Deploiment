@@ -41,8 +41,13 @@ strategy:
   maxSurge: 0
   maxUnavailable: 1
 
-# Variables shared by every BFF (on top of DB_*, REDIS_*, JWT_SECRET and the
-# *_API_URL / *_BFF_URL generated from global.apis / global.bffs).
+# BFFs that get JWT_SECRET (MAIR-414). Only BFF_user signs and verifies
+# tokens; every other BFF forwards the cookie to it or to the APIs.
+jwtSecretInstances:
+  - user-bff
+
+# Variables shared by every BFF (on top of TRUST_PROXY and the *_API_URL /
+# *_BFF_URL generated from global.apis / global.bffs).
 commonEnv:
   - name: NODE_ENV
     value: "production"

@@ -97,3 +97,57 @@ so pg_dump/pg_restore need no flags for them) plus the restic S3 repo. */}}
   value: {{ .Values.keycloak.db.name | quote }}
 {{- end -}}
 {{- end -}}
+
+
+{{/*
+MAIR-414: restic comes from its pinned official image instead of an
+unversioned `apk add` at every run, so the Job runs as the image's postgres
+user (uid 70) on a read-only root filesystem. The initContainer copies the
+static binary into an emptyDir; restic's cache and HOME go to emptyDirs too.
+*/}}
+{{- define "backup.podSecurityContext" -}}
+runAsNonRoot: true
+runAsUser: 70
+runAsGroup: 70
+seccompProfile:
+  type: RuntimeDefault
+{{- end -}}
+
+{{- define "backup.containerSecurityContext" -}}
+allowPrivilegeEscalation: false
+readOnlyRootFilesystem: true
+capabilities:
+  drop: ["ALL"]
+{{- end -}}
+
+{{- define "backup.resticInit" -}}
+- name: restic
+  image: "{{ .Values.restic.image.repository }}:{{ .Values.restic.image.tag }}"
+  imagePullPolicy: IfNotPresent
+  command: ["cp", "/usr/bin/restic", "/tools/restic"]
+  securityContext:
+    {{- include "backup.containerSecurityContext" . | nindent 4 }}
+  volumeMounts:
+    - { name: tools, mountPath: /tools }
+{{- end -}}
+
+{{- define "backup.workEnv" -}}
+- name: PATH
+  value: "/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+- name: HOME
+  value: "/tmp"
+- name: RESTIC_CACHE_DIR
+  value: "/cache"
+{{- end -}}
+
+{{- define "backup.workMounts" -}}
+- { name: tools, mountPath: /tools, readOnly: true }
+- { name: cache, mountPath: /cache }
+- { name: tmp, mountPath: /tmp }
+{{- end -}}
+
+{{- define "backup.workVolumes" -}}
+- { name: tools, emptyDir: { sizeLimit: 64Mi } }
+- { name: cache, emptyDir: { sizeLimit: 1Gi } }
+- { name: tmp, emptyDir: { sizeLimit: 256Mi } }
+{{- end -}}

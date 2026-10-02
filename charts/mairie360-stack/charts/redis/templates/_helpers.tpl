@@ -28,16 +28,15 @@ app.kubernetes.io/part-of: mairie360
 {{- end -}}
 
 {{/*
-Rôles ACL Redis : un compte par API et par BFF, dérivé de
-global.apis.instances / global.bffs.instances — la même source unique que
-les Services/URLs de ces charts, pour ne jamais désynchroniser la liste des
-comptes ACL de la liste réelle des instances. Renvoie une liste YAML triée.
+Redis ACL roles: one account per API, derived from global.apis.instances —
+the same single source as the Services/URLs of that chart, so the ACL
+accounts never drift from the real list of instances. No BFF reads Redis
+(MAIR-414), so none gets an account. Returns a sorted YAML list.
 */}}
 {{- define "redis.roles" -}}
 {{- $g := .Values.global | default dict -}}
 {{- $apis := (($g.apis | default dict).instances) | default dict -}}
-{{- $bffs := (($g.bffs | default dict).instances) | default dict -}}
-{{- merge (dict) $apis $bffs | keys | sortAlpha | toYaml -}}
+{{- keys $apis | sortAlpha | toYaml -}}
 {{- end -}}
 
 {{/* Nom de la variable d'env portant le mot de passe ACL d'un rôle. */}}

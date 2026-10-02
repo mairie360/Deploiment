@@ -52,6 +52,12 @@ commonEnv:
   - name: NODE_ENV
     value: "production"
 
+# Fronts that relay the ingress's client IP headers to BFF_user
+# (TRUST_INGRESS_IP_HEADERS, MAIR-414, see templates/_helpers.tpl). Only
+# Login_Web_Service reads it.
+trustIngressIpHeadersInstances:
+  - login-front
+
 # Set per environment:
 #   instances:
 #     login-front:

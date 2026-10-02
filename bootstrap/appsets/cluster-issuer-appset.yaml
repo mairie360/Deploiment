@@ -16,7 +16,7 @@ spec:
     metadata:
       name: 'cluster-issuers-{{name}}'
     spec:
-      project: default
+      project: mairie360-platform
       source:
         repoURL: https://github.com/mairie360/Deploiment.git
         targetRevision: main

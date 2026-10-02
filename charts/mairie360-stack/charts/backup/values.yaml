@@ -16,13 +16,17 @@ enabled: false
 # the liquibase Job's postgres:17-alpine client for this.
 image:
   repository: postgres
-  tag: "18-alpine"
+  # Exact minor (MAIR-414), bumped by Renovate.
+  tag: "18.6-alpine"
   pullPolicy: IfNotPresent
 
-# restic isn't in the postgres:alpine image; installed via `apk` at Job start
-# (see templates/_helpers.tpl "backup.script") rather than maintaining and
-# publishing a bespoke image for a single CronJob container.
-resticVersion: "restic"
+# restic isn't in the postgres:alpine image. An initContainer copies its static
+# binary from the official image (MAIR-414), pinned: no package install at
+# every run, and the Job runs as uid 70 on a read-only root filesystem.
+restic:
+  image:
+    repository: restic/restic
+    tag: "0.18.1"
 
 # Standard cron expression, evaluated in the cluster's timezone (UTC).
 schedule: "0 3 * * *"

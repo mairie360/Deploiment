@@ -30,15 +30,12 @@ tests:
           path: data["entrypoint.sh"]
           pattern: 'user project-api on [^"]* ~revoked:\*'
 
-  - it: BFFs get no access to revoked:*
+  - it: "BFFs get no ACL account at all, hence no access to revoked:* (MAIR-414)"
     templates: [charts/redis/templates/configmap.yaml]
     asserts:
-      - matchRegex:
-          path: data["entrypoint.sh"]
-          pattern: 'user user-bff on >\$USER_BFF_REDIS_PASSWORD ~user-bff:\* resetchannels'
       - notMatchRegex:
           path: data["entrypoint.sh"]
-          pattern: 'user [a-z]+-bff on [^"]*revoked'
+          pattern: 'user [a-z]+-bff '
 
   - it: EXISTS and GET stay allowed (the APIs check the list with EXISTS)
     templates: [charts/redis/templates/configmap.yaml]

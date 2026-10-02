@@ -14,7 +14,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: psql-test
-      image: postgres:17
+      image: "{{ .Values.testImage.repository }}:{{ .Values.testImage.tag }}"
       env:
         - name: PGUSER
           valueFrom:

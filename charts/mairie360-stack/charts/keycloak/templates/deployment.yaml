@@ -100,6 +100,12 @@ spec:
             # as the browser.
             - name: KC_HOSTNAME
               value: {{ printf "https://%s" (include "keycloak.hostname" .) | quote }}
+            # MAIR-414: the admin console lives on another address than the
+            # public one, which the Ingress does not route (/admin).
+            {{- with .Values.adminUrl }}
+            - name: KC_HOSTNAME_ADMIN
+              value: {{ . | quote }}
+            {{- end }}
             - name: KC_HOSTNAME_STRICT
               value: "true"
             - name: KC_HTTP_ENABLED

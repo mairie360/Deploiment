@@ -29,13 +29,16 @@ Le provisionnement des machines est dans le dépôt
 |---|---|
 | `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), Keycloak (SSO), 5 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
+| `clusters/_base/<env>.yaml` | What every `<env>` instance shares (prod: versions and settings of every prod, MAIR-414) |
 | `bootstrap/` | Argo CD bootstrap: platform AppSets (cert-manager, sealed-secrets, ingress controller: ingress-nginx or Traefik, see `bootstrap/README.md`) |
 | `docs/adr/` | Architecture decision records (`0001`: replacing ingress-nginx with Traefik, migration procedure) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
 
 ## Ajouter une instance
 
-1. Créer `clusters/<org>/instances/<env>/values.yaml` (copier un existant).
+1. Create `clusters/<org>/instances/<env>/values.yaml`. For a `prod`, copy
+   `clusters/client-example/instances/prod/values.yaml`: everything else comes
+   from `clusters/_base/prod.yaml` (MAIR-414).
 2. Declare the machine in the Ansible inventory and run `site.yml`. Its
    phase 4 seals the instance secrets with `scripts/seal-secrets.sh` on the
    group's Argo CD machine (the only one that reaches the instance API server)
@@ -45,11 +48,12 @@ Le provisionnement des machines est dans le dépôt
      by elearning-api, which does not start without it;
    - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: backup bucket
      (`charts/mairie360-stack/charts/backup/README.md`), only when `backup.enabled`.
-   - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170). Sealed as
-     `ADMIN_EMAIL` into `<env>-database-secret` alongside a generated
-     `ADMIN_PASSWORD`; the Liquibase Job creates or resets the admin account
-     with them, `first_connect = TRUE`. Left empty, the admin account keeps
-     its `Database` changelog template credentials.
+   - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170), mandatory.
+     Sealed as `ADMIN_EMAIL` into `<env>-database-secret` alongside the
+     argon2id hash of a generated `ADMIN_PASSWORD` (MAIR-414; the plaintext is
+     backed up to `~/.mairie360/admin-<org>-<env>.txt`, never sealed); the
+     Liquibase Job creates or resets the admin account with them,
+     `first_connect = TRUE`, and refuses to migrate without them.
 
    `<env>-keycloak-secret` (MAIR-139: Keycloak bootstrap admin, its Postgres
    role, the `bff-user` client secret) is generated entirely, nothing to

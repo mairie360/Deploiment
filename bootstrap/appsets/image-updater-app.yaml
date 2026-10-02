@@ -4,7 +4,7 @@ metadata:
   name: argocd-image-updater
   namespace: argocd
 spec:
-  project: default
+  project: mairie360-platform
   source:
     repoURL: https://argoproj.github.io/argo-helm
     chart: argocd-image-updater

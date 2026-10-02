@@ -59,13 +59,15 @@ for k in S3_ACCESS_KEY S3_SECRET_KEY; do
   fi
 done
 
-for k in ADMIN_EMAIL ADMIN_PASSWORD; do
-  if [ -n "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.$k}" 2>/dev/null)" ]; then
-    ok "$k is set"
-  else
-    ko "$k empty in ${RELEASE}-database-secret: admin account stays on its changelog template credentials (MAIR-170, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
-  fi
-done
+if [ -n "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_EMAIL}" 2>/dev/null)" ]; then
+  ok "ADMIN_EMAIL is set"
+else
+  ko "ADMIN_EMAIL empty in ${RELEASE}-database-secret: the Liquibase Job refuses to migrate (MAIR-414, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
+fi
+case "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_PASSWORD}" 2>/dev/null | base64 -d 2>/dev/null)" in
+  '$argon2id$'*) ok "ADMIN_PASSWORD is an argon2id hash" ;;
+  *) ko "ADMIN_PASSWORD in ${RELEASE}-database-secret is empty or plaintext: the Liquibase Job refuses to migrate (MAIR-414, re-run scripts/seal-secrets.sh)" ;;
+esac
 
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
@@ -171,6 +173,16 @@ if [ -n "$DOMAIN" ]; then
       *) ko "${host} : certificat inattendu : ${ISSUER:-aucun}" ;;
     esac
   done
+
+  step 13b "MAIR-414: auth.${DOMAIN} serves the realm, not the admin console"
+  if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://auth.${DOMAIN}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" || true)
+    [ "$CODE" = 200 ] && ok "realm discovery document public ($CODE)" || ko "realm discovery document: code $CODE"
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://auth.${DOMAIN}/admin/master/console/" || true)
+    [ "$CODE" = 404 ] && ok "admin console not routed ($CODE)" || ko "admin console reachable from the Internet: code $CODE"
+  else
+    ok "keycloak not enabled for this instance"
+  fi
 
   step 14 "Le HTTP redirige vers le HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)

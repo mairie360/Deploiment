@@ -18,29 +18,43 @@ spec:
         {{- include "backup.podLabels" . | nindent 8 }}
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "backup.podSecurityContext" . | nindent 8 }}
       {{- with .Values.global.imagePullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
+      initContainers:
+        {{- include "backup.resticInit" . | nindent 8 }}
       containers:
         - name: restore
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "backup.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "backup.workMounts" . | nindent 12 }}
           env:
             {{- include "backup.env" . | nindent 12 }}
+            {{- include "backup.workEnv" . | nindent 12 }}
             - name: SNAPSHOT_ID
               value: {{ required "backup.restore.snapshotId is required when backup.restore.enabled=true" .Values.restore.snapshotId | quote }}
           # --clean --if-exists drops existing objects before recreating them
           # so the restored database matches the dump exactly, including
           # objects that no longer exist in the dump. --no-owner avoids
           # failing on role names that differ between environments.
+          # --single-transaction --exit-on-error (MAIR-414): a restore that
+          # fails half way rolls back instead of leaving a database with
+          # its objects dropped and only part of the dump loaded.
           command: ["sh", "-c"]
           args:
             - |
               set -euo pipefail
-              apk add --no-cache {{ .Values.resticVersion }} >/dev/null
               restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" \
-                | pg_restore --clean --if-exists --no-owner --dbname="$PGDATABASE"
+                | pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error --dbname="$PGDATABASE"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- include "backup.workVolumes" . | nindent 8 }}
 {{- end }}
