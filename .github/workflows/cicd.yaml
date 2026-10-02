@@ -55,9 +55,12 @@ jobs:
         run: |
           CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           for v in clusters/*/instances/*; do
+            # clusters/_base/<env>.yaml first, like the instances AppSet (MAIR-414).
+            mapfile -t files < <(./scripts/instance-values.sh "$v")
+            args=(); for f in "${files[@]}"; do args+=(-f "$f"); done
             for controller in nginx traefik; do
               echo "Rendering $v (ingress controller: $controller)"
-              helm template r ./charts/mairie360-stack -f "$v/values.yaml" \
+              helm template r ./charts/mairie360-stack "${args[@]}" \
                 --set global.ingressController="$controller" \
                 | kubeconform -strict -summary -schema-location default \
                     -schema-location "$CRDS" -skip CiliumNetworkPolicy
@@ -72,6 +75,13 @@ jobs:
       # exist on their registry. skopeo is preinstalled on ubuntu-latest.
       - name: Check image tags exist
         run: ./scripts/check-image-tags.sh
+
+      # Every Secret (and key) the pods reference is sealed in the instance's
+      # secrets.yaml (MAIR-414). Warnings only here: a secrets.yaml is sealed
+      # on the machine, after the values change that needs it. The Promote
+      # workflow runs the same check as a blocker for staging and prod.
+      - name: Check instance secrets (warning)
+        run: ./scripts/check-instance-secrets.sh --warn
 
       # Helm 4 verifies plugin signatures and refuses a git source, which
       # cannot be verified: the version pin is what trusts the plugin here.

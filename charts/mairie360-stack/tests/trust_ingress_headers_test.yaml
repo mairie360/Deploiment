@@ -1,0 +1,58 @@
+suite: client IP headers relayed by the fronts (MAIR-414)
+# Login_Web_Service only forwards X-Forwarded-For / X-Real-IP to BFF_user with
+# TRUST_INGRESS_IP_HEADERS=true. Without it, BFF_user's per-IP rate limit
+# (TRUST_PROXY, trust_proxy_test.yaml) sees the login pod's IP for every user,
+# so both settings must move together.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/Fronts/templates/deployment.yaml]
+tests:
+  - it: "MAIR-414: login-front relays the client IP headers whenever user-bff trusts its proxies"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_INGRESS_IP_HEADERS
+            value: "true"
+          count: 1
+
+  - it: "MAIR-414: no other front relays them"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-dashboard-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_INGRESS_IP_HEADERS
+          any: true
+
+  - it: "MAIR-414: login-front stops relaying them with TRUST_PROXY (no trusted CIDR)"
+    set:
+      global.trustedProxyCIDRs: []
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_INGRESS_IP_HEADERS
+          any: true
+
+  - it: "MAIR-414: nor without NetworkPolicies (the front pod is reachable around the ingress)"
+    set:
+      global.networkPolicy.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRUST_INGRESS_IP_HEADERS
+          any: true
+

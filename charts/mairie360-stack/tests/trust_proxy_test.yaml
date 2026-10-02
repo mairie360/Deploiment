@@ -1,4 +1,4 @@
-suite: trusted proxies (MAIR-226)
+suite: trusted proxies and BFF secrets (MAIR-226, MAIR-414)
 # BFF_user rate-limits authentication per client IP, taken by Express from
 # X-Forwarded-For only through the proxies listed in TRUST_PROXY. Those must
 # be the in-cluster pods (ingress-nginx, the fronts), never a public range.
@@ -72,3 +72,26 @@ tests:
           content:
             name: TRUST_PROXY
             value: "loopback, 10.42.0.0/16"
+
+  - it: "MAIR-414: only user-bff gets JWT_SECRET"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: JWT_SECRET }
+
+  - it: "MAIR-414: the other BFFs get no JWT_SECRET"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-project-bff
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_SECRET
+          any: true

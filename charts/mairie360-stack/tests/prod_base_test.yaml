@@ -1,0 +1,41 @@
+suite: shared prod base (MAIR-414)
+# clusters/_base/prod.yaml holds what every prod instance shares; the instance
+# file only sets the domain and the few values the base reads through `tpl`.
+values:
+  - ../../../clusters/_base/prod.yaml
+  - ../../../clusters/client-example/instances/prod/values.yaml
+tests:
+  - it: the fronts' COOKIE_DOMAIN follows the instance's domain
+    templates: [charts/Fronts/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-login-front }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".mairie360.ville-exemple.fr" }
+
+  - it: core-api's PUBLIC_URL and EMAIL_FROM come from the instance
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PUBLIC_URL, value: "https://login.mairie360.ville-exemple.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: EMAIL_FROM, value: "Mairie360 <noreply@mairie360.ville-exemple.fr>" }
+
+  - it: elearning-api's bucket comes from the instance
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-elearning-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: S3_BUCKET, value: "ville-exemple-elearning" }
+
+  - it: an instance without global.emailFrom fails to render instead of sending from nowhere
+    set:
+      global.emailFrom: ""
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.emailFrom is required"

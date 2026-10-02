@@ -37,6 +37,14 @@ image:
 admin:
   username: "admin"
 
+# Address of the admin console (KC_HOSTNAME_ADMIN, MAIR-414). The public
+# Ingress only routes /realms/ and /resources/ (umbrella
+# `keycloak.ingress.paths`), so the console is reached through a tunnel:
+#   kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080
+# then http://localhost:8080/admin/. "" = the public hostname (only useful if
+# /admin is routed again).
+adminUrl: "http://localhost:8080"
+
 # Secret <release>-keycloak-secret:
 #   KEYCLOAK_ADMIN_PASSWORD  bootstrap admin password (first start only)
 #   KEYCLOAK_DB_PASSWORD     password of the `keycloak` Postgres role
@@ -100,7 +108,9 @@ realm:
 db:
   image:
     repository: postgres
-    tag: "18-alpine"
+    # Exact minor (MAIR-414): a floating tag changes the server on whichever
+    # node pull happens next. Bumped by Renovate.
+    tag: "18.6-alpine"
     pullPolicy: IfNotPresent
   name: "keycloak"
   user: "keycloak"
@@ -113,6 +123,10 @@ db:
   # enough for the data directory, a root initContainer does the chown.
   initChown:
     enabled: true
+    # Pinned (MAIR-414), bumped by Renovate.
+    image:
+      repository: busybox
+      tag: "1.37.0"
   resources:
     requests: { memory: "64Mi", cpu: "50m" }
     limits:   { memory: "256Mi", cpu: "500m" }

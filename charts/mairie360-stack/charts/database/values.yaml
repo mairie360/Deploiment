@@ -55,3 +55,12 @@ resources:
 # volume est déjà correctement possédé ou sous Pod Security "restricted".
 initChown:
   enabled: true
+  # Pinned (MAIR-414), bumped by Renovate.
+  image:
+    repository: busybox
+    tag: "1.37.0"
+
+# Image of the `helm test` pod (psql client).
+testImage:
+  repository: postgres
+  tag: "18.6-alpine"

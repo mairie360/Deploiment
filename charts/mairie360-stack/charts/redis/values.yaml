@@ -13,8 +13,8 @@ image:
 
 # Secret <release>-redis.
 #   redis-password  -> compte "admin" (ACL, utilisé par les probes et `helm test`)
-#   <role>-password -> un compte ACL par rôle (API/BFF), rôles = clés de
-#                       global.apis.instances / global.bffs.instances
+#   <role>-password -> one ACL account per API, roles = keys of
+#                       global.apis.instances (no BFF account, MAIR-414)
 # create: true  -> créé depuis `password` / `rolePasswords` (cluster local UNIQUEMENT)
 # create: false -> fourni par un SealedSecret
 secret:
@@ -34,7 +34,6 @@ aclCommands: ["get", "set", "del", "exists", "expire"]
 #   - writerRoles: read + write on keyPattern (next to their own <role>:*);
 #   - every other API role (global.apis.instances): read-only, Redis 7 key
 #     permission `%R~<keyPattern>`;
-#   - BFF roles: no access.
 revokedTokens:
   keyPattern: "revoked:*"
   writerRoles: ["core-api"]

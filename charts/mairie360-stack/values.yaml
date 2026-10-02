@@ -98,6 +98,13 @@ global:
     # scripts/seal-secrets.sh's DB_ROLES.
     roles: ["core-api", "project-api", "calendar-api", "message-api", "elearning-api"]
 
+  # Per-instance values that the shared clusters/_base/<env>.yaml references
+  # inside env lists (MAIR-414), since a list cannot be partly overridden:
+  #   emailFrom        sender address of core-api's e-mails (EMAIL_FROM)
+  #   elearningBucket  Object Storage bucket of elearning-api (S3_BUCKET)
+  emailFrom: ""
+  elearningBucket: ""
+
   # Keycloak (MAIR-139): the instance's identity provider, charts/keycloak.
   # Global because the BFFs/APIs will need the same issuer URL
   # (https://<hostname>/realms/<realm>) as the browser.
@@ -224,6 +231,11 @@ keycloak:
     # default 4k proxy buffer answers 502 "upstream sent too big header".
     annotations:
       nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    # Prefixes routed to Keycloak on auth.<domain> (MAIR-414). Everything
+    # else, the admin console (/admin) first, answers 404 from the ingress.
+    paths:
+      - /realms/
+      - /resources/
 
 # Collector settings; switched on by global.observability.enabled above.
 # See charts/observability/values.yaml.

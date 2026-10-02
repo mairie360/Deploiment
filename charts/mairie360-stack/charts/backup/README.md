@@ -7,6 +7,18 @@ the instance's machine — see [MAIR-119](https://mairie-360.atlassian.net/brows
 for the rationale (a single-node k3s cluster's local-path PVC is not a backup
 target).
 
+The Job runs as uid 70 (the `postgres:alpine` user) on a read-only root
+filesystem; restic is copied by an initContainer from the pinned
+`restic/restic` image (`restic.image`), not installed at every run
+(MAIR-414). The restore Job runs `pg_restore --single-transaction
+--exit-on-error`: a failed restore rolls back instead of leaving a half-loaded
+database.
+
+**Known limit:** the same key pair writes snapshots and runs
+`restic forget --prune`, so a compromised instance can delete its own
+backups. Protect the bucket on the provider side (object lock / versioning
+with a retention period longer than `retention.keepDaily`).
+
 ## Enabling it for an instance
 
 1. Create an S3-compatible bucket for that instance (provider and bucket
@@ -22,9 +34,13 @@ target).
    Once `backup.enabled` is true (step 3), later runs prompt for the key pair
    instead when it is neither exported nor already sealed.
    `RESTIC_PASSWORD` (the repository encryption key) is not an input: the
-   script generates it on the first run, then keeps it. Copy it outside the
-   cluster, the same way as the sealed-secrets sealing key — losing it makes
-   every existing backup permanently unreadable:
+   ansible role generates it on the first run, then keeps it, and writes it
+   to `~/.mairie360/restic-<org>-<env>.txt` (mode 600) on the workstation.
+   Store that file in the team vault, like the sealed-secrets sealing key —
+   losing it makes every existing backup permanently unreadable. To restore
+   into a reinstalled instance, pass the old value back through
+   `instance_secrets[<host>].restic_password`. When sealing by hand, read it
+   from the cluster:
    ```bash
    kubectl -n mairie360-<env> get secret <env>-backup-secret \
      -o jsonpath='{.data.RESTIC_PASSWORD}' | base64 -d

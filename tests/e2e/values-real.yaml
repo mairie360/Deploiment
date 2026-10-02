@@ -48,6 +48,11 @@ database:
     # The instances ask for k3s's "local-path"; Kind's provisioner is "standard".
     storageClass: ""
 
+# The throwaway database secret has no ADMIN_*: keep the template admin.
+liquibase:
+  adminAccount:
+    required: false
+
 # MAIR-139: Keycloak keeps its real image too — the realm import (roles,
 # clients, the client secret substituted from the Secret) is part of what
 # the data-access test checks.

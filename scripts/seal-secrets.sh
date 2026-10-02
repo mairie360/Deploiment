@@ -34,12 +34,29 @@
 #                   already present on the cluster are kept; with neither, the
 #                   keys are sealed empty and elearning-api will not start.
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  backup bucket key pair (MAIR-119),
-#                   see below. Without them <env>-backup-secret is not sealed.
+#                   see below. When unset, the pair already on the cluster is
+#                   kept; with neither, <env>-backup-secret is not sealed.
+#   RESTIC_PASSWORD / ADMIN_PASSWORD  normally generated here, but the ansible
+#                   role resolves them itself and passes them in, so the value
+#                   sealed is exactly the one it backs up on the workstation
+#                   (~/.mairie360/restic-<org>-<env>.txt, admin-<org>-<env>.txt).
+#                   When set, used as-is, even with --rotate; when unset,
+#                   kept from the cluster, else generated.
+#                   ADMIN_PASSWORD is the PLAINTEXT first password of the admin
+#                   account: what is sealed is its argon2id hash (MAIR-414,
+#                   Database's create_admin.sql and chk_users_password_hashed
+#                   only accept a hash). An ADMIN_PASSWORD that already is an
+#                   `$argon2id$` hash is sealed as-is. Hashing needs OpenSSL
+#                   >= 3.2 (`openssl kdf ARGON2ID`) or the `argon2` CLI.
+#   ADMIN_PASSWORD_FILE  where a password generated here is written (mode 600)
+#                   for the operator, default ~/.mairie360/admin-<org>-<env>.txt.
+#                   The cluster only ever gets the hash.
 #   ADMIN_EMAIL     e-mail of the town hall's administrator account (MAIR-170),
 #                   stored as-is in <env>-database-secret. When unset, the
 #                   value already present on the cluster is kept; with
-#                   neither, it is sealed empty and the Liquibase Job leaves
-#                   the admin account on its changelog template credentials.
+#                   neither, the script fails (MAIR-414): the Liquibase Job
+#                   refuses to run without it rather than seed the public
+#                   template admin account.
 #   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
 #                   to re-seal one regenerated in the admin console; otherwise
 #                   the value on the cluster is kept, or generated once.
@@ -99,10 +116,10 @@ OUT="clusters/${ORG}/instances/${ENV}/secrets.yaml"
 CONTROLLER_NS="kube-system"
 CONTROLLER_NAME="sealed-secrets-controller"
 
-# Rôles ACL Redis : un compte par API et par BFF déclarée dans
-# global.apis.instances / global.bffs.instances (charts/mairie360-stack/values.yaml).
-# À TENIR SYNCHRONISÉ avec ce fichier si la liste des instances change.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api user-bff project-bff calendar-bff message-bff elearning-bff dashboard-bff settings-bff"
+# Redis ACL roles: one account per API declared in global.apis.instances
+# (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
+# KEEP IN SYNC with that file if the list of APIs changes.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
@@ -139,6 +156,9 @@ fi
 [ -n "$JWT" ]        || { JWT="$(gen)";        echo "  JWT_SECRET             : généré"; }
 [ -n "$PGPASS" ]     || { PGPASS="$(gen)";     echo "  POSTGRES_PASSWORD      : généré"; }
 [ -n "$ADMINPASS" ]  || { ADMINPASS="$(gen)";  echo "  redis-password (admin) : généré"; }
+if [ -n "${RESTIC_PASSWORD:-}" ]; then
+  RESTICPASS="$RESTIC_PASSWORD"; echo "  RESTIC_PASSWORD        : from RESTIC_PASSWORD"
+fi
 [ -n "$RESTICPASS" ] || { RESTICPASS="$(gen)"; echo "  RESTIC_PASSWORD        : generated"; }
 
 # MAIR-170: the town hall admin account's e-mail/password. Unlike the block
@@ -152,11 +172,58 @@ else
   if [ -n "$APPADMINEMAIL" ]; then
     echo "  ADMIN_EMAIL      : kept from cluster"
   else
-    echo "  ADMIN_EMAIL      : EMPTY (set ADMIN_EMAIL) — admin account keeps its template credentials" >&2
+    echo "ADMIN_EMAIL is empty and not sealed on the cluster: set ADMIN_EMAIL (MAIR-414)" >&2
+    exit 1
   fi
 fi
-APPADMINPWD="$(prev "${RELEASE}-database-secret" ADMIN_PASSWORD)"
-[ -n "$APPADMINPWD" ] || { APPADMINPWD="$(gen)"; echo "  ADMIN_PASSWORD   : généré"; }
+
+# MAIR-414: the sealed ADMIN_PASSWORD is an argon2id PHC hash, the plaintext
+# never reaches the cluster. Same parameters as the Database template hash
+# (OWASP minimum: m=19456 KiB, t=2, p=1); Core API reads them from the hash.
+is_argon2id() { case "$1" in '$argon2id$'*) return 0 ;; *) return 1 ;; esac; }
+argon2id_hash() {
+  local pw="$1" salt raw
+  # 16 random hex characters used as the (printable) salt bytes, so the same
+  # string feeds both tools without handling binary data in the shell.
+  salt="$(openssl rand -hex 8)"
+  if openssl list -kdf-algorithms 2>/dev/null | grep -qi argon2id; then
+    raw="$(openssl kdf -keylen 32 -binary -kdfopt pass:"$pw" -kdfopt salt:"$salt" \
+      -kdfopt iter:2 -kdfopt memcost:19456 -kdfopt lanes:1 ARGON2ID | base64 | tr -d '=\n')"
+    printf '$argon2id$v=19$m=19456,t=2,p=1$%s$%s' "$(printf '%s' "$salt" | base64 | tr -d '=\n')" "$raw"
+  elif command -v argon2 >/dev/null; then
+    printf '%s' "$pw" | argon2 "$salt" -id -t 2 -k 19456 -p 1 -l 32 -e
+  else
+    echo "cannot hash ADMIN_PASSWORD: needs OpenSSL >= 3.2 or the argon2 CLI (apt install argon2)" >&2
+    return 1
+  fi
+}
+# A password this script came up with (generated, or the plaintext sealed
+# before MAIR-414) is handed to the operator in a 600 file, never printed.
+save_admin_password() {
+  local file="${ADMIN_PASSWORD_FILE:-$HOME/.mairie360/admin-${ORG}-${ENV}.txt}"
+  mkdir -p "$(dirname "$file")"
+  [ ! -e "$file" ] || mv "$file" "${file}.$(date +%Y%m%d%H%M%S)"
+  (umask 077; printf '%s\n' "$1" > "$file")
+  echo "  ADMIN_PASSWORD   : plaintext written to $file (store it in the team vault)"
+}
+APPADMINPWD="${ADMIN_PASSWORD:-}"
+if [ -n "$APPADMINPWD" ]; then
+  echo "  ADMIN_PASSWORD   : from ADMIN_PASSWORD"
+else
+  APPADMINPWD="$(prev "${RELEASE}-database-secret" ADMIN_PASSWORD)"
+  if is_argon2id "$APPADMINPWD"; then
+    echo "  ADMIN_PASSWORD   : kept from cluster"
+  elif [ -n "$APPADMINPWD" ]; then
+    # Sealed in plaintext before MAIR-414: hash that same value.
+    echo "  ADMIN_PASSWORD   : plaintext found on the cluster, hashed"
+    save_admin_password "$APPADMINPWD"
+  else
+    APPADMINPWD="$(gen)"
+    echo "  ADMIN_PASSWORD   : generated"
+    save_admin_password "$APPADMINPWD"
+  fi
+fi
+is_argon2id "$APPADMINPWD" || APPADMINPWD="$(argon2id_hash "$APPADMINPWD")"
 
 # MAIR-139: Keycloak bootstrap admin, its Postgres role and bff-user's client
 # secret. Never rotated by --rotate (see the comment near the top): kept from
@@ -258,10 +325,16 @@ GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
 # MAIR-119: unlike the other secrets, these are credentials for an external
-# S3 bucket and can't be generated — only sealed when supplied. Skip the
-# backup-secret entirely if backup isn't provisioned for this instance yet.
+# S3 bucket and can't be generated: taken from the environment, else kept from
+# the cluster (a re-run without them must not drop the backup-secret). Skip
+# the backup-secret entirely if backup isn't provisioned for this instance yet.
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+if [ -z "$AWS_ACCESS_KEY_ID" ] && [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+  AWS_ACCESS_KEY_ID="$(prev "${RELEASE}-backup-secret" AWS_ACCESS_KEY_ID)"
+  AWS_SECRET_ACCESS_KEY="$(prev "${RELEASE}-backup-secret" AWS_SECRET_ACCESS_KEY)"
+  [ -z "$AWS_ACCESS_KEY_ID" ] || echo "  AWS_*            : kept from cluster"
+fi
 
 seal() {
   kubeseal --context "$CTX" \
@@ -341,7 +414,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   RESEND_API_KEY=re_xxx ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Object Storage key pair (S3_ACCESS_KEY / S3_SECRET_KEY of elearning-api):"
   echo "#   S3_ACCESS_KEY=SCW... S3_SECRET_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
-  echo "# Set the admin account's e-mail (MAIR-170, ADMIN_PASSWORD is generated once):"
+  echo "# Set the admin account's e-mail (MAIR-170, ADMIN_PASSWORD is generated once unless set,"
+  echo "# sealed as its argon2id hash, MAIR-414):"
   echo "#   ADMIN_EMAIL=admin@example.org ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Re-seal a bff-user client secret regenerated in the Keycloak admin console (MAIR-139):"
   echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"

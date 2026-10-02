@@ -59,3 +59,26 @@ Variables injectées dans TOUS les fronts :
   value: {{ printf "http://%s-%s:%d" $.Release.Name ($bffName | lower) (int ($bffConfig.port | default 4000)) | quote }}
 {{- end }}
 {{- end -}}
+
+
+{{/*
+TRUST_INGRESS_IP_HEADERS (MAIR-414): the fronts in
+trustIngressIpHeadersInstances relay X-Forwarded-For / X-Real-IP to BFF_user,
+whose per-IP rate limit (TRUST_PROXY, MAIR-226) would otherwise see the front
+pod's address for every user. Same condition as TRUST_PROXY on the BFFs
+(global.trustedProxyCIDRs), plus the NetworkPolicies: the header is only
+trustworthy when the ingress controller, which overwrites it, is the only way
+into the front pod. An instance `env` entry of the same name wins.
+Takes { root, name, config }.
+*/}}
+{{- define "fronts.trustIngressIpHeaders" -}}
+{{- $g := .root.Values.global | default dict -}}
+{{- $overridden := false -}}
+{{- range (.config.env | default list) -}}
+{{- if eq .name "TRUST_INGRESS_IP_HEADERS" }}{{ $overridden = true }}{{ end -}}
+{{- end -}}
+{{- if and (has .name (.root.Values.trustIngressIpHeadersInstances | default list)) ($g.trustedProxyCIDRs | default list) (($g.networkPolicy | default dict).enabled) (not $overridden) -}}
+- name: TRUST_INGRESS_IP_HEADERS
+  value: "true"
+{{- end -}}
+{{- end -}}

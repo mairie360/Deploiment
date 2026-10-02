@@ -123,3 +123,29 @@ tests:
           path: spec.template.spec.volumes
       - notExists:
           path: spec.template.spec.containers[0].volumeMounts
+
+  - it: "MAIR-414: the Liquibase Job runs as liquibase (1001), read-only, no token"
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - equal: { path: "spec.template.spec.securityContext.runAsUser", value: 1001 }
+      - equal: { path: "spec.template.spec.securityContext.runAsNonRoot", value: true }
+      - equal: { path: "spec.template.spec.automountServiceAccountToken", value: false }
+      - equal: { path: "spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem", value: true }
+      - equal: { path: "spec.template.spec.initContainers[0].securityContext.readOnlyRootFilesystem", value: true }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: LIQUIBASE_ANALYTICS_ENABLED, value: "false" }
+
+  - it: "MAIR-414: the retention CronJob runs as postgres (70), read-only"
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - equal: { path: "spec.jobTemplate.spec.template.spec.securityContext.runAsUser", value: 70 }
+      - equal: { path: "spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem", value: true }
+
+  - it: "MAIR-414: the chown initContainer keeps only CHOWN and DAC_READ_SEARCH"
+    templates: [charts/database/templates/statefulset.yaml]
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.capabilities
+          value: { drop: ["ALL"], add: ["CHOWN", "DAC_READ_SEARCH"] }
+      - equal: { path: "spec.template.spec.initContainers[0].securityContext.readOnlyRootFilesystem", value: true }

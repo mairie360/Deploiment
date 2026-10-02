@@ -37,12 +37,6 @@ app.kubernetes.io/part-of: mairie360
 component: bff
 {{- end }}
 
-{{- define "bffs.dbSecretName" -}}
-{{- $g := .Values.global | default dict -}}
-{{- $db := $g.database | default dict -}}
-{{- $db.secretName | default (printf "%s-database-secret" .Release.Name) -}}
-{{- end }}
-
 {{- define "bffs.appSecretName" -}}
 {{- $g := .Values.global | default dict -}}
 {{- $s := $g.secrets | default dict -}}
@@ -50,57 +44,30 @@ component: bff
 {{- end }}
 
 {{/*
-Variables injectées dans TOUS les BFFs.
-Les URLs des APIs et des autres BFFs sont dérivées de global.apis.instances
-et global.bffs.instances : une seule source de vérité pour les ports, et le
-nom de release est toujours correct quel que soit l'environnement.
-Prend un contexte { root, name } (name = l'instance courante, ex. "user-bff") :
-c'est aussi le nom du compte ACL Redis dédié à cette instance.
+Variables injected into EVERY BFF.
+The API and BFF URLs derive from global.apis.instances and
+global.bffs.instances: one source of truth for the ports, and the release
+name is right whatever the environment.
+Takes a { root, name } context (name = the current instance, e.g. "user-bff").
 */}}
 {{- define "bffs.commonEnv" -}}
 - name: HOST
   value: "0.0.0.0"
 - name: HOSTNAME
   value: "0.0.0.0"
-- name: DB_TYPE
-  value: "postgres"
-- name: DB_HOST
-  value: {{ printf "%s-database" $.root.Release.Name | quote }}
-- name: DB_PORT
-  value: "5432"
-- name: DB_NAME
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "bffs.dbSecretName" $.root }}
-      key: POSTGRES_DB
-- name: DB_USER
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "bffs.dbSecretName" $.root }}
-      key: POSTGRES_USER
-- name: DB_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "bffs.dbSecretName" $.root }}
-      key: POSTGRES_PASSWORD
-- name: REDIS_HOST
-  value: {{ printf "%s-redis" $.root.Release.Name | quote }}
-- name: REDIS_PORT
-  value: "6379"
-- name: REDIS_URL
-  value: {{ printf "redis://%s-redis:6379" $.root.Release.Name | quote }}
-- name: REDIS_USERNAME
-  value: {{ $.name | quote }}
-- name: REDIS_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ printf "%s-redis" $.root.Release.Name }}
-      key: {{ printf "%s-password" $.name }}
+{{- /*
+MAIR-414: no DB_* nor REDIS_* (no BFF has a database or reads Redis, and the
+database NetworkPolicy refuses them anyway), and JWT_SECRET only for the
+BFFs listed in jwtSecretInstances: a compromised dependency of any other BFF
+must not get what it takes to forge a token.
+*/}}
+{{- if has $.name ($.root.Values.jwtSecretInstances | default list) }}
 - name: JWT_SECRET
   valueFrom:
     secretKeyRef:
       name: {{ include "bffs.appSecretName" $.root }}
       key: JWT_SECRET
+{{- end }}
 {{- /*
 TRUST_PROXY (MAIR-226): Express `trust proxy` = loopback + the in-cluster
 pod CIDR(s), so req.ip is the client address carried by X-Forwarded-For
