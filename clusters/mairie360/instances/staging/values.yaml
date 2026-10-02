@@ -7,8 +7,9 @@
 #
 # Ce fichier ne contient QUE ce qui change d'un déploiement à l'autre.
 # Les défauts sont dans charts/mairie360-stack/values.yaml.
-# APIs/BFFs/Fronts image tags are moved forward by argocd-image-updater
-# (newest staging-<sha>); database and liquibase are not, bump them by hand.
+# Every image tag (APIs, BFFs, fronts, database, liquibase) is moved forward
+# by argocd-image-updater (newest staging-<sha>), committed on the `staging`
+# branch into images.yaml, which overrides this file (MAIR-444).
 # The pinned staging-<sha> tags below are only a starting point, but they must
 # exist so a fresh instance starts without it (MAIR-172): never *-latest (no
 # longer pushed) nor the mobile `staging` tag (not pushed by every repo yet).
