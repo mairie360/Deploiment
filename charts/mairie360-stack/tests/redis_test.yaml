@@ -105,3 +105,22 @@ tests:
             podSelector:
               matchLabels:
                 app.kubernetes.io/component: frontend
+
+  - it: message-api publishes and subscribes on its own channels only (MAIR-394)
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user message-api on [^"]* resetchannels &message-api:\* -@all [^"]*\+expire \+publish \+subscribe"'
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user (core|project|calendar|elearning)-api on [^"]*(&|\+publish|\+subscribe)'
+
+  - it: an empty pubSubRoles gives no role any channel
+    templates: [charts/redis/templates/configmap.yaml]
+    set:
+      redis.pubSubRoles: []
+    asserts:
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user [a-z-]+ on [^"]*(&[a-z]|\+publish|\+subscribe)'

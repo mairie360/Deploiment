@@ -285,7 +285,11 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   Each role is confined to `~<role>:*`, plus the **shared JWT revocation
   list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
   `core-api`, read-only `%R~revoked:*` for every other API, nothing for the
-  BFFs. Because Redis now holds that list, `maxmemory-policy` is
+  BFFs. Every channel is reset (`resetchannels`) except for the roles of
+  `redis.pubSubRoles` (`message-api`, MAIR-394), which get `&<role>:*` plus
+  `PUBLISH` / `SUBSCRIBE`: Message API relays its SSE chat events on
+  `message-api:sse:chat-events` so every replica notifies its own streams.
+  Because Redis now holds that list, `maxmemory-policy` is
   **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
   TTL; `volatile-*` would even drop them first, they are the only keys with a
   TTL) and AOF is on (`config.appendonly`, survives container restarts;
