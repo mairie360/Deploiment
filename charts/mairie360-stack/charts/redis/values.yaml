@@ -27,6 +27,12 @@ rolePasswords: {}
 # templates/configmap.yaml: entrypoint.sh).
 aclCommands: ["get", "set", "del", "exists", "expire"]
 
+# Roles that also get Redis pub/sub on their own channels (`&<role>:*`) with
+# PUBLISH and SUBSCRIBE (MAIR-394). Message API relays its SSE chat events on
+# `message-api:sse:chat-events` so that every replica notifies the streams it
+# holds. No other role may read or write those channels.
+pubSubRoles: ["message-api"]
+
 # Shared JWT revocation list (MAIR-264). Core API writes one key per revoked
 # session, `revoked:<sid>` (SET + EXPIRE, TTL = remaining JWT lifetime), and
 # every API checks it (EXISTS) through API_lib before accepting a token.
