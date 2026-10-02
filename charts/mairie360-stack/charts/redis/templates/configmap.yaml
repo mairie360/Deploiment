@@ -26,6 +26,7 @@ data:
   # `admin` is for the probes and `helm test`. The API roles also get the
   # shared revocation list (MAIR-264, values `revokedTokens`): read-write for
   # its writers, read-only (`%R~`) for the other APIs, nothing for the BFFs.
+  # The roles of `pubSubRoles` also publish/subscribe on `&<role>:*` (MAIR-394).
   entrypoint.sh: |
     #!/bin/sh
     set -eu
@@ -44,7 +45,8 @@ data:
       {{- $shared = printf " %%R~%s" $revoked.keyPattern }}
       {{- end }}
       {{- end }}
-      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}"
+      {{- $pubSub := has $role ($.Values.pubSubRoles | default list) }}
+      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels{{ if $pubSub }} &{{ $role }}:*{{ end }} -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}{{ if $pubSub }} +publish +subscribe{{ end }}"
       {{- end }}
     } > /acl/users.acl
     exec redis-server /etc/redis/redis.conf
