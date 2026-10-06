@@ -99,7 +99,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "1.2.0" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "2.0.0" }
       env:
         - name: PUBLIC_URL
           value: "https://login.mairie360.ville-exemple.fr"
