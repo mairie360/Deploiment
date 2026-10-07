@@ -45,7 +45,10 @@ ko() { printf '  \033[31mKO\033[0m %s\n' "$1"; FAILED=1; }
 
 # Prints the image references of a rendered instance, one per line.
 rendered_images() {
-  helm template r "$CHART" -f "$1/values.yaml" \
+  local files args=() f
+  mapfile -t files < <(./scripts/instance-values.sh "$1")
+  for f in "${files[@]}"; do args+=(-f "$f"); done
+  helm template r "$CHART" "${args[@]}" \
     | sed -nE 's/^[[:space:]]*(- )?image:[[:space:]]*"?([^"[:space:]]+)"?[[:space:]]*$/\2/p' \
     | sort -u
 }

@@ -46,6 +46,15 @@ helm dependency build ./charts/mairie360-stack
 # (dev-<sha> / staging-<sha> / semver). Needs skopeo; --offline = policy only.
 ./scripts/check-image-tags.sh
 
+# Every Secret / key the pods reference is sealed in the instance's
+# secrets.yaml (MAIR-414). Blocking in Promote, --warn in CI.
+./scripts/check-instance-secrets.sh
+
+# Values files of an instance, in the instances AppSet's order
+# (clusters/_base/<env>.yaml, values.yaml, [secrets.yaml]): every render goes
+# through it.
+./scripts/instance-values.sh clusters/mairie360/instances/prod --secrets
+
 # End-to-end test of the Kubernetes layer on a throwaway Kind + Cilium cluster
 # (needs docker, kind, cilium CLI, chainsaw, jq; KEEP=1 keeps the cluster)
 tests/e2e/run.sh
@@ -70,10 +79,12 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
 `helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
 and `bootstrap/` → `scripts/check-image-tags.sh` → `helm unittest`, all
-blocking. `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
+blocking, plus `scripts/check-instance-secrets.sh --warn` (annotations only). `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
-(it calls `cicd.yaml` as a reusable workflow on the promoted commit).
+(it calls `cicd.yaml` as a reusable workflow on the promoted commit, and
+refuses to move the branch while `scripts/check-instance-secrets.sh` reports
+a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
 
 ## Architecture
 
@@ -115,6 +126,16 @@ describes desired state.
 | `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
 | `traefik-appset.yaml` | AppSet, clusters generator, multi-source | `traefik` chart 41.6.0 (v3.7.13), values `bootstrap/values/traefik.yaml` | instances labelled `mairie360.fr/ingress=traefik` |
 | `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
+| `projects.yaml` | AppProjects (wave -1) | `mairie360-platform` (the rows above) and `mairie360-instances` (the instances AppSet, ansible) | Argo CD machine |
+
+**AppProjects (MAIR-414).** Nothing but the root `platform` Application stays
+in `default`. `mairie360-platform` admits the add-ons' chart repositories and
+namespaces (cluster-scoped kinds allowed: CRDs, webhooks, RBAC);
+`mairie360-instances` admits this repository only, `mairie360-*` namespaces
+only, and no cluster-scoped kind but `Namespace` and the collector's
+`ClusterRole`/`ClusterRoleBinding`. A new add-on chart repository or
+namespace must be added to `bootstrap/appsets/projects.yaml`, or its
+Application is refused.
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
 Ansible sets it during `argocd cluster add`; the clusters generator selects on
@@ -186,7 +207,16 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   so Express skips in-cluster proxies (ingress, fronts) and BFF_user's
   per-IP rate limits see the browser. Change both together if the pod CIDR
   changes; never list a public range. An instance `env` entry
-  `TRUST_PROXY` replaces the injected one.
+  `TRUST_PROXY` replaces the injected one. The fronts of
+  `Fronts.trustIngressIpHeadersInstances` (`login-front`, the only one that
+  reads it) get `TRUST_INGRESS_IP_HEADERS=true` under the same condition
+  plus `global.networkPolicy.enabled` (the ingress must be the only way in),
+  or they would not relay the client IP to BFF_user at all (MAIR-414,
+  `tests/trust_ingress_headers_test.yaml`).
+- **BFFs get only what they read (MAIR-414).** No `DB_*` (no BFF has a
+  database), no `REDIS_*` (none reads Redis), and `JWT_SECRET` only for
+  `BFFs.jwtSecretInstances` (`user-bff`): any other BFF holding it could
+  forge an admin token.
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.
@@ -254,7 +284,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   the same way as the other per-instance secrets, but those AWS keys can't
   be generated — `scripts/seal-secrets.sh` only writes that Secret when
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are exported before calling
-  it, so a real bucket and key pair per instance is a manual, one-time infra
+  it or already sealed on the cluster (kept on re-runs), so a real bucket and key pair per instance is a manual, one-time infra
   step (`charts/backup/README.md`) that this repo's values files enabling
   `backup.enabled` don't perform by themselves — until it's done, the
   CronJob's pod sits in `CreateContainerConfigError` like any Secret-less
@@ -277,15 +307,14 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   rows before retention can prune them.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
-  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` /
-  `global.bffs.instances`) and starts `redis-server --aclfile`. The `default`
+  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances`; the
+  BFFs have no account since MAIR-414) and starts `redis-server --aclfile`. The `default`
   account is disabled; `admin` (Secret key `redis-password`) is for probes and
   `helm test`. Fronts have no Redis account — they never used it. `helm test`
   asserts that an unauthenticated `PING` is refused and that `admin` works.
   Each role is confined to `~<role>:*`, plus the **shared JWT revocation
   list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
-  `core-api`, read-only `%R~revoked:*` for every other API, nothing for the
-  BFFs. Because Redis now holds that list, `maxmemory-policy` is
+  `core-api`, read-only `%R~revoked:*` for every other API. Because Redis now holds that list, `maxmemory-policy` is
   **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
   TTL; `volatile-*` would even drop them first, they are the only keys with a
   TTL) and AOF is on (`config.appendonly`, survives container restarts;
@@ -294,7 +323,13 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@<release>-redis:6379`
   (Kubernetes expands `$(VAR)` from the variables listed before it).
 - `liquibase` is a Job with a **stable name**, declared as an Argo CD
-  `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`.
+  `Sync` hook at wave 1 with `hook-delete-policy: BeforeHookCreation`. Runs as
+  the image's `liquibase` user (1001) on a read-only root filesystem
+  (`/tmp` emptyDir), like `retention` (postgres, 70) and `backup` (70, restic
+  copied by an initContainer from the pinned `restic/restic` image instead
+  of an `apk add` at every run), MAIR-414. Every image the chart hardcodes
+  (busybox chown, `wait-for-db`, test pods) is now a pinned values entry
+  Renovate can bump.
 - **`observability` (MAIR-131, POC), off by default.** One OpenTelemetry
   Collector (`otel/opentelemetry-collector-k8s`) per instance, Service
   `<release>-otel-collector` (OTLP 4317/4318). It receives OTLP from the APIs
@@ -323,13 +358,17 @@ subchart renders, all named `<release>-keycloak*`:
 
 - **`<release>-keycloak`**: Deployment (1 replica, `Recreate`, `KC_CACHE=local`)
   + Service on 8080. Runs `start --import-realm` in production mode behind
-  ingress-nginx: `KC_HTTP_ENABLED=true`, `KC_PROXY_HEADERS=xforwarded`,
+  the ingress controller: `KC_HTTP_ENABLED=true`, `KC_PROXY_HEADERS=xforwarded`,
   `KC_HOSTNAME=https://<global.keycloak.hostname or auth.<global.domain>>`
   with `KC_HOSTNAME_STRICT=true`, so every URL it emits (issuer, redirects,
   admin console) is the public one whatever host the request came in on —
   a BFF calling the cluster Service sees the same issuer as the browser.
   Health probes hit the management port (9000, `KC_HEALTH_ENABLED`), which
-  is never exposed. Image pinned (`quay.io/keycloak/keycloak:26.x`): an
+  is never exposed. **The admin console is not exposed either (MAIR-414)**:
+  the Ingress routes only `keycloak.ingress.paths` (`/realms/`,
+  `/resources/`), and `KC_HOSTNAME_ADMIN` (`keycloak.adminUrl`,
+  `http://localhost:8080`) serves it through
+  `kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080`. Image pinned (`quay.io/keycloak/keycloak:26.x`): an
   upgrade migrates Keycloak's schema and cannot be rolled back.
 - **`<release>-keycloak-db`**: its own PostgreSQL StatefulSet (stock
   `postgres:17-alpine`, uid 70) + headless and client Services. Deliberately
@@ -369,7 +408,7 @@ subchart renders, all named `<release>-keycloak*`:
   test gets a `client_credentials` token for `bff-user` with the secret
   from the Secret (proves the placeholder substitution) and
   `network-policies` covers the new hops.
-- `scripts/verify.sh` step 4 expects the Secret, step 12 checks the realm is
+- `scripts/verify.sh` step 4 expects the Secret, step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
   served, step 13 the `auth.` certificate, step 15 that 8080/9000 are closed.
 - Not wired yet (MAIR-140/153): the BFFs and fronts get no `KEYCLOAK_*` env
   var; `global.keycloak.{hostname,realm}` exist so the BFFs chart can derive
@@ -384,8 +423,7 @@ add one.
 
 ```
 ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
-                                 │  └──────────► redis
-                                 └─────────────► redis
+                                    └──────────► redis
               liquibase job ──────────────────► postgres
               backup CronJob ─────────────────► postgres
               backup CronJob ─────────────────► keycloak-db   (MAIR-231)
@@ -421,12 +459,24 @@ No instance ships with the `Database` template admin account
 `<release>-database-secret` carries `ADMIN_EMAIL`/`ADMIN_PASSWORD` alongside
 `POSTGRES_*` and the per-API roles; `scripts/seal-secrets.sh` takes
 `ADMIN_EMAIL` from the env var of the same name (otherwise keeps the value
-already on the cluster, otherwise seals it empty and warns) and generates
-`ADMIN_PASSWORD` once, the first time it is sealed. The Liquibase Job passes
-both as changelog parameters (`-Dadmin_email` / `-Dadmin_password`), reading
-them through an **optional** `secretKeyRef` — an instance with neither key
-(e2e, local `helm install` with `database.secret.create=true`) leaves the
-changelog on its template admin credentials, same as no parameter at all.
+already on the cluster, otherwise **fails**, MAIR-414) and `ADMIN_PASSWORD`
+likewise, except that it generates it once. **The sealed `ADMIN_PASSWORD` is
+the argon2id PHC hash** (m=19456, t=2, p=1, `openssl kdf ARGON2ID` from
+OpenSSL 3.2 or the `argon2` CLI): Database's `create_admin.sql` stores it
+as-is and `chk_users_password_hashed` rejects anything else. The env var is
+the plaintext (an `$argon2id$` value is sealed unchanged); a password the
+script generates, or a plaintext sealed before MAIR-414 that it re-hashes,
+goes to `ADMIN_PASSWORD_FILE` (default `~/.mairie360/admin-<org>-<env>.txt`,
+mode 600), never to the cluster. The ansible role always passes both `ADMIN_PASSWORD` and
+`RESTIC_PASSWORD` in (resolved on its side, backed up to
+`~/.mairie360/admin-<org>-<env>.txt` / `restic-<org>-<env>.txt`), so the
+sealed value is the backed-up one. The Liquibase Job passes
+both as changelog parameters (`-Dadmin_email` / `-Dadmin_password`) and,
+since MAIR-414, **requires them** (`liquibase.adminAccount.required`): the
+`secretKeyRef`s are not optional, and the Job exits before migrating when
+`ADMIN_EMAIL` is empty or `ADMIN_PASSWORD` is not an argon2id hash. Only the
+e2e values turn it off, which leaves the changelog on its template admin
+credentials, same as no parameter at all.
 Unlike every other value in that Secret, **neither key is ever touched by
 `--rotate` or `--rotate-roles`**: the changelog only overwrites the admin
 account while it still carries the template credentials, so once the town
@@ -491,10 +541,22 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
 ### Values layout
 
 ```
+clusters/_base/<env>.yaml   # shared by every <env> instance of every group (prod only so far)
 clusters/<org>/instances/<env>/
   values.yaml     # what differs per instance: domain, image tags, sizes
   secrets.yaml    # GENERATED by scripts/seal-secrets.sh — never hand-edited
 ```
+
+**`clusters/_base/prod.yaml` (MAIR-414)** holds the versions and settings of
+every prod instance (mairie360's and the clients'); an instance's
+`values.yaml` only sets `global.domain`, `global.emailFrom`,
+`global.elearningBucket`, its backup bucket and Keycloak's sender. Helm
+replaces lists instead of merging them, so anything instance-specific inside
+an `env` list is a `global.*` value the base reads through `tpl`, never a
+copied list. The instances AppSet (ansible) passes the base first
+(`ignoreMissingValueFiles` covers dev/staging); every script, the CI and the
+unit tests go through `scripts/instance-values.sh` to do the same. Prod
+image tags therefore live in the base: bumping them moves every prod.
 
 `values.yaml` overrides only what changes; defaults live in
 `charts/mairie360-stack/values.yaml` and each subchart's `values.yaml`.
@@ -575,9 +637,8 @@ and maintaining a parallel Kind topology is what produced the earlier
   first sync does nothing on a running instance (the realm exists, Keycloak
   skips the import): change it in the admin console, or delete the realm and
   restart the pod. Same for the bootstrap admin password: sealed value read
-  on the first start only. Keycloak's own Postgres is not backed up by the
-  `backup` CronJob, and its admin console is reachable on
-  `https://auth.<domain>/admin/` (brute-force protection on, no IP allowlist).
+  on the first start only. Its admin console is only reachable through a
+  port-forward (MAIR-414, see the Keycloak section).
 - **`maxSurge: 0` with `replicaCount: 1` means downtime on every deploy** (old
   pod killed before the new one is ready). Deliberate on a small VM; it is not a
   rolling update.
@@ -590,7 +651,7 @@ and maintaining a parallel Kind topology is what produced the earlier
   Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
-  sync with `global.apis.instances` / `global.bffs.instances`; `DB_ROLES`
+  sync with `global.apis.instances` (APIs only since MAIR-414); `DB_ROLES`
   must be kept in sync with the shorter `global.database.roles` (both in
   `charts/mairie360-stack/values.yaml`) — add a role there and forget the
   script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)

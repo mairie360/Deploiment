@@ -19,14 +19,21 @@ spec:
         {{- include "liquibase.labels" . | nindent 8 }}
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.global.imagePullSecret }}
       imagePullSecrets:
         - name: {{ . }}
       {{- end }}
       initContainers:
         - name: wait-for-db
-          image: postgres:17-alpine
+          image: "{{ .Values.waitImage.repository }}:{{ .Values.waitImage.tag }}"
           imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             - name: DB_HOST
               value: {{ printf "%s-database" .Release.Name | quote }}
@@ -49,7 +56,14 @@ spec:
           image: "{{ .Values.image.repository }}:{{ required "liquibase.image.tag est obligatoire (pas de :latest)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           workingDir: /migrations
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
           env:
+            # No usage report to liquibase.com from inside the cluster.
+            - name: LIQUIBASE_ANALYTICS_ENABLED
+              value: "false"
             - name: LIQUIBASE_COMMAND_URL
               value: {{ printf "jdbc:postgresql://%s-database:%s/%s" .Release.Name (toString .Values.db.port) .Values.db.name | quote }}
             - name: LIQUIBASE_COMMAND_USERNAME
@@ -73,22 +87,26 @@ spec:
                   key: {{ include "liquibase.rolePasswordKey" $role }}
             {{- end }}
             # MAIR-170: the admin account (users.id = 1) e-mail/password.
-            # Optional: an instance whose database-secret carries neither key
-            # (e2e, local) leaves the changelog parameters empty, and the
-            # changelog keeps its template values — same as running it with
-            # no parameters at all.
+            # MAIR-414: required unless adminAccount.required is false (e2e,
+            # local): without them the changelog seeds the template admin
+            # account, whose credentials are public.
+            {{- $optional := not .Values.adminAccount.required }}
             - name: ADMIN_EMAIL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "liquibase.dbSecretName" . }}
                   key: ADMIN_EMAIL
+                  {{- if $optional }}
                   optional: true
+                  {{- end }}
             - name: ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "liquibase.dbSecretName" . }}
                   key: ADMIN_PASSWORD
+                  {{- if $optional }}
                   optional: true
+                  {{- end }}
           # Per-role passwords are passed as Liquibase changelog parameters
           # (-D<role>_password) so the changelog can CREATE ROLE ... PASSWORD
           # :role_password without the values ever appearing in the chart.
@@ -99,6 +117,16 @@ spec:
           command: ["sh", "-c"]
           args:
             - |
+              {{- if .Values.adminAccount.required }}
+              # MAIR-414: a key present but empty passes the secretKeyRef, and
+              # a plaintext password breaks chk_users_password_hashed halfway
+              # through the migration: refuse both before touching the schema.
+              [ -n "$ADMIN_EMAIL" ] || { echo "ADMIN_EMAIL is empty in the database secret: re-run scripts/seal-secrets.sh with ADMIN_EMAIL" >&2; exit 1; }
+              case "$ADMIN_PASSWORD" in
+                '$argon2id$'*) ;;
+                *) echo "ADMIN_PASSWORD is not an argon2id hash: re-run scripts/seal-secrets.sh (MAIR-414)" >&2; exit 1 ;;
+              esac
+              {{- end }}
               exec liquibase --changelog-file={{ .Values.changelogFile }} update
                 {{- range $role := ($g.database | default dict).roles | default list }} \
                 -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}"
@@ -107,3 +135,6 @@ spec:
                 -Dadmin_password="$ADMIN_PASSWORD"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }

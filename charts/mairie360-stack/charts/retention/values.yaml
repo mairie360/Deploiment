@@ -14,7 +14,8 @@ enabled: true
 
 image:
   repository: postgres
-  tag: "18-alpine"
+  # Exact minor (MAIR-414), bumped by Renovate.
+  tag: "18.6-alpine"
   pullPolicy: IfNotPresent
 
 # Daily, after the backup CronJob's default 03:00 run: a dump always has

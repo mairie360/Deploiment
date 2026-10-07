@@ -25,18 +25,28 @@ spec:
             {{- include "backup.podLabels" . | nindent 12 }}
         spec:
           restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "backup.podSecurityContext" . | nindent 12 }}
           {{- with .Values.global.imagePullSecret }}
           imagePullSecrets:
             - name: {{ . }}
           {{- end }}
+          initContainers:
+            {{- include "backup.resticInit" . | nindent 12 }}
           containers:
             - name: backup
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- include "backup.containerSecurityContext" . | nindent 16 }}
               env:
                 {{- include "backup.env" . | nindent 16 }}
-              # restic isn't in the postgres:alpine image, so it's installed
-              # at Job start (see charts/backup/values.yaml resticVersion).
+                {{- include "backup.workEnv" . | nindent 16 }}
+              volumeMounts:
+                {{- include "backup.workMounts" . | nindent 16 }}
+              # restic isn't in the postgres:alpine image: the initContainer
+              # copies it from restic's pinned image (MAIR-414).
               # A stable dump filename lets `restic dump <snapshot> <path>`
               # in the restore Job address it without listing the snapshot's
               # contents first; restic's own content-defined chunking still
@@ -45,7 +55,6 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  apk add --no-cache {{ .Values.resticVersion }} >/dev/null
                   restic snapshots --host "$PGDATABASE" >/dev/null 2>&1 || restic init
                   pg_dump -Fc "$PGDATABASE" \
                     | restic backup --stdin --stdin-filename "${PGDATABASE}.dump" --host "$PGDATABASE" --tag scheduled
@@ -70,4 +79,6 @@ spec:
                   restic check --read-data-subset=5%
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
+          volumes:
+            {{- include "backup.workVolumes" . | nindent 12 }}
 {{- end }}

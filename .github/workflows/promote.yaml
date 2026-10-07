@@ -138,6 +138,33 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+  secrets:
+    name: Check the target's sealed secrets
+    needs: resolve
+    # A rollback goes back to a commit that already ran on this environment.
+    if: needs.resolve.outputs.changed == 'true' && !inputs.rollback
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
+
+      # MAIR-414: staging and prod were promoted with backup and Keycloak
+      # enabled but neither Secret sealed, and without ADMIN_*: refuse to
+      # move the branch until secrets.yaml provides everything the pods need.
+      - name: Every referenced Secret is sealed
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          helm dependency build ./charts/mairie360-stack
+          ./scripts/check-instance-secrets.sh clusters/*/instances/"$TARGET"
+
   validate:
     name: Validate the commit
     needs: resolve
@@ -149,8 +176,8 @@ jobs:
 
   promote:
     name: Advance the branch
-    needs: [resolve, validate]
-    if: ${{ !cancelled() && needs.resolve.outputs.changed == 'true' && needs.validate.result != 'failure' }}
+    needs: [resolve, secrets, validate]
+    if: ${{ !cancelled() && needs.resolve.outputs.changed == 'true' && needs.validate.result != 'failure' && needs.secrets.result != 'failure' }}
     runs-on: ubuntu-latest
     # Create `promote-prod` in the repo settings with required reviewers: that
     # is the human approval before prod moves.

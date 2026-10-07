@@ -51,6 +51,7 @@ spec:
             {{- include "fronts.commonEnv" $ | nindent 12 }}
             - name: PORT
               value: {{ $port | quote }}
+            {{- include "fronts.trustIngressIpHeaders" (dict "root" $ "name" $frontName "config" $frontConfig) | nindent 12 }}
             {{- with $frontConfig.env }}
             {{- tpl (toYaml .) $ | nindent 12 }}
             {{- end }}

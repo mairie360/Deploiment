@@ -46,7 +46,9 @@ if [ -n "${INSTANCE:-}" ]; then
   # On a real instance the database name comes from the sealed Secret, which
   # scripts/seal-secrets.sh builds as mairie_db_<env> — the same rule has to
   # apply here, or Liquibase connects to a database that does not exist.
-  VALUES=(-f "$INSTANCE_VALUES" -f "$HERE/values-real.yaml"
+  VALUES=()
+  while IFS= read -r f; do VALUES+=(-f "$f"); done < <("$ROOT/scripts/instance-values.sh" "$(dirname "$INSTANCE_VALUES")")
+  VALUES+=(-f "$HERE/values-real.yaml"
           --set "database.env.POSTGRES_DB=mairie_db_${ENV}")
   INSTALL_TIMEOUT=20m
 else

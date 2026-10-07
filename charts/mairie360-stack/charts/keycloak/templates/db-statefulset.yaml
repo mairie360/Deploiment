@@ -31,10 +31,24 @@ spec:
       {{- if .Values.db.initChown.enabled }}
       initContainers:
         - name: init-permissions
-          image: busybox:1.36
-          command: ["sh", "-c", "chown -R 70:70 /var/lib/postgresql/data"]
+          image: "{{ .Values.db.initChown.image.repository }}:{{ .Values.db.initChown.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          # Root only for the chown (MAIR-414): no other capability, read-only
+          # root filesystem, and nothing to do once the volume is owned.
+          command:
+            - sh
+            - -c
+            - '[ "$(stat -c %u:%g /var/lib/postgresql/data)" = "70:70" ] || chown -R 70:70 /var/lib/postgresql/data'
           securityContext:
             runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_READ_SEARCH"]
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

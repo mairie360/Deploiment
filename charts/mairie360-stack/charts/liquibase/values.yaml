@@ -18,14 +18,40 @@ image:
   tag: ""
   pullPolicy: Always
 
+# pg_isready for the wait-for-db initContainer. Pinned (MAIR-414).
+waitImage:
+  repository: postgres
+  tag: "18.6-alpine"
+
 db:
   port: 5432
   name: "mairie_db"
 
 changelogFile: "changelog.xml"
+
+# MAIR-414: ADMIN_EMAIL / ADMIN_PASSWORD (argon2id hash) must be in the
+# database secret, or the Job fails before migrating. Only the e2e and a local
+# `helm install` turn it off, to keep the Database template admin account.
+adminAccount:
+  required: true
 backoffLimit: 3
 # Le Job terminé est nettoyé automatiquement (utile hors ArgoCD).
 ttlSecondsAfterFinished: 3600
+
+# MAIR-414: uid 1001 is the `liquibase` user of liquibase/liquibase, the base
+# of ghcr.io/mairie360/liquibase-migrations; the JVM only writes to /tmp
+# (emptyDir). pg_isready in the initContainer runs under the same uid.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
 
 resources:
   requests: { memory: "128Mi", cpu: "100m" }

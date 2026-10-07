@@ -2,6 +2,10 @@
 Dedicated Ingress of Keycloak (MAIR-139): https://auth.<domain>, the only
 thing exposed besides the fronts. Its own TLS Secret and certificate — one
 more HTTP-01 challenge per instance, on top of the fronts' 8.
+Only `keycloak.ingress.paths` are routed (MAIR-414): the realms (login
+pages, OIDC endpoints, account console) and their static resources. The
+admin console (/admin) is not exposed: it is reached through
+`kubectl port-forward`, see charts/keycloak/values.yaml `adminUrl`.
 Class, ClusterIssuer and annotations are the fronts' (`ingress.*`), plus
 `keycloak.ingress.annotations` (proxy buffer size, see values.yaml), all
 through the controller-agnostic helpers of templates/_helpers.tpl (MAIR-260).
@@ -31,11 +35,13 @@ spec:
     - host: {{ $host | quote }}
       http:
         paths:
-          - path: /
+          {{- range (required "keycloak.ingress.paths must list what auth.<domain> exposes" .Values.keycloak.ingress.paths) }}
+          - path: {{ . | quote }}
             pathType: Prefix
             backend:
               service:
-                name: {{ printf "%s-keycloak" .Release.Name }}
+                name: {{ printf "%s-keycloak" $.Release.Name }}
                 port:
                   number: 8080
+          {{- end }}
 {{- end }}

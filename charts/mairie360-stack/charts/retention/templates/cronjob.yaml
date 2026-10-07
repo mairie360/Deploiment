@@ -25,6 +25,14 @@ spec:
             {{- include "retention.podLabels" . | nindent 12 }}
         spec:
           restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          # MAIR-414: psql as the image's postgres user (uid 70), nothing written.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
           {{- with .Values.global.imagePullSecret }}
           imagePullSecrets:
             - name: {{ . }}
@@ -33,6 +41,11 @@ spec:
             - name: retention
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
               env:
                 {{- include "retention.env" . | nindent 16 }}
               # fn_apply_retention_policies() creates the next access_logs

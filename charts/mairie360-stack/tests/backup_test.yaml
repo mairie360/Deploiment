@@ -181,3 +181,35 @@ tests:
   # The database/keycloak-db NetworkPolicies' admission of the backup
   # component is covered by tests/network_policy_test.yaml, alongside the
   # rest of the ingress/fronts/bffs/apis/data chain it asserts on.
+
+  - it: "MAIR-414: the backup runs as uid 70 on a read-only root filesystem, restic from its pinned image"
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsUser
+          value: 70
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[0].image
+          value: restic/restic:0.18.1
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'apk add'
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          pattern: ':\d+-alpine$'
+
+  - it: "MAIR-414: the restore is all-or-nothing"
+    set:
+      backup:
+        restore: { enabled: true, snapshotId: "abcd1234" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'pg_restore .*--single-transaction --exit-on-error'
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 70
