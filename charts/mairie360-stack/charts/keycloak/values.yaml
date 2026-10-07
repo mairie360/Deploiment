@@ -126,7 +126,7 @@ db:
     # Pinned (MAIR-414), bumped by Renovate.
     image:
       repository: busybox
-      tag: "1.37.0"
+      tag: "1.38.0"
   resources:
     requests: { memory: "64Mi", cpu: "50m" }
     limits:   { memory: "256Mi", cpu: "500m" }
