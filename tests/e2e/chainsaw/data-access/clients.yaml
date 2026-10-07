@@ -26,17 +26,13 @@ spec:
             secretKeyRef:
               name: (join('-', [$release, 'redis']))
               key: redis-password
-        # MAIR-264: the revocation list checks use a reader API and a BFF.
+        # MAIR-264: the revocation list checks use a reader API. BFFs have no
+        # Redis account since MAIR-414, so there is no BFF password to read.
         - name: PROJECT_API_PASSWORD
           valueFrom:
             secretKeyRef:
               name: (join('-', [$release, 'redis']))
               key: project-api-password
-        - name: USER_BFF_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: (join('-', [$release, 'redis']))
-              key: user-bff-password
         # Same construction as the APIs chart: REDIS_URL carries the role's
         # credentials through Kubernetes $(VAR) expansion.
         - name: REDIS_USERNAME
