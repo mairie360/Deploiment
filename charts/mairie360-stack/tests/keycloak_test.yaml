@@ -15,7 +15,7 @@ tests:
       - equal: { path: spec.strategy.type, value: Recreate }
       - equal:
           path: spec.template.spec.containers[0].image
-          value: quay.io/keycloak/keycloak:26.7.4
+          value: quay.io/keycloak/keycloak:26.8.0
       - equal:
           path: spec.template.spec.containers[0].args
           value: ["start", "--import-realm"]
