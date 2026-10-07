@@ -26,7 +26,7 @@ image:
 restic:
   image:
     repository: restic/restic
-    tag: "0.18.1"
+    tag: "0.19.1"
 
 # Standard cron expression, evaluated in the cluster's timezone (UTC).
 schedule: "0 3 * * *"
