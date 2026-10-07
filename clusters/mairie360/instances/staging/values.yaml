@@ -42,7 +42,7 @@ ingress:
 
 database:
   image:
-    tag: "staging-0aaede5"
+    tag: "staging-a6e1caa"
   secret:
     create: false
   persistence:
@@ -55,7 +55,7 @@ redis:
 
 liquibase:
   image:
-    tag: "staging-0aaede5"
+    tag: "staging-a6e1caa"
   db:
     name: "mairie_db_staging"
 
