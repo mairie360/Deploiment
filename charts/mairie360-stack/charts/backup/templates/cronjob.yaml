@@ -34,6 +34,40 @@ spec:
           {{- end }}
           initContainers:
             {{- include "backup.resticInit" . | nindent 12 }}
+            {{- if .Values.sealing.enabled }}
+            # MAIR-500: throwaway copy of the live database, sealed per user
+            # before anything reaches restic. The live database is only read.
+            {{- include "backup.scratchDb" . | nindent 12 }}
+            {{- include "backup.inventoryInit" . | nindent 12 }}
+            - name: copy
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- include "backup.containerSecurityContext" . | nindent 16 }}
+              env:
+                {{- include "backup.env" . | nindent 16 }}
+                {{- include "backup.workEnv" . | nindent 16 }}
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  createdb -h 127.0.0.1 -U postgres copy
+                  pg_dump -Fc "$PGDATABASE" \
+                    | pg_restore --no-owner --no-acl --exit-on-error -h 127.0.0.1 -U postgres -d copy
+              volumeMounts:
+                {{- include "backup.workMounts" . | nindent 16 }}
+            - name: seal
+              image: {{ include "backup.complianceImage" . }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                {{- include "backup.containerSecurityContext" . | nindent 16 }}
+              env:
+                {{- include "backup.keyManagerEnv" . | nindent 16 }}
+              command: ["/app/compliance-backup", "seal", "postgres://postgres@127.0.0.1:5432/copy", "/inventory/inventory.yaml", "/work"]
+              volumeMounts:
+                - { name: inventory, mountPath: /inventory, readOnly: true }
+                - { name: work, mountPath: /work }
+            {{- end }}
           containers:
             - name: backup
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -45,6 +79,9 @@ spec:
                 {{- include "backup.workEnv" . | nindent 16 }}
               volumeMounts:
                 {{- include "backup.workMounts" . | nindent 16 }}
+                {{- if .Values.sealing.enabled }}
+                - { name: work, mountPath: /work }
+                {{- end }}
               # restic isn't in the postgres:alpine image: the initContainer
               # copies it from restic's pinned image (MAIR-414).
               # A stable dump filename lets `restic dump <snapshot> <path>`
@@ -56,8 +93,16 @@ spec:
                 - |
                   set -euo pipefail
                   restic snapshots --host "$PGDATABASE" >/dev/null 2>&1 || restic init
+                  {{- if .Values.sealing.enabled }}
+                  # MAIR-500: the dump of the sealed copy and the sealed users
+                  # (users/<id>.json, keys wrapped by Key Manager) as ONE
+                  # snapshot, so a restore always gets the matching pair.
+                  pg_dump -Fc -h 127.0.0.1 -U postgres copy > "/work/${PGDATABASE}.dump"
+                  cd /work && restic backup . --host "$PGDATABASE" --tag scheduled --tag sealed
+                  {{- else }}
                   pg_dump -Fc "$PGDATABASE" \
                     | restic backup --stdin --stdin-filename "${PGDATABASE}.dump" --host "$PGDATABASE" --tag scheduled
+                  {{- end }}
                   restic forget --host "$PGDATABASE" \
                     --keep-daily {{ .Values.retention.keepDaily }} \
                     --keep-weekly {{ .Values.retention.keepWeekly }} \
@@ -81,4 +126,7 @@ spec:
                 {{- toYaml .Values.resources | nindent 16 }}
           volumes:
             {{- include "backup.workVolumes" . | nindent 12 }}
+            {{- if .Values.sealing.enabled }}
+            {{- include "backup.sealVolumes" . | nindent 12 }}
+            {{- end }}
 {{- end }}

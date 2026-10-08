@@ -27,7 +27,13 @@ spec:
       {{- end }}
       initContainers:
         {{- include "backup.resticInit" . | nindent 8 }}
+      {{- if .Values.sealing.enabled }}
+        # MAIR-500: restore the sealed dump first (initContainer), then unseal
+        # (main container below): users whose key still exists come back,
+        # erased ones stay anonymized.
+      {{- else }}
       containers:
+      {{- end }}
         - name: restore
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -35,6 +41,9 @@ spec:
             {{- include "backup.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "backup.workMounts" . | nindent 12 }}
+            {{- if .Values.sealing.enabled }}
+            - { name: work, mountPath: /work }
+            {{- end }}
           env:
             {{- include "backup.env" . | nindent 12 }}
             {{- include "backup.workEnv" . | nindent 12 }}
@@ -51,10 +60,35 @@ spec:
           args:
             - |
               set -euo pipefail
+              {{- if .Values.sealing.enabled }}
+              restic restore --host "$PGDATABASE" "$SNAPSHOT_ID" --target /work
+              pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error --dbname="$PGDATABASE" "/work/${PGDATABASE}.dump"
+              {{- else }}
               restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" \
                 | pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error --dbname="$PGDATABASE"
+              {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.sealing.enabled }}
+      containers:
+        - name: unseal
+          image: {{ include "backup.complianceImage" . }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- include "backup.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "backup.env" . | nindent 12 }}
+            {{- include "backup.keyManagerEnv" . | nindent 12 }}
+          # `env`: the connection comes from the PG* variables, no password on a command line.
+          command: ["/app/compliance-backup", "unseal", "env", "/work"]
+          volumeMounts:
+            - { name: work, mountPath: /work, readOnly: true }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- end }}
       volumes:
         {{- include "backup.workVolumes" . | nindent 8 }}
+        {{- if .Values.sealing.enabled }}
+        {{- include "backup.sealVolumes" . | nindent 8 }}
+        {{- end }}
 {{- end }}

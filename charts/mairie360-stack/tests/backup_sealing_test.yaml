@@ -1,0 +1,104 @@
+# MAIR-500: backups sealed with a key per user (crypto-shredding).
+suite: backup sealing (MAIR-500)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  backup:
+    enabled: true
+    s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+    sealing:
+      enabled: true
+      image: { tag: "1.2.0" }
+      inventoryImage: { tag: "3.0.1" }
+  global:
+    compliance:
+      keyManager: { projectId: "project-123", region: "fr-par" }
+tests:
+  - it: is off by default and then streams the live dump to restic as before
+    set:
+      backup: { sealing: { enabled: false } }
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+          content: { name: seal }
+          any: true
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'pg_dump -Fc "\$PGDATABASE" \\\n *\| restic backup --stdin'
+
+  - it: seals a throwaway copy before restic, never the live database
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[1].name
+          value: scratch-db
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[1].restartPolicy
+          value: Always
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.initContainers[1].args
+          content: listen_addresses=127.0.0.1
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[2].image
+          value: ghcr.io/mairie360/liquibase-migrations:3.0.1
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.initContainers[3].args[0]
+          pattern: 'pg_restore --no-owner --no-acl --exit-on-error -h 127.0.0.1 -U postgres -d copy'
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[4].command
+          value: ["/app/compliance-backup", "seal", "postgres://postgres@127.0.0.1:5432/copy", "/inventory/inventory.yaml", "/work"]
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers[4].image
+          value: ghcr.io/mairie360/compliance-api:1.2.0
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.initContainers[4].env
+          content:
+            name: SCW_SECRET_KEY
+            valueFrom: { secretKeyRef: { name: RELEASE-NAME-backup-secret, key: SCW_SECRET_KEY } }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'pg_dump -Fc -h 127.0.0.1 -U postgres copy > "/work/\$\{PGDATABASE\}.dump"\n *cd /work && restic backup \. --host "\$PGDATABASE" --tag scheduled --tag sealed'
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'pg_dump -Fc "\$PGDATABASE"'
+
+  - it: the restore unseals after pg_restore, with the connection from the PG variables
+    set:
+      backup: { restore: { enabled: true, snapshotId: "latest" } }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: restore
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].args[0]
+          pattern: 'restic restore --host "\$PGDATABASE" "\$SNAPSHOT_ID" --target /work'
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["/app/compliance-backup", "unseal", "env", "/work"]
+
+  - it: needs the image tags and the Key Manager project
+    set:
+      backup: { sealing: { image: { tag: "" } } }
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup.sealing.image.tag is required"
+
+  - it: compliance-api destroys the user's key at erasure when the Key Manager is configured
+    set:
+      global:
+        compliance: { enabled: true, keyManager: { projectId: "project-123" } }
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+    template: charts/APIs/templates/deployment.yaml
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-compliance-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SCW_DEFAULT_PROJECT_ID, value: project-123 }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SCW_SECRET_KEY
+            valueFrom: { secretKeyRef: { name: RELEASE-NAME-compliance-secret, key: SCW_SECRET_KEY, optional: true } }
