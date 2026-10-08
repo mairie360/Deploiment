@@ -86,6 +86,17 @@ end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 refuses to move the branch while `scripts/check-instance-secrets.sh` reports
 a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
 
+## GDPR decisions (`compliance/`, MAIR-294)
+
+`compliance/<org>/` holds a mairie's GDPR decisions (`register.yaml`, `retention.yaml`,
+`subprocessors.yaml`, `access.yaml`, `deadlines.yaml`, see `compliance/README.md`); every org of
+`clusters/` needs one. `scripts/check-compliance.py` (CI, after the renders; tests in
+`tests/compliance/`) renders each instance of `retention.yaml`'s `applies_to` and fails when the
+retention CronJob's periods (`retention.policies`, written into `retention_policies` before every
+purge), the backup retention, an external host or an egress CIDR does not follow the decisions, or
+when the register is incomplete; decisions without `validated: {date, by}` are warnings
+(`--strict` makes them fail). A period changes in the decision file and in the values together.
+
 ## Architecture
 
 ### Topology: one Argo CD + one Mairie360 instance per machine

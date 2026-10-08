@@ -1,0 +1,40 @@
+# Retention periods decided by the mairie (MAIR-294, epic MAIR-284). scripts/check-compliance.py
+# renders every instance listed in `applies_to` and fails when its configuration differs.
+# Format of a period: "<n> day(s)|month(s)|year(s)". A decision without `validated` is a proposal
+# of Mairie 360, reported as pending until the mairie validates it (date and author).
+version: 1
+applies_to: [prod]
+
+# Technical logs (container and machine logs): 1 year by default, the mairie may only shorten it.
+# They hold no personal data once IP addresses are handled (decision below); enforced on the
+# machines by Devops/ansible (MAIR-293).
+technical_logs:
+  period: "1 year"
+  maximum: "1 year"
+  validated: null
+
+# Security logs (access_logs, connection_logs): the mairie fixes the period.
+# IP addresses in the request and security logs are kept for security (decision of
+# 2026-10-08): they are removed by the per-instance compliance scanner to come and/or encrypted
+# in the backups.
+security_logs:
+  ip_addresses: kept for security, removed by the per-instance compliance scanner to come and/or encrypted in backups
+  validated: null
+
+# One entry per row of Devops/Database retention_policies, applied by the retention CronJob
+# (chart value retention.policies).
+tables:
+  sessions: {period: "6 months", validated: null}
+  connection_logs: {period: "1 year", validated: null}
+  access_logs: {period: "3 years", validated: null}
+  users_audit_log: {period: "10 years", validated: null}
+
+# Accounts archived longer than this are anonymized automatically (MAIR-289).
+archived_accounts_anonymization: {period: "1 year", validated: null}
+
+# Encrypted database backups (restic forget, chart value backup.retention).
+backups:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+  validated: null
