@@ -55,3 +55,49 @@ resources:
 memoryLimiter:
   limitPercentage: 80
   spikeLimitPercentage: 20
+
+# Span attributes the collector lets through (MAIR-501): actions only, never who did them nor what
+# they sent (no user id, e-mail, name, query string, body, client address, user agent). Every
+# other attribute of a span is dropped before the export. Same list as
+# mairie360_api_lib::usage::ALLOWED_SPAN_ATTRIBUTES and bffs-lib's TELEMETRY_ATTRIBUTES.
+spanAttributesAllowlist:
+  - http.request.method
+  - http.method
+  - http.route
+  - http.response.status_code
+  - http.status_code
+  - url.template
+  - url.scheme
+  - server.address
+  - server.port
+  - network.protocol.version
+  - error.type
+  - express.name
+  - express.type
+  - otel.name
+  - otel.kind
+  - otel.status_code
+
+# Usage ledger of the mairie (MAIR-501). The APIs and BFFs count their usage per operation and
+# period without any identifier (distinct users from a hash salted per period, never exported)
+# and serve the closed periods on /internal/usage; the collector scrapes them and drops any count
+# under `threshold` again before the export. Off by default.
+usage:
+  enabled: false
+  path: /internal/usage
+  scrapeInterval: "5m"
+  # Services whose /internal/usage is scraped: <release>-<name>:<port>.
+  services: []
+  #  - { name: core-api, port: 3000 }
+  #  - { name: user-bff, port: 4000 }
+  # Minimum count exported (k): a smaller count could point at an agent of a small mairie.
+  threshold: 5
+  # The ledger always goes to the instance's own Cockpit metrics; `export` also sends it to
+  # Mairie 360 (statistics per mairie and per service). The endpoint's host must be declared in
+  # compliance/<org>/subprocessors.yaml (scripts/check-compliance.py fails otherwise).
+  export:
+    enabled: false
+    # Full OTLP/HTTP metrics URL of Mairie 360's statistics collector.
+    endpoint: ""
+    # Label of this mairie in Mairie 360's statistics (no personal data: an organisation).
+    mairie: ""

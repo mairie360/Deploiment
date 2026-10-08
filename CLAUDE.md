@@ -97,6 +97,20 @@ purge), the backup retention, an external host or an egress CIDR does not follow
 when the register is incomplete; decisions without `validated: {date, by}` are warnings
 (`--strict` makes them fail). A period changes in the decision file and in the values together.
 
+## Usage telemetry (`observability.usage`, MAIR-501)
+
+The collector keeps only `observability.spanAttributesAllowlist` on every span
+(`transform/span-allowlist`, `keep_keys(span.attributes, …)`), so traces carry actions, never a
+user id, query string, body, client address or user agent. With `observability.usage.enabled`, it
+also scrapes `/internal/usage` of the services listed in `observability.usage.services`
+(`<release>-<name>:<port>`; the APIs/BFFs serve their usage ledger there, `mairie360_api_lib::usage`
+/ bffs-lib), keeps only the ledger series and their labels, drops counts under
+`observability.usage.threshold` again (`filter/usage-threshold`) and exports the ledger to the
+instance's Cockpit metrics, plus Mairie 360 when `observability.usage.export` is enabled (endpoint
+required, host to declare in `compliance/<org>/subprocessors.yaml`). The network policy
+`…-usage-scrape` lets only the collector reach those ports. Validate a config change with
+`docker run otel/opentelemetry-collector-k8s:<tag> validate --config=…` (kubeletstats off).
+
 ## Architecture
 
 ### Topology: one Argo CD + one Mairie360 instance per machine
