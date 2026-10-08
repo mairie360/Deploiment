@@ -22,3 +22,9 @@ per-instance compliance scanner to come removes them and/or backups encrypt them
 
 Run locally: `python3 -m unittest discover -s tests/compliance && ./scripts/check-compliance.py`
 (`--strict`: pending validations fail too).
+
+Usage statistics (MAIR-501): the collector's usage ledger (`observability.usage`) only holds counts
+(actions, distinct users counted from hashes salted per period, never exported) at or above the
+threshold. Exporting it to Mairie 360 (`observability.usage.export`) sends it to the processor
+itself: its endpoint host must still be listed in `subprocessors.yaml` (as "Mairie 360 (usage
+statistics)") before the export is enabled, or `check-compliance.py` fails on the undeclared host.

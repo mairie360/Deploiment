@@ -49,3 +49,10 @@ processings:
     retention: retention.yaml (backups)
     subprocessors: [Scaleway]
     validated: null
+  - id: usage_statistics
+    purpose: aggregated usage statistics of the platform (actions, distinct users, latency per operation and period) to optimize it (MAIR-501)
+    legal_basis: legitimate interest of the processor in operating the platform, without identification (counts only)
+    data: [identifier]
+    retention: "user ids hashed in memory with a salt renewed every period, dropped at its close; only counts at or above the threshold are kept and exported"
+    subprocessors: [Scaleway Cockpit]
+    validated: null
