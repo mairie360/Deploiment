@@ -305,6 +305,12 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
+  `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
+  copy of the live dump, `compliance-backup seal` (Compliance_API image) moves each user's personal
+  values into blobs encrypted under a data key wrapped by the user's key in Scaleway Key Manager
+  (`global.compliance.keyManager`), and restic backs up the sealed dump and the blobs as one
+  snapshot; the restore Job unseals after `pg_restore` (erased users stay anonymized). Erasure =
+  compliance-api destroys the key; no backup is ever modified. See `charts/backup/README.md`.
 - **`retention` (MAIR-236), on by default.** A daily CronJob running
   `SELECT * FROM fn_apply_retention_policies()`, which itself creates the
   next few months of `access_logs` partitions

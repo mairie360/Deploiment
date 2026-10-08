@@ -240,5 +240,15 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 - name: S3_SECRET_ACCESS_KEY
   valueFrom:
     secretKeyRef: { name: {{ $secret }}, key: S3_SECRET_ACCESS_KEY, optional: true }
+{{- with ($c.keyManager).projectId }}
+# MAIR-500: destroys the user's backup key at erasure.
+- name: SCW_DEFAULT_PROJECT_ID
+  value: {{ . | quote }}
+- name: SCW_REGION
+  value: {{ ($c.keyManager).region | default "fr-par" | quote }}
+- name: SCW_SECRET_KEY
+  valueFrom:
+    secretKeyRef: { name: {{ $secret }}, key: SCW_SECRET_KEY, optional: true }
+{{- end }}
 {{- end }}
 {{- end -}}

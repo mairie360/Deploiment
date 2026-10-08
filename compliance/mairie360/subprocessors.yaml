@@ -6,9 +6,9 @@
 version: 1
 subprocessors:
   - name: Scaleway
-    purpose: hosting of the encrypted database backups and of the e-learning attachments (Object Storage)
+    purpose: hosting of the encrypted database backups and of the e-learning attachments (Object Storage), per-user backup keys (Key Manager, MAIR-500)
     location: France (fr-par)
-    hosts: [s3.fr-par.scw.cloud]
+    hosts: [s3.fr-par.scw.cloud, api.scaleway.com]
     cidrs: []
     validated: null
   - name: Scaleway Cockpit

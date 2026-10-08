@@ -79,6 +79,37 @@ env:
   # Losing this is unrecoverable: every existing backup becomes unreadable.
   # Keep it outside the cluster too, like the sealed-secrets sealing key.
   RESTIC_PASSWORD: ""
+  # MAIR-500 (sealing.enabled): Scaleway Key Manager API key.
+  SCW_SECRET_KEY: ""
+
+# MAIR-500: backups sealed with a key per user ("crypto-shredding"). Off by
+# default. On, the Job restores the live dump into a throwaway Postgres of its
+# own (native sidecar `scratch-db`, emptyDir), `compliance-backup seal`
+# (mairie360/Compliance_API image) moves each user's personal values (per the
+# Database inventory) into blobs encrypted with a data key of that user,
+# wrapped by the user's key in Scaleway Key Manager, and scrubs them from the
+# copy; restic then backs up the dump of the copy and the blobs as ONE snapshot
+# (directory /work: <db>.dump + users/). The live database is never touched.
+# Erasing a user destroys their key (compliance-api): their data becomes
+# unreadable in every old backup, none of which is modified. The restore Job
+# runs `compliance-backup unseal` after pg_restore: users whose key exists come
+# back, erased ones stay anonymized.
+# Needs: SCW_SECRET_KEY in <release>-backup-secret (scripts/seal-secrets.sh,
+# BACKUP_SCW_SECRET_KEY), global.compliance.keyManager.projectId, and the image
+# tags below. The inventory comes from the liquibase-migrations image of the
+# deployed schema (/gdpr/inventory.yaml, Devops/Database): use the same tag as
+# liquibase.image.tag.
+sealing:
+  enabled: false
+  image:
+    repository: ghcr.io/mairie360/compliance-api
+    tag: ""
+  inventoryImage:
+    repository: ghcr.io/mairie360/liquibase-migrations
+    tag: ""
+  # Size of the throwaway copy (Postgres data directory) and of the work dir.
+  scratchSize: 4Gi
+  workSize: 4Gi
 
 resources:
   requests: { memory: "128Mi", cpu: "100m" }

@@ -33,6 +33,11 @@
 #                   stores course attachments there). When unset, the values
 #                   already present on the cluster are kept; with neither, the
 #                   keys are sealed empty and elearning-api will not start.
+#   BACKUP_SCW_SECRET_KEY  Scaleway Key Manager API key of the sealed backups
+#                   (MAIR-500, backup.sealing): create keys, generate and decrypt
+#                   data keys. COMPLIANCE_SCW_SECRET_KEY: the one compliance-api
+#                   uses to destroy a user's key at erasure. Kept from the
+#                   cluster when unset.
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  backup bucket key pair (MAIR-119),
 #                   see below. When unset, the pair already on the cluster is
 #                   kept; with neither, <env>-backup-secret is not sealed.
@@ -334,7 +339,7 @@ fi
 # MAIR-498: erasure credentials of the compliance service, issued elsewhere
 # (Keycloak admin console, Resend, Object Storage): never generated, kept from
 # the cluster when not supplied.
-COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY"
+COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
 compliance_args=()
 for key in $COMPLIANCE_KEYS; do
   case "$key" in
@@ -405,12 +410,23 @@ if [ -n "$GHCR_TOKEN" ]; then
     --dry-run=client -o yaml | seal > "$TMP/ghcr.yaml"
 fi
 
+# MAIR-500: API key of Scaleway Key Manager for the sealed backups
+# (backup.sealing), never generated; kept from the cluster when not supplied.
+BACKUP_SCW_SECRET_KEY="${BACKUP_SCW_SECRET_KEY:-}"
+if [ -z "$BACKUP_SCW_SECRET_KEY" ]; then
+  BACKUP_SCW_SECRET_KEY="$(prev "${RELEASE}-backup-secret" SCW_SECRET_KEY)"
+  [ -z "$BACKUP_SCW_SECRET_KEY" ] || echo "  backup SCW_SECRET_KEY : kept from cluster"
+fi
+backup_args=()
+[ -z "$BACKUP_SCW_SECRET_KEY" ] || backup_args+=(--from-literal=SCW_SECRET_KEY="$BACKUP_SCW_SECRET_KEY")
+
 if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   kubectl create secret generic "${RELEASE}-backup-secret" \
     --namespace "$NS" \
     --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
     --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
     --from-literal=RESTIC_PASSWORD="$RESTICPASS" \
+    "${backup_args[@]}" \
     --dry-run=client -o yaml | seal > "$TMP/backup.yaml"
 else
   echo "  backup-secret : skipped (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not provided)"
