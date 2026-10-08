@@ -49,6 +49,10 @@ component: api
 {{- if and .root.Values.global .root.Values.global.apis .root.Values.global.apis.instances -}}
 {{- $g = index .root.Values.global.apis.instances .name | default dict -}}
 {{- end -}}
+{{- $c := ((.root.Values.global).compliance) | default dict -}}
+{{- if and (eq .name "compliance-api") (not $g.port) -}}
+{{- $g = dict "port" $c.port -}}
+{{- end -}}
 {{- $g.port | default 3000 -}}
 {{- end }}
 
@@ -101,6 +105,9 @@ c'est aussi le nom du compte ACL Redis dédié à cette instance.
      no entry in global.database.roles gets no DB_USER/DB_PASSWORD at all
      rather than falling back to the superuser. */ -}}
 {{- $dbRoles := ((.root.Values.global).database).roles | default list }}
+{{- if (((.root.Values.global).compliance).enabled) }}
+{{- $dbRoles = append $dbRoles "compliance-api" }}
+{{- end }}
 {{- if has .name $dbRoles }}
 - name: DB_USER
   value: {{ include "apis.dbRole" .name | quote }}
@@ -136,6 +143,7 @@ so the password never appears in the manifest. Passwords are hex
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
 {{- include "apis.otelEnv" . }}
+{{- include "apis.complianceEnv" . }}
 {{- with .root.Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}
@@ -162,5 +170,75 @@ OTEL_RESOURCE_ATTRIBUTES for the $(K8S_POD_NAME) expansion to work.
     fieldRef: { fieldPath: metadata.name }
 - name: OTEL_RESOURCE_ATTRIBUTES
   value: {{ printf "k8s.namespace.name=%s,k8s.pod.name=$(K8S_POD_NAME)" .root.Release.Namespace | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-498: settings and erasure credentials of the compliance service, injected
+into compliance-api ONLY: no other API gets the Keycloak admin client, the
+Resend key or the S3 delete keys. Every secret key is optional: a connector
+without its credentials stays "not configured" (Compliance_API CLAUDE.md).
+Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
+*/}}
+{{- define "apis.complianceSecretName" -}}
+{{- $c := (.Values.global).compliance | default dict -}}
+{{- $c.secretName | default (printf "%s-compliance-secret" .Release.Name) -}}
+{{- end }}
+
+{{- define "apis.complianceEnv" -}}
+{{- $c := (.root.Values.global).compliance | default dict }}
+{{- if and $c.enabled (eq .name "compliance-api") }}
+{{- $kc := $c.keycloak | default dict }}
+{{- $realm := ((.root.Values.global).keycloak).realm | default "mairie360" }}
+{{- $kcBase := printf "http://%s-keycloak:8080" .root.Release.Name }}
+{{- $secret := include "apis.complianceSecretName" .root }}
+- name: SCAN_INTERVAL_SECONDS
+  value: {{ $c.scanIntervalSeconds | default 21600 | quote }}
+- name: ERASURE_RETRY_SECONDS
+  value: {{ $c.erasureRetrySeconds | default 300 | quote }}
+- name: REDIS_SCAN_URL
+  value: "$(REDIS_URL)"
+- name: REDIS_LONG_TTL_SECONDS
+  value: {{ ($c.redis).longTtlSeconds | default 2592000 | quote }}
+{{- with ($c.redis).erasurePatterns }}
+- name: REDIS_ERASURE_URL
+  value: "$(REDIS_URL)"
+- name: REDIS_ERASURE_PATTERNS
+  value: {{ join "," . | quote }}
+{{- end }}
+- name: KEYCLOAK_ADMIN_URL
+  value: {{ $kc.adminUrl | default (printf "%s/admin/realms/%s" $kcBase $realm) | quote }}
+- name: KEYCLOAK_TOKEN_URL
+  value: {{ $kc.tokenUrl | default (printf "%s/realms/%s/protocol/openid-connect/token" $kcBase $realm) | quote }}
+- name: KEYCLOAK_ADMIN_CLIENT_ID
+  value: {{ $kc.adminClientId | default "compliance" | quote }}
+- name: KEYCLOAK_ADMIN_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef: { name: {{ $secret }}, key: KEYCLOAK_ADMIN_CLIENT_SECRET, optional: true }
+{{- with ($c.resend).audienceId }}
+- name: RESEND_AUDIENCE_ID
+  value: {{ . | quote }}
+{{- end }}
+- name: RESEND_API_KEY
+  valueFrom:
+    secretKeyRef: { name: {{ $secret }}, key: RESEND_API_KEY, optional: true }
+{{- with $c.s3 }}
+{{- if .bucket }}
+- name: S3_ENDPOINT
+  value: {{ .endpoint | quote }}
+- name: S3_REGION
+  value: {{ .region | quote }}
+- name: S3_ERASURE_BUCKET
+  value: {{ .bucket | quote }}
+- name: S3_ERASURE_PREFIX
+  value: {{ .prefix | default "users/{user_id}/" | quote }}
+{{- end }}
+{{- end }}
+- name: S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef: { name: {{ $secret }}, key: S3_ACCESS_KEY_ID, optional: true }
+- name: S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef: { name: {{ $secret }}, key: S3_SECRET_ACCESS_KEY, optional: true }
 {{- end }}
 {{- end -}}

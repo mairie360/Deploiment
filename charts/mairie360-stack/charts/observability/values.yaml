@@ -25,6 +25,9 @@ cockpit:
   metricsEndpoint: ""
   # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
   tracesEndpoint: ""
+  # https://<logs-datasource-id>.logs.cockpit.fr-par.scw.cloud/otlp/v1/logs
+  # Optional: "" = no logs pipeline (the token then needs "push logs" too).
+  logsEndpoint: ""
 
 # Secret <release>-cockpit-secret, key COCKPIT_TOKEN: a Cockpit token with the
 # "push metrics" and "push traces" scopes. Same model as backup-secret:
@@ -55,3 +58,30 @@ resources:
 memoryLimiter:
   limitPercentage: 80
   spikeLimitPercentage: 20
+
+# MAIR-498: personal data the logs must never carry, replaced by the
+# `transform/mask-personal-data` processor in the logs pipeline (body and
+# attributes) and on the span attributes of the traces pipeline, before
+# anything leaves the instance. The list is a COPY of mairie360/Compliance_API
+# `masking-patterns.yaml` (also served by its GET /api/v1/masking-patterns):
+# change both together. RE2 syntax, written raw here: the chart escapes them
+# for OTTL and the collector's `$` expansion. IP addresses are kept on purpose
+# (security logs).
+logMasking:
+  enabled: true
+  patterns:
+    - name: email
+      regex: '(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+      replacement: '<email>'
+    - name: phone_fr
+      regex: '(?:\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}'
+      replacement: '<phone>'
+    - name: jwt
+      regex: 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+      replacement: '<jwt>'
+    - name: bearer
+      regex: '(?i)bearer\s+[A-Za-z0-9._~+/=-]{16,}'
+      replacement: 'Bearer <token>'
+    - name: password_hash
+      regex: '\$argon2(?:id|i|d)\$[^\s"''}]+'
+      replacement: '<hash>'

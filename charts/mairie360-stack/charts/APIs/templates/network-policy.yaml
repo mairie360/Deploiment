@@ -9,9 +9,12 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
 spec:
+  # compliance-api (MAIR-498) is not reachable from the BFFs: see below.
   podSelector:
     matchLabels:
       app.kubernetes.io/component: api
+    matchExpressions:
+      - { key: app, operator: NotIn, values: ["compliance-api"] }
   policyTypes:
     - Ingress
   ingress:
@@ -22,4 +25,34 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+{{- if ((.Values.global).compliance).enabled }}
+---
+# MAIR-498: the compliance service holds the erasure credentials; only
+# core-api (which forwards the erasure requests, with a service token) can
+# call it. Its own scans and retries need no inbound traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "apis.fullname" . }}-compliance-allow-from-core
+  labels:
+    {{- include "apis.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app: compliance-api
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-api
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 3000
+{{- end }}
 {{- end }}

@@ -35,8 +35,10 @@ data:
       echo "user admin on >$REDIS_PASSWORD ~* &* allcommands"
       {{- $apis := ((($.Values.global | default dict).apis | default dict).instances) | default dict }}
       {{- $revoked := $.Values.revokedTokens | default dict }}
+      {{- $compliance := (($.Values.global | default dict).compliance | default dict) }}
       {{- range $role := (include "redis.roles" . | fromYamlArray) }}
       {{- $shared := "" }}
+      {{- $extraCommands := list }}
       {{- if $revoked.keyPattern }}
       {{- if has $role ($revoked.writerRoles | default list) }}
       {{- $shared = printf " ~%s" $revoked.keyPattern }}
@@ -44,7 +46,17 @@ data:
       {{- $shared = printf " %%R~%s" $revoked.keyPattern }}
       {{- end }}
       {{- end }}
-      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}"
+      {{- /* MAIR-498: compliance-api may read every key (its long-TTL scan
+           only runs SCAN + TTL and never reads a value) and writes only its
+           own keys and the users' keys it erases. */}}
+      {{- if and $compliance.enabled (eq $role "compliance-api") }}
+      {{- $shared = " %R~*" }}
+      {{- range (($compliance.redis | default dict).erasurePatterns | default list) }}
+      {{- $shared = printf "%s ~%s" $shared (. | replace "{user_id}" "*") }}
+      {{- end }}
+      {{- $extraCommands = ($compliance.redis | default dict).extraCommands | default list }}
+      {{- end }}
+      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}{{ range $extraCommands }} +{{ . }}{{ end }}"
       {{- end }}
     } > /acl/users.acl
     exec redis-server /etc/redis/redis.conf

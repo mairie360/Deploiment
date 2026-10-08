@@ -1,0 +1,160 @@
+suite: compliance service (MAIR-498)
+# The instance's compliance service (mairie360/Compliance_API) is the only
+# workload with the erasure credentials. One switch, global.compliance.enabled,
+# turns on its database role, its Redis account, its settings and its
+# NetworkPolicy; off, nothing changes for the other services.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: off, Liquibase passes a random throwaway password for the compliance_api role
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'COMPLIANCE_API_PASSWORD="\$\(head -c 24 /dev/urandom'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Dcompliance_api_password="\$COMPLIANCE_API_PASSWORD"'
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COMPLIANCE_API_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: COMPLIANCE_API_PASSWORD }
+
+  - it: off, Redis has no compliance-api account
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: compliance-api
+
+  - it: refuses a compliance-api instance while global.compliance.enabled=false
+    set:
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "needs global.compliance.enabled=true"
+
+  - it: on, Liquibase reads the role password from the database secret
+    set:
+      global.compliance.enabled: true
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COMPLIANCE_API_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: COMPLIANCE_API_PASSWORD }
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: /dev/urandom
+
+  - it: on, compliance-api gets its role, its settings and the optional erasure credentials
+    set:
+      global.compliance.enabled: true
+      global.compliance.redis.erasurePatterns: ["core-api:session:{user_id}:*"]
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-compliance-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_USER, value: compliance_api }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_ADMIN_URL, value: "http://RELEASE-NAME-keycloak:8080/admin/realms/mairie360" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: REDIS_ERASURE_PATTERNS, value: "core-api:session:{user_id}:*" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_ADMIN_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-compliance-secret, key: KEYCLOAK_ADMIN_CLIENT_SECRET, optional: true }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RESEND_API_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-compliance-secret, key: RESEND_API_KEY, optional: true }
+
+  - it: on, no other API gets the erasure credentials
+    set:
+      global.compliance.enabled: true
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: ^(KEYCLOAK_ADMIN_CLIENT_SECRET|S3_ACCESS_KEY_ID|S3_SECRET_ACCESS_KEY|REDIS_ERASURE_URL|REDIS_SCAN_URL)$
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RESEND_API_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-compliance-secret, key: RESEND_API_KEY, optional: true }
+
+  - it: on, the Service uses global.compliance.port
+    set:
+      global.compliance.enabled: true
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+    templates: [charts/APIs/templates/service.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-compliance-api }
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 3004
+
+  - it: on, the Redis account reads every key and writes only its keys and the erasure patterns
+    set:
+      global.compliance.enabled: true
+      global.compliance.redis.erasurePatterns: ["core-api:session:{user_id}:*"]
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user compliance-api on >\$COMPLIANCE_API_REDIS_PASSWORD ~compliance-api:\* %R~\* ~core-api:session:\*:\* resetchannels -@all \+get \+set \+del \+exists \+expire \+scan \+ttl"'
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
+
+  - it: on, only core-api may call compliance-api, and the BFF rule leaves it out
+    set:
+      global.compliance.enabled: true
+    templates: [charts/APIs/templates/network-policy.yaml]
+    asserts:
+      - hasDocuments: { count: 2 }
+      - contains:
+          path: spec.podSelector.matchExpressions
+          content: { key: app, operator: NotIn, values: ["compliance-api"] }
+        documentIndex: 0
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: compliance-api
+        documentIndex: 1
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - podSelector:
+                matchLabels: { app: core-api, app.kubernetes.io/component: api }
+        documentIndex: 1
+
+  - it: the collector masks personal data in logs and span attributes
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+      observability.cockpit.logsEndpoint: "https://l.example.com/otlp/v1/logs"
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'logs:\s+receivers: \[otlp\]\s+processors: \[memory_limiter, transform/mask-personal-data, resource, batch\]'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'replace_pattern\(body, \\"\\\\\\\\\$\$argon2'

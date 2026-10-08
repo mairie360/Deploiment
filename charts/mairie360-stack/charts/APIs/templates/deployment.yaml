@@ -1,6 +1,9 @@
 {{- range $apiName, $apiConfig := .Values.instances }}
 {{- if $apiConfig.enabled }}
 {{- $ctx := dict "root" $ "name" $apiName }}
+{{- if and (eq $apiName "compliance-api") (not ((($.Values.global).compliance).enabled)) }}
+{{- fail "APIs.instances.compliance-api needs global.compliance.enabled=true (its database role, Redis account and settings, MAIR-498)" }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
