@@ -94,7 +94,9 @@ a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
 `tests/compliance/`) renders each instance of `retention.yaml`'s `applies_to` and fails when the
 retention CronJob's periods (`retention.policies`, written into `retention_policies` before every
 purge), the backup retention, an external host or an egress CIDR does not follow the decisions, or
-when the register is incomplete; decisions without `validated: {date, by}` are warnings
+when the register is incomplete, or when `global.legal` (the legal pages of the fronts, MAIR-292:
+`LEGAL_CONFIG` of the fronts of `Fronts.legalConfigInstances`, i.e. login-front) shows other periods
+or subprocessors; decisions without `validated: {date, by}` are warnings
 (`--strict` makes them fail). A period changes in the decision file and in the values together.
 
 ## Architecture

@@ -12,6 +12,8 @@ configuration does not follow the decisions:
 - every external host of the rendered manifests (URLs, *_HOST variables, SMTP hosts) is a
   declared subprocessor, every egress CIDR belongs to one;
 - the register is complete (purpose, legal basis, data, retention, known subprocessors);
+- the legal pages of the fronts (LEGAL_CONFIG, global.legal, MAIR-292) show these periods and
+  subprocessors;
 - technical logs at most their maximum (1 year), files well formed.
 
 Decisions without `validated` are proposals of Mairie 360: reported as pending, blocking with
@@ -20,6 +22,7 @@ Decisions without `validated` are proposals of Mairie 360: reported as pending, 
 """
 import argparse
 import fnmatch
+import json
 import ipaddress
 import os
 import re
@@ -145,6 +148,38 @@ def egress_cidrs(docs):
     return cidrs
 
 
+def legal_config(docs):
+    for name, value in env_vars(docs):
+        if name == "LEGAL_CONFIG":
+            return value
+    return None
+
+
+def check_legal(label, docs, retention, subs, report):
+    """The legal pages (MAIR-292) show the periods and subprocessors decided here."""
+    raw = legal_config(docs)
+    if raw is None:
+        report.error(label, "no front gets LEGAL_CONFIG (global.legal): the legal pages cannot show the decisions")
+        return
+    try:
+        legal = json.loads(raw)
+    except ValueError:
+        report.error(label, "LEGAL_CONFIG is not JSON")
+        return
+    shown = legal.get("retention") or {}
+    decided = {k: (retention.get(k) or {}).get("period") for k in ("technical_logs", "archived_accounts_anonymization")}
+    decided.update({t: (e or {}).get("period") for t, e in (retention.get("tables") or {}).items()})
+    for key, period in decided.items():
+        if months_days(shown.get(key)) != months_days(period):
+            report.error(label, f"global.legal.retention.{key} is {shown.get(key)}, retention.yaml decides {period}")
+    for key in sorted(set(shown) - set(decided)):
+        report.error(label, f"global.legal.retention.{key} is not decided in retention.yaml")
+    want = sorted((s.get("name"), s.get("location"), s.get("purpose_fr")) for s in subs.get("subprocessors") or [])
+    got = sorted((s.get("name"), s.get("location"), s.get("purpose")) for s in legal.get("subprocessors") or [])
+    if want != got:
+        report.error(label, "global.legal.subprocessors differ from subprocessors.yaml (name, location, purpose_fr)")
+
+
 def check_org(org, report, rendered):
     base = os.path.join(ROOT, "compliance", org)
     data = {}
@@ -240,6 +275,7 @@ def check_org(org, report, rendered):
                 found = set(re.findall(rf"--keep-{flag} (\d+)", script))
                 if found != {str(backups.get(key_name))}:
                     report.error(label, f"backup.retention keep {flag} is {', '.join(sorted(found)) or 'unset'}, retention.yaml decides {backups.get(key_name)}")
+        check_legal(label, docs, retention, subs, report)
         for host in external_hosts(docs):
             if not any(fnmatch.fnmatch(host, p.lower()) for p in patterns):
                 report.error(label, f"external host {host} is not a declared subprocessor (subprocessors.yaml)")

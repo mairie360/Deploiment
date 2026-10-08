@@ -78,6 +78,15 @@ class CheckComplianceTest(unittest.TestCase):
         self.edit("register.yaml", "    legal_basis: public task (GDPR art. 6.1.e), management of the town hall's staff\n", "")
         self.assertIn("accounts: legal_basis is required", " ".join(self.run_check().errors))
 
+    def test_the_legal_pages_must_show_the_decided_periods(self):
+        self.edit("retention.yaml", 'connection_logs: {period: "1 year"', 'connection_logs: {period: "2 years"')
+        errors = " ".join(self.run_check().errors)
+        self.assertIn("global.legal.retention.connection_logs is 1 year, retention.yaml decides 2 years", errors)
+
+    def test_the_legal_pages_must_list_the_subprocessors(self):
+        self.edit("subprocessors.yaml", 'purpose_fr: "envoi des e-mails', 'purpose_fr: "envoi de tous les e-mails')
+        self.assertIn("global.legal.subprocessors differ", " ".join(self.run_check().errors))
+
 
 if __name__ == "__main__":
     unittest.main()
