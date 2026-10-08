@@ -10,6 +10,7 @@ that Mairie 360, its processor, applies. Mairie 360 proposes each entry; the mai
 | `retention.yaml` | retention periods: `retention_policies` tables, technical logs (1 year by default, the mairie may only shorten it), security logs, archived accounts, backups | rendered retention CronJob (`retention.policies`) and backup CronJob (`backup.retention`) of every instance of `applies_to` |
 | `subprocessors.yaml` | external services the instance sends data to | every external host of the rendered manifests (URLs, `*_HOST`, SMTP) and every egress CIDR |
 | `access.yaml` | people with access to the instance and its machines | Devops/ansible `verify.yml` (MAIR-293) |
+| `accepted-gaps.yaml` | infrastructure gaps of the prod instances accepted for now, each with its reason (MAIR-293) | the prod renders: egress denied by default, backups on with a bucket; an unaccepted gap fails |
 | `deadlines.yaml` | recurring compliance tasks (access review, restore test, DPIA, breach exercise) | scheduled n8n workflows open a Jira ticket per overdue deadline (MAIR-295) |
 
 Changing a period: change it here **and** in the instance's values (`retention.policies`,

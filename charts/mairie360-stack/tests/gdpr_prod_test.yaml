@@ -1,0 +1,32 @@
+suite: GDPR settings of the prod instances (MAIR-293)
+# Production values (shared base + the mairie360 prod instance). The decided periods themselves
+# are compared with compliance/<org>/retention.yaml by scripts/check-compliance.py.
+values:
+  - ../../../clusters/_base/prod.yaml
+  - ../../../clusters/mairie360/instances/prod/values.yaml
+tests:
+  - it: backs the database up into the instance's bucket
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: { name: RESTIC_REPOSITORY, value: "s3:https://s3.fr-par.scw.cloud/mairie360-backup-prod" }
+
+  - it: applies the retention periods before every purge
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: "UPDATE retention_policies SET retention_period = INTERVAL '[0-9]+ (day|month|year)s?' WHERE table_name = 'access_logs'"
+
+  - it: denies ingress by default
+    templates: [templates/network-policy.yaml]
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - contains:
+          path: spec.policyTypes
+          content: Ingress

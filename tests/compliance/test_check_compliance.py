@@ -78,6 +78,23 @@ class CheckComplianceTest(unittest.TestCase):
         self.edit("register.yaml", "    legal_basis: public task (GDPR art. 6.1.e), management of the town hall's staff\n", "")
         self.assertIn("accounts: legal_basis is required", " ".join(self.run_check().errors))
 
+    def test_an_infrastructure_gap_fails_unless_accepted(self):
+        os.remove(os.path.join(self.root, "compliance", "mairie360", "accepted-gaps.yaml"))
+        self.assertIn("egress-not-restricted", " ".join(self.run_check().errors))
+
+    def test_an_accepted_gap_is_reported_not_failed(self):
+        report = self.run_check()
+        self.assertEqual(report.errors, [])
+        self.assertIn("egress-not-restricted", " ".join(report.accepted))
+
+    def test_infrastructure_gaps_of_the_manifests(self):
+        deny = {"kind": "NetworkPolicy", "metadata": {"name": "r-default-deny"}, "spec": {"policyTypes": ["Ingress", "Egress"]}}
+        backup = {"kind": "CronJob", "metadata": {"name": "r-backup"}, "spec": {"env": [{"name": "RESTIC_REPOSITORY", "value": "s3:https://s3.fr-par.scw.cloud/bucket"}]}}
+        self.assertEqual(check.infrastructure_gaps([deny, backup]), [])
+        no_bucket = {"kind": "CronJob", "metadata": {"name": "r-backup"}, "spec": {"env": [{"name": "RESTIC_REPOSITORY", "value": "s3:https://s3.fr-par.scw.cloud/"}]}}
+        self.assertEqual([g[0] for g in check.infrastructure_gaps([no_bucket])], ["egress-not-restricted", "backups-no-bucket"])
+        self.assertEqual([g[0] for g in check.infrastructure_gaps([deny])], ["backups-off"])
+
 
 if __name__ == "__main__":
     unittest.main()
