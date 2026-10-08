@@ -357,6 +357,25 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `scripts/seal-secrets.sh` from the `COCKPIT_TOKEN` env var). A Deployment,
   not a DaemonSet: it only sees the kubelet of its own node, which is enough
   on single-node instances.
+- **`compliance-api` (MAIR-498), off by default.** The instance's compliance
+  service (mairie360/Compliance_API: permanent scan, centralized erasure,
+  compliance journal), an entry of `APIs.instances` switched on by
+  `global.compliance.enabled` (the render fails for the instance without the
+  switch). The switch adds its Postgres role (`COMPLIANCE_API_PASSWORD`, read
+  by the Liquibase job and the API; while off, the job passes a random
+  throwaway password for the `compliance_api` role the Database changelog
+  creates everywhere), its Redis account (`%R~*` for the long-TTL scan, write
+  on its own keys and `global.compliance.redis.erasurePatterns` only,
+  `+scan +ttl`), its settings, and the erasure credentials of
+  `<release>-compliance-secret` (Keycloak admin client, Resend, S3, every key
+  optional, `scripts/seal-secrets.sh` `COMPLIANCE_*`), **injected into
+  compliance-api only**. Its NetworkPolicy admits core-api alone: the BFF rule
+  and the Cilium L7 rule of the APIs leave it out. The collector
+  (`observability.logMasking`) masks personal data in the OTLP logs (body and
+  attributes) and span attributes with a copy of Compliance_API's
+  `masking-patterns.yaml`: change both together. `observability.cockpit.logsEndpoint`
+  turns on the logs pipeline. Container stdout is not collected yet: only OTLP
+  logs go through the masking. `tests/compliance_service_test.yaml`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
   data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup
   CronJob, the retention CronJob and the collector → `2` APIs and Keycloak →

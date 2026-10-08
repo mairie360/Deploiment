@@ -36,7 +36,13 @@ accounts never drift from the real list of instances. No BFF reads Redis
 {{- define "redis.roles" -}}
 {{- $g := .Values.global | default dict -}}
 {{- $apis := (($g.apis | default dict).instances) | default dict -}}
-{{- keys $apis | sortAlpha | toYaml -}}
+{{- $roles := keys $apis -}}
+{{- /* MAIR-498: the compliance service's account, only once it is enabled
+     (its password key must be sealed first). */ -}}
+{{- if (($g.compliance | default dict).enabled) -}}
+{{- $roles = append $roles "compliance-api" -}}
+{{- end -}}
+{{- $roles | uniq | sortAlpha | toYaml -}}
 {{- end -}}
 
 {{/* Nom de la variable d'env portant le mot de passe ACL d'un rôle. */}}

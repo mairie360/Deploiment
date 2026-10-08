@@ -66,6 +66,13 @@
 #                   value already on the cluster is kept; with neither, that
 #                   Secret is not sealed (only needed with
 #                   global.observability.enabled).
+#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET / COMPLIANCE_RESEND_API_KEY /
+#   COMPLIANCE_S3_ACCESS_KEY_ID / COMPLIANCE_S3_SECRET_ACCESS_KEY  erasure
+#                   credentials of the compliance service (MAIR-498), stored in
+#                   <env>-compliance-secret, mounted in compliance-api only.
+#                   Each one unset keeps the value on the cluster; with none at
+#                   all, that Secret is not sealed (only needed with
+#                   global.compliance.enabled, every key is optional).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
@@ -118,16 +125,19 @@ CONTROLLER_NAME="sealed-secrets-controller"
 
 # Redis ACL roles: one account per API declared in global.apis.instances
 # (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
-# KEEP IN SYNC with that file if the list of APIs changes.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api"
+# KEEP IN SYNC with that file if the list of APIs changes. compliance-api
+# (MAIR-498) only gets its account with global.compliance.enabled, but its
+# password is sealed everywhere so the switch needs no re-seal.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
 # a SHORTER list than REDIS_ROLES: dashboard-bff/settings-bff have no
 # database of their own, so no role is created for them by
 # Devops/Database's Liquibase changelog. Keep in sync with that values.yaml
-# key.
-DB_ROLES="core-api project-api calendar-api message-api elearning-api"
+# key. compliance-api (MAIR-498): same as REDIS_ROLES, sealed ahead of
+# global.compliance.enabled.
+DB_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api"
 
 for bin in kubectl kubeseal openssl; do
   command -v "$bin" >/dev/null || { echo "manquant : $bin"; exit 1; }
@@ -321,6 +331,26 @@ else
   fi
 fi
 
+# MAIR-498: erasure credentials of the compliance service, issued elsewhere
+# (Keycloak admin console, Resend, Object Storage): never generated, kept from
+# the cluster when not supplied.
+COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY"
+compliance_args=()
+for key in $COMPLIANCE_KEYS; do
+  case "$key" in
+    KEYCLOAK_ADMIN_CLIENT_SECRET) var=COMPLIANCE_KEYCLOAK_CLIENT_SECRET ;;
+    *) var="COMPLIANCE_${key}" ;;
+  esac
+  val="${!var:-}"
+  if [ -n "$val" ]; then
+    echo "  compliance ${key} : from ${var}"
+  else
+    val="$(prev "${RELEASE}-compliance-secret" "$key")"
+    [ -z "$val" ] || echo "  compliance ${key} : kept from cluster"
+  fi
+  [ -z "$val" ] || compliance_args+=(--from-literal="${key}=${val}")
+done
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -395,6 +425,14 @@ else
   echo "  cockpit-secret : skipped (COCKPIT_TOKEN not provided)"
 fi
 
+if [ "${#compliance_args[@]}" -gt 0 ]; then
+  kubectl create secret generic "${RELEASE}-compliance-secret" \
+    --namespace "$NS" "${compliance_args[@]}" \
+    --dry-run=client -o yaml | seal > "$TMP/compliance.yaml"
+else
+  echo "  compliance-secret : skipped (no COMPLIANCE_* credential provided)"
+fi
+
 mkdir -p "$(dirname "$OUT")"
 {
   echo "# ==========================================================================="
@@ -421,6 +459,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
   echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Set the erasure credentials of the compliance service (MAIR-498):"
+  echo "#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET=... COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do
