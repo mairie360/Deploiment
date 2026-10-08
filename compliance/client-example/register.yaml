@@ -1,0 +1,51 @@
+# Record of the processing activities (GDPR art. 30) that Mairie 360 runs for the mairie, its
+# controller (MAIR-294). Mairie 360 proposes, the mairie validates each entry (date, author).
+# scripts/check-compliance.py fails when an entry lacks its purpose, legal basis, data, retention
+# or subprocessors, and reports the entries not validated yet.
+# The data categories are those of Devops/Database gdpr/inventory.yaml.
+version: 1
+controller: mairie (to fill per mairie)
+processor: Mairie 360
+processings:
+  - id: accounts
+    purpose: agents' accounts, authentication and sessions
+    legal_basis: public task (GDPR art. 6.1.e), management of the town hall's staff
+    data: [identifier, identity, contact, credentials, connection, account]
+    retention: "account lifetime, anonymized 1 year after archiving (retention.yaml)"
+    subprocessors: [Scaleway, Resend]
+    validated: null
+  - id: directory
+    purpose: internal directory of the agents (names, e-mail, phone, groups)
+    legal_basis: public task (GDPR art. 6.1.e)
+    data: [identifier, identity, contact, activity]
+    retention: account lifetime
+    subprocessors: [Scaleway]
+    validated: null
+  - id: collaboration
+    purpose: messaging, calendar and projects of the agents
+    legal_basis: public task (GDPR art. 6.1.e)
+    data: [identifier, content, activity]
+    retention: "account lifetime; shared content kept for the other members, its author anonymized"
+    subprocessors: [Scaleway]
+    validated: null
+  - id: training
+    purpose: e-learning courses and progress of the agents
+    legal_basis: public task (GDPR art. 6.1.e)
+    data: [identifier, activity, content]
+    retention: account lifetime; mandatory training status kept
+    subprocessors: [Scaleway]
+    validated: null
+  - id: security_logs
+    purpose: security of the platform (access and connection logs, audit of the accounts)
+    legal_basis: legal obligation of security (GDPR art. 32) and public task
+    data: [identifier, connection, activity]
+    retention: retention.yaml (tables, security_logs)
+    subprocessors: [Scaleway]
+    validated: null
+  - id: backups
+    purpose: encrypted backups of the database
+    legal_basis: legal obligation of security (GDPR art. 32)
+    data: [all of the above]
+    retention: retention.yaml (backups)
+    subprocessors: [Scaleway]
+    validated: null

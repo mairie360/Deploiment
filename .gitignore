@@ -4,3 +4,5 @@ mairie360/charts/*.tgz
 
 **/charts/*.tgz
 **/Chart.lock
+# Python bytecode (scripts/check-compliance.py and its tests, MAIR-294)
+__pycache__/

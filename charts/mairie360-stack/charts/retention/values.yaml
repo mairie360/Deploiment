@@ -30,6 +30,16 @@ activeDeadlineSeconds: 600
 db:
   port: 5432
 
+# Retention period of each `retention_policies` row (MAIR-294), written by the Job right before
+# the purge: the periods come from the configuration, decided in compliance/<org>/retention.yaml
+# (scripts/check-compliance.py checks that both agree). Format "<n> day(s)|month(s)|year(s)".
+# A table missing from `retention_policies` fails the Job. Defaults: the rows of Devops/Database.
+policies:
+  sessions: "6 months"
+  connection_logs: "1 year"
+  access_logs: "3 years"
+  users_audit_log: "10 years"
+
 resources:
   requests: { memory: "64Mi", cpu: "50m" }
   limits: { memory: "256Mi", cpu: "250m" }

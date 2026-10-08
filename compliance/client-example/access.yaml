@@ -1,0 +1,11 @@
+# People with access to the instance and its machines (MAIR-294), decided by the mairie. Devops/
+# ansible (MAIR-293) checks the SSH keys, WireGuard peers and Argo CD accounts of the machines
+# against this file. To fill with the real list before the first prod instance of a mairie.
+version: 1
+people: []
+#  - name: Jane Doe
+#    role: operator            # operator, developer, dpo
+#    access: [ssh, wireguard, argocd, keycloak-admin]
+#    ssh_key_fingerprint: "SHA256:..."
+#    validated: {date: 2026-10-08, by: "mayor's office"}
+validated: null
