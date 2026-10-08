@@ -16,6 +16,24 @@
 # ============================================================================
 
 global:
+  # Legal pages (MAIR-292): identity of the mairie to complete; retention and
+  # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
+  legal:
+    mairie: { name: "", address: "", email: "" }
+    publicationDirector: ""
+    dpo: { name: "", email: "" }
+    host: { name: "", address: "" }
+    retention:
+      technical_logs: "1 year"
+      archived_accounts_anonymization: "1 year"
+      sessions: "6 months"
+      connection_logs: "1 year"
+      access_logs: "3 years"
+      users_audit_log: "10 years"
+    subprocessors:
+      - { name: Scaleway, location: "France (fr-par)", purpose: "hébergement des sauvegardes chiffrées de la base et des pièces jointes des formations (stockage objet)" }
+      - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
+      - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
   domain: "dev.mairie360-eip.fr"
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).

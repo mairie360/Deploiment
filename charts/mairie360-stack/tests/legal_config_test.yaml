@@ -1,0 +1,32 @@
+suite: legal pages configuration of the fronts (MAIR-292)
+# The login front serves /mentions-legales and /confidentialite from
+# LEGAL_CONFIG (global.legal as JSON, read at request time); the other fronts
+# only link there through LOGIN_FRONT_URL.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/Fronts/templates/deployment.yaml]
+tests:
+  - it: login-front gets global.legal as LEGAL_CONFIG
+    set:
+      global.legal.mairie.name: "Mairie de Testville"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "LEGAL_CONFIG")].value
+          pattern: '"mairie":\{"address":"","email":"","name":"Mairie de Testville"\}'
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "LEGAL_CONFIG")].value
+          pattern: '"connection_logs":"1 year"'
+
+  - it: no other front gets it
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-settings-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LEGAL_CONFIG
+          any: true

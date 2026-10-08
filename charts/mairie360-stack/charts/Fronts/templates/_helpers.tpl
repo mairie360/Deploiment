@@ -82,3 +82,17 @@ Takes { root, name, config }.
   value: "true"
 {{- end -}}
 {{- end -}}
+
+{{/*
+LEGAL_CONFIG (MAIR-292): global.legal as JSON, for the fronts of
+legalConfigInstances (the login front, which serves /mentions-legales and
+/confidentialite). Read at request time, so one image serves every mairie.
+Takes { root, name }.
+*/}}
+{{- define "fronts.legalConfig" -}}
+{{- if has .name (.root.Values.legalConfigInstances | default list) -}}
+{{- $g := .root.Values.global | default dict -}}
+- name: LEGAL_CONFIG
+  value: {{ ($g.legal | default dict) | toJson | quote }}
+{{- end -}}
+{{- end -}}

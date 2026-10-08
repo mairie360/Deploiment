@@ -58,6 +58,12 @@ commonEnv:
 trustIngressIpHeadersInstances:
   - login-front
 
+# Fronts that serve the legal notice and the privacy policy and get
+# LEGAL_CONFIG (global.legal as JSON, MAIR-292). The other fronts link to the
+# login front's pages through LOGIN_FRONT_URL.
+legalConfigInstances:
+  - login-front
+
 # Set per environment:
 #   instances:
 #     login-front:
