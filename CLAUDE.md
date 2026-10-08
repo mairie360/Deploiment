@@ -94,7 +94,11 @@ a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
 `tests/compliance/`) renders each instance of `retention.yaml`'s `applies_to` and fails when the
 retention CronJob's periods (`retention.policies`, written into `retention_policies` before every
 purge), the backup retention, an external host or an egress CIDR does not follow the decisions, or
-when the register is incomplete; decisions without `validated: {date, by}` are warnings
+when the register is incomplete; for the prod instances (MAIR-293) it also fails on an
+infrastructure gap (egress not denied by default, backups off or without bucket) unless
+`compliance/<org>/accepted-gaps.yaml` accepts it with its reason (today: egress, DNS-only
+subprocessors; `tests/gdpr_prod_test.yaml` pins backups, retention and default-deny ingress);
+decisions without `validated: {date, by}` are warnings
 (`--strict` makes them fail). A period changes in the decision file and in the values together.
 
 ## Architecture

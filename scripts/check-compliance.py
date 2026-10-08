@@ -12,7 +12,10 @@ configuration does not follow the decisions:
 - every external host of the rendered manifests (URLs, *_HOST variables, SMTP hosts) is a
   declared subprocessor, every egress CIDR belongs to one;
 - the register is complete (purpose, legal basis, data, retention, known subprocessors);
-- technical logs at most their maximum (1 year), files well formed.
+- technical logs at most their maximum (1 year), files well formed;
+- infrastructure of the prod instances (MAIR-293): backups on with a bucket, egress restricted.
+  An infrastructure gap fails unless compliance/<org>/accepted-gaps.yaml accepts it with its
+  reason (tracked, never silent).
 
 Decisions without `validated` are proposals of Mairie 360: reported as pending, blocking with
 --strict. Usage: scripts/check-compliance.py [--strict] [--org <org>] [--rendered <org>/<env>=<file>]
@@ -40,6 +43,7 @@ class Report:
         self.strict = strict
         self.errors = []
         self.pending = []
+        self.accepted = []
 
     def error(self, where, message):
         self.errors.append(f"{where}: {message}")
@@ -145,6 +149,23 @@ def egress_cidrs(docs):
     return cidrs
 
 
+def infrastructure_gaps(docs):
+    """Gaps of a prod instance's manifests (MAIR-293): [(id, message)]."""
+    gaps = []
+    egress = False
+    for doc in docs:
+        if doc.get("kind") == "NetworkPolicy" and doc["metadata"]["name"].endswith("-default-deny"):
+            egress = "Egress" in (doc["spec"].get("policyTypes") or [])
+    if not egress:
+        gaps.append(("egress-not-restricted", "egress is not denied by default (global.networkPolicy.egressDefaultDeny)"))
+    repositories = [v for doc in docs if doc.get("kind") == "CronJob" for n, v in env_vars(doc) if n == "RESTIC_REPOSITORY"]
+    if not repositories:
+        gaps.append(("backups-off", "no backup CronJob with a RESTIC_REPOSITORY (backup.enabled)"))
+    elif any(not re.search(r"https?://[^/]+/[^/]+", r) for r in repositories):
+        gaps.append(("backups-no-bucket", "the backup repository names no bucket (backup.s3.bucket)"))
+    return gaps
+
+
 def check_org(org, report, rendered):
     base = os.path.join(ROOT, "compliance", org)
     data = {}
@@ -209,6 +230,17 @@ def check_org(org, report, rendered):
         if not d.get("id") or not d.get("task") or months_days(d.get("every")) is None:
             report.error(label, "needs id, task and every ('<n> day(s)|month(s)|year(s)')")
 
+    accepted_path = os.path.join(base, "accepted-gaps.yaml")
+    accepted = {}
+    if os.path.exists(accepted_path):
+        doc = yaml.safe_load(open(accepted_path, encoding="utf-8")) or {}
+        for gap_id, entry in (doc.get("gaps") or {}).items():
+            if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
+                report.error(f"compliance/{org}/accepted-gaps.yaml", f"{gap_id}: reason is required")
+            else:
+                accepted[gap_id] = entry
+                report.unvalidated(f"compliance/{org}/accepted-gaps.yaml {gap_id}", entry)
+
     for env in retention.get("applies_to") or []:
         label = f"clusters/{org}/instances/{env}"
         key = f"{org}/{env}"
@@ -245,6 +277,12 @@ def check_org(org, report, rendered):
                 report.error(label, f"external host {host} is not a declared subprocessor (subprocessors.yaml)")
         for cidr in sorted(egress_cidrs(docs) - declared_cidrs):
             report.error(label, f"egress rule to {cidr} belongs to no declared subprocessor")
+        if env == "prod":
+            for gap_id, message in infrastructure_gaps(docs):
+                if gap_id in accepted:
+                    report.accepted.append(f"{label}: {gap_id} ({accepted[gap_id]['reason']})")
+                else:
+                    report.error(label, f"{gap_id}: {message} (fix it, or accept it in accepted-gaps.yaml with its reason)")
 
 
 def main(argv=None):
@@ -267,7 +305,9 @@ def main(argv=None):
     level = "error" if args.strict else "warning"
     for where in report.pending:
         print(f"::{level} title=GDPR compliance::{where}: not validated by the mairie yet")
-    print(f"GDPR compliance: {len(report.errors)} mismatch(es), {len(report.pending)} decision(s) pending validation.")
+    for gap in report.accepted:
+        print(f"::warning title=GDPR compliance::accepted gap {gap}")
+    print(f"GDPR compliance: {len(report.errors)} mismatch(es), {len(report.accepted)} accepted gap(s), {len(report.pending)} decision(s) pending validation.")
     return 1 if report.errors or (args.strict and report.pending) else 0
 
 
