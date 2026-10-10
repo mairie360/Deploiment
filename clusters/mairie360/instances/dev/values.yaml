@@ -261,7 +261,7 @@ Fronts:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-778e4d9" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-9a618cf" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
