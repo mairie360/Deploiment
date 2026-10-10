@@ -289,7 +289,7 @@ Fronts:
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-96b7bfd" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-02b744a" }
     settings-front:
       enabled: true
       port: 5005
