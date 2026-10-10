@@ -293,7 +293,7 @@ Fronts:
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-e91f7e2" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-88a7922" }
     elearning-front:
       enabled: true
       port: 5006
