@@ -275,7 +275,7 @@ Fronts:
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-b02fb72" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-afdf685" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
