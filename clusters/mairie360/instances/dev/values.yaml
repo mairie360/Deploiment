@@ -261,50 +261,50 @@ Fronts:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-a367a70" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-778e4d9" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-584f9f7" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-3e8a411" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-57c95ed" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-9a4c3e9" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-85ede9b" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-6ea2e05" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-d987597" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-96b7bfd" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-3058c8c" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-e91f7e2" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-fa940e1" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-b86dd44" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-7b99b63" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-f9415b0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
