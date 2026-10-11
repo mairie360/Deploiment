@@ -268,7 +268,7 @@ Fronts:
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-d702940" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-1efd14b" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
