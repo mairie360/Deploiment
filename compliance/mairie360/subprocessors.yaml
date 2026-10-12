@@ -1,0 +1,25 @@
+# Subprocessors of the mairie's instance (MAIR-294): every external host the configuration sends
+# data to must be listed here with its purpose; every egress rule must belong to one of them.
+# scripts/check-compliance.py extracts the external hosts of the rendered instance (URLs, *_HOST
+# variables, SMTP settings) and fails on an undeclared one. Container registries (ghcr.io,
+# docker.io, quay.io) only serve images and are not subprocessors.
+version: 1
+subprocessors:
+  - name: Scaleway
+    purpose: hosting of the encrypted database backups and of the e-learning attachments (Object Storage)
+    location: France (fr-par)
+    hosts: [s3.fr-par.scw.cloud]
+    cidrs: []
+    validated: null
+  - name: Scaleway Cockpit
+    purpose: traces of the APIs when observability is enabled (no request body, no query string)
+    location: France (fr-par)
+    hosts: ["*.cockpit.fr-par.scw.cloud"]
+    cidrs: []
+    validated: null
+  - name: Resend
+    purpose: sending of the platform's e-mails (password reset, account invitation)
+    location: European Union (eu-west-1)
+    hosts: [smtp.resend.com, api.resend.com]
+    cidrs: []
+    validated: null
