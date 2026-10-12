@@ -57,9 +57,10 @@ Takes a { root, name } context (name = the current instance, e.g. "user-bff").
   value: "0.0.0.0"
 {{- /*
 MAIR-414: no DB_* nor REDIS_* (no BFF has a database or reads Redis, and the
-database NetworkPolicy refuses them anyway), and JWT_SECRET only for the
-BFFs listed in jwtSecretInstances: a compromised dependency of any other BFF
-must not get what it takes to forge a token.
+database NetworkPolicy refuses them anyway). JWT_SECRET goes to the BFFs
+listed in jwtSecretInstances: every one of them since MAIR-474 made each BFF
+verify the session itself (bffs-lib `requireSession`) and fail at start
+without it (MAIR-520).
 */}}
 {{- if has $.name ($.root.Values.jwtSecretInstances | default list) }}
 - name: JWT_SECRET
