@@ -236,7 +236,7 @@ BFFs:
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-0f3838b" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-74dd7c2" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
@@ -289,7 +289,7 @@ Fronts:
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-c95d08d" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-711f572" }
     settings-front:
       enabled: true
       port: 5005
