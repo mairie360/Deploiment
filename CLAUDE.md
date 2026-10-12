@@ -214,9 +214,11 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   or they would not relay the client IP to BFF_user at all (MAIR-414,
   `tests/trust_ingress_headers_test.yaml`).
 - **BFFs get only what they read (MAIR-414).** No `DB_*` (no BFF has a
-  database), no `REDIS_*` (none reads Redis), and `JWT_SECRET` only for
-  `BFFs.jwtSecretInstances` (`user-bff`): any other BFF holding it could
-  forge an admin token.
+  database), no `REDIS_*` (none reads Redis). `JWT_SECRET` goes to
+  `BFFs.jwtSecretInstances`: MAIR-414 kept it to `user-bff`, but since
+  MAIR-474 every BFF verifies the session itself (bffs-lib `requireSession`)
+  and refuses to start without it, so the list names all seven (MAIR-520; on
+  dev the six others crash-looped and blocked the Argo CD sync of the fronts).
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.

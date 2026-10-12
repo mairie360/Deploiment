@@ -41,10 +41,18 @@ strategy:
   maxSurge: 0
   maxUnavailable: 1
 
-# BFFs that get JWT_SECRET (MAIR-414). Only BFF_user signs and verifies
-# tokens; every other BFF forwards the cookie to it or to the APIs.
+# BFFs that get JWT_SECRET. MAIR-414 limited it to BFF_user, the only one
+# signing tokens; since MAIR-474 every BFF verifies the session itself
+# (bffs-lib `requireSession`) and refuses to start without it (MAIR-520), so
+# every instance of global.bffs must be listed here.
 jwtSecretInstances:
   - user-bff
+  - project-bff
+  - calendar-bff
+  - message-bff
+  - elearning-bff
+  - dashboard-bff
+  - settings-bff
 
 # Variables shared by every BFF (on top of TRUST_PROXY and the *_API_URL /
 # *_BFF_URL generated from global.apis / global.bffs).
