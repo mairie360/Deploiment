@@ -19,7 +19,7 @@ global:
   domain: "e2e.invalid"
   # Every image used here is public.
   imagePullSecret: ""
-  # Traefik, installed by run.sh with bootstrap/values/traefik.yaml: the
+  # Traefik, installed by run.sh from bootstrap/addons/traefik: the
   # ingress chainsaw test goes through it (HTTP-01 via Pebble, HTTPS
   # redirect, body limit, X-Forwarded-For).
   ingressController: "traefik"

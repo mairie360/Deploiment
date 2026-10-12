@@ -1,0 +1,5 @@
+# Custom labels of the self-hosted runners (MAIR-346): one per group's Argo CD
+# machine, registered by ansible. Used by .github/workflows/promote.yaml.
+self-hosted-runner:
+  labels:
+    - mairie360-argocd-mairie360

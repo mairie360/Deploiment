@@ -95,7 +95,7 @@ then adds ingress.annotations (which win on a key conflict).
   (bootstrap/cluster-addons/cluster-issuers.yaml is shared by every instance);
 - nginx: forced HTTPS redirect and proxy-body-size;
 - traefik: routers on the websecure entrypoint only (the web entrypoint
-  redirects to HTTPS, bootstrap/values/traefik.yaml) and the body-size
+  redirects to HTTPS, bootstrap/addons/traefik/values.yaml) and the body-size
   Middleware (templates/traefik-middlewares.yaml).
 */}}
 {{- define "mairie360.ingressAnnotations" -}}
