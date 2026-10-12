@@ -1,0 +1,44 @@
+name: Image updater auto-merge
+
+# argocd-image-updater bumps dev's image tags through pull requests on main
+# (MAIR-444, write-back `git` + `pullRequest`, ansible roles/k8s_argocd). Its
+# head branches are always named image-updater-<target>-<sha256>. This job
+# turns on GitHub auto-merge for those PRs only, and only while they touch
+# nothing but a dev instance's values.yaml: the PR then squash-merges by
+# itself once the required checks of the main ruleset pass (Lint & Template
+# Validation, Chart on Kind + Cilium), and Argo CD syncs dev from main.
+# Anything else on such a branch is left for a human to review.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Enable auto-merge
+    if: startsWith(github.head_ref, 'image-updater-') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only dev image tags change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh pr diff "$PR" -R "$GITHUB_REPOSITORY" --name-only)
+          echo "$files"
+          if echo "$files" | grep -vqE '^clusters/[^/]+/instances/dev/values\.yaml$'; then
+            echo "::error::This image-updater PR touches more than a dev values.yaml: review it by hand."
+            exit 1
+          fi
+
+      - name: Squash-merge once the checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --auto --squash
