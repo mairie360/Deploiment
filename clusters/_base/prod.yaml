@@ -116,6 +116,21 @@ APIs:
       env:
         - name: PUBLIC_URL
           value: "https://login.{{ .Values.global.domain }}"
+        # MAIR-522: core-api >= the Resend-template release sends its e-mails through the
+        # Resend HTTP API with published templates, always from no-reply@<EMAIL_DOMAIN>
+        # (the domain must be verified in Resend). RESEND_API_KEY is the same key as
+        # SMTP_PASSWORD; core-api refuses to start without it. The SMTP_* / EMAIL_FROM
+        # variables below only serve older images: drop them once every instance runs it.
+        - name: RESEND_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: "{{ .Release.Name }}-app-secrets"
+              key: SMTP_PASSWORD
+              optional: true
+        - name: EMAIL_DOMAIN
+          value: '{{ required "global.emailFrom is required" .Values.global.emailFrom | splitList "@" | last }}'
+        - name: EMAIL_SENDER_NAME
+          value: "Mairie360"
         # Transactional e-mails (password reset) go through Resend's SMTP relay.
         # The Resend API key is the SMTP password: it lives in
         # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).

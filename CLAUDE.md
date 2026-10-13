@@ -447,17 +447,25 @@ also locks outbound traffic, but stays off until the external destinations of
 Object Storage), the backup CronJob (S3 bucket) and the otel collector (node kubelet
 :10250, Cockpit) are declared in `egressAllowCIDRs`.
 
-### Outbound e-mail (Resend, MAIR-94)
+### Outbound e-mail (Resend, MAIR-94, MAIR-522)
 
-`core-api` sends its transactional e-mails (password reset) with `lettre` over
-SMTP. Every instance's `values.yaml` sets `SMTP_HOST=smtp.resend.com`,
-`SMTP_PORT=587`, `SMTP_USERNAME=resend` and `EMAIL_FROM` on `core-api`, and
-reads `SMTP_PASSWORD` from the `SMTP_PASSWORD` key of `<release>-app-secrets`.
-That key is the Resend API key: `scripts/seal-secrets.sh` takes it from the
-`RESEND_API_KEY` env var (otherwise keeps the value already on the cluster,
-otherwise seals it empty and warns). `--rotate` never clears it. The
-`EMAIL_FROM` domain must be verified in the Resend dashboard, and Core API
-only enables STARTTLS + auth when `SMTP_USERNAME` is non-empty.
+`core-api` sends its transactional e-mails (password reset) as published Resend
+templates through the Resend HTTP API (MAIR-522), always from
+`no-reply@<EMAIL_DOMAIN>`. Every instance sets on `core-api`: `RESEND_API_KEY`
+(from the `SMTP_PASSWORD` key of `<release>-app-secrets`, `optional` so an
+unsealed key gives core-api's own startup error), `EMAIL_DOMAIN`
+(`mairie360-eip.fr`; the prod base derives it from `global.emailFrom`) and
+`EMAIL_SENDER_NAME`; `PUBLIC_URL` is the login front the reset link leads to.
+core-api refuses to start without `RESEND_API_KEY` / `EMAIL_DOMAIN`. The domain
+must be verified in the Resend dashboard and the templates published there.
+
+The `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=587`, `SMTP_USERNAME=resend`,
+`SMTP_PASSWORD` and `EMAIL_FROM` variables are still set for the core-api images
+older than MAIR-522 (they send with `lettre` over SMTP): remove them once every
+instance runs a newer image. The `SMTP_PASSWORD` key is the Resend API key:
+`scripts/seal-secrets.sh` takes it from the `RESEND_API_KEY` env var (otherwise
+keeps the value already on the cluster, otherwise seals it empty and warns).
+`--rotate` never clears it. Keycloak keeps using the SMTP relay with the same key.
 
 ### Admin account bootstrap (MAIR-170)
 
