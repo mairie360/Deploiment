@@ -214,7 +214,11 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   or they would not relay the client IP to BFF_user at all (MAIR-414,
   `tests/trust_ingress_headers_test.yaml`).
 - **BFFs get only what they read (MAIR-414).** No `DB_*` (no BFF has a
-  database), no `REDIS_*` (none reads Redis). `JWT_SECRET` goes to
+  database). Since MAIR-531 each BFF does get `REDIS_*` and its own Redis
+  ACL account (`~<bff>:*`, no `revoked:*`, no channel), ahead of the bffs-lib
+  Redis client (MAIR-499): the password `secretKeyRef` is `optional`, so a
+  `secrets.yaml` sealed before those accounts neither blocks the BFFs nor
+  Redis (the account is then written `off`). `JWT_SECRET` goes to
   `BFFs.jwtSecretInstances`: MAIR-414 kept it to `user-bff`, but since
   MAIR-474 every BFF verifies the session itself (bffs-lib `requireSession`)
   and refuses to start without it, so the list names all seven (MAIR-520; on
@@ -309,14 +313,15 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   rows before retention can prune them.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
-  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances`; the
-  BFFs have no account since MAIR-414) and starts `redis-server --aclfile`. The `default`
+  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` and of
+  `global.bffs.instances`, MAIR-531) and starts `redis-server --aclfile`. The `default`
   account is disabled; `admin` (Secret key `redis-password`) is for probes and
   `helm test`. Fronts have no Redis account — they never used it. `helm test`
   asserts that an unauthenticated `PING` is refused and that `admin` works.
   Each role is confined to `~<role>:*`, plus the **shared JWT revocation
   list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
-  `core-api`, read-only `%R~revoked:*` for every other API. Every channel is
+  `core-api`, read-only `%R~revoked:*` for every other API, none for the
+  BFFs. Every channel is
   reset (`resetchannels`) except for the roles of `redis.pubSubRoles`
   (`message-api`, MAIR-394), which get `&<role>:*` plus `PUBLISH` /
   `SUBSCRIBE`: Message API relays its SSE chat events on
@@ -430,7 +435,8 @@ add one.
 
 ```
 ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
-                                    └──────────► redis
+                                 │          └──► redis
+                                 └─────────────► redis   (MAIR-531)
               liquibase job ──────────────────► postgres
               backup CronJob ─────────────────► postgres
               backup CronJob ─────────────────► keycloak-db   (MAIR-231)
@@ -658,7 +664,8 @@ and maintaining a parallel Kind topology is what produced the earlier
   Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
-  sync with `global.apis.instances` (APIs only since MAIR-414); `DB_ROLES`
+  sync with `global.apis.instances` + `global.bffs.instances` (BFFs again
+  since MAIR-531); `DB_ROLES`
   must be kept in sync with the shorter `global.database.roles` (both in
   `charts/mairie360-stack/values.yaml`) — add a role there and forget the
   script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)

@@ -99,7 +99,9 @@ spec:
                 expect "project-api reads it (GET)" 1 "$(as project-api "$PROJECT_API_PASSWORD" get revoked:e2e-sid)"
                 expect "project-api cannot write it" NOPERM "$(as project-api "$PROJECT_API_PASSWORD" set revoked:e2e-sid 0)"
                 expect "project-api cannot delete it" NOPERM "$(as project-api "$PROJECT_API_PASSWORD" del revoked:e2e-sid)"
-                expect "a BFF has no Redis account (MAIR-414)" WRONGPASS "$(as user-bff "$PROJECT_API_PASSWORD" exists revoked:e2e-sid)"
+                expect "a BFF writes its own prefix (MAIR-531)" OK "$(as user-bff "$USER_BFF_PASSWORD" set user-bff:e2e 1 EX 60)"
+                expect "a BFF cannot read the revocation list" NOPERM "$(as user-bff "$USER_BFF_PASSWORD" exists revoked:e2e-sid)"
+                expect "a BFF cannot touch an API prefix" NOPERM "$(as user-bff "$USER_BFF_PASSWORD" get core-api:e2e)"
                 expect "REDIS_URL built like the APIs chart authenticates" 1 "$(redis-cli -u "$REDIS_URL" --no-auth-warning exists revoked:e2e-sid 2>&1)"
                 expect "Redis never evicts" noeviction "$(as admin "$ADMIN_PASSWORD" config get maxmemory-policy)"
                 exit $FAILED

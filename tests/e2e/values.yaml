@@ -98,6 +98,12 @@ redis:
     dashboard-bff: "e2e-dashboard-bff"
     settings-bff: "e2e-settings-bff"
     elearning-bff: "e2e-elearning-bff"
+    project-bff: "e2e-project-bff"
+    calendar-bff: "e2e-calendar-bff"
+    message-bff: "e2e-message-bff"
+    dashboard-bff: "e2e-dashboard-bff"
+    settings-bff: "e2e-settings-bff"
+    elearning-bff: "e2e-elearning-bff"
 
 # Small requests so that the whole stack fits on a CI runner (2 vCPU).
 APIs:

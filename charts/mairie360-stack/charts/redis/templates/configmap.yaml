@@ -27,6 +27,8 @@ data:
   # shared revocation list (MAIR-264, values `revokedTokens`): read-write for
   # its writers, read-only (`%R~`) for the other APIs, nothing for the BFFs.
   # The roles of `pubSubRoles` also publish/subscribe on `&<role>:*` (MAIR-394).
+  # A BFF account whose optional password is unset is written `off` (MAIR-531):
+  # `on` with an empty `>` would be a login with an empty password.
   entrypoint.sh: |
     #!/bin/sh
     set -eu
@@ -46,7 +48,18 @@ data:
       {{- end }}
       {{- end }}
       {{- $pubSub := has $role ($.Values.pubSubRoles | default list) }}
-      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} ~{{ $role }}:*{{ $shared }} resetchannels{{ if $pubSub }} &{{ $role }}:*{{ end }} -@all{{ range $.Values.aclCommands }} +{{ . }}{{ end }}{{ if $pubSub }} +publish +subscribe{{ end }}"
+      {{- $acl := printf "~%s:*%s resetchannels%s -@all" $role $shared (ternary (printf " &%s:*" $role) "" $pubSub) }}
+      {{- range $.Values.aclCommands }}{{ $acl = printf "%s +%s" $acl . }}{{ end }}
+      {{- if $pubSub }}{{ $acl = printf "%s +publish +subscribe" $acl }}{{ end }}
+      {{- if has $role (include "redis.optionalRoles" $ | fromYamlArray) }}
+      if [ -n "${{ "{" }}{{ include "redis.roleEnvVar" $role }}:-{{ "}" }}" ]; then
+        echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} {{ $acl }}"
+      else
+        echo "user {{ $role }} off resetpass {{ $acl }}"
+      fi
+      {{- else }}
+      echo "user {{ $role }} on >${{ include "redis.roleEnvVar" $role }} {{ $acl }}"
+      {{- end }}
       {{- end }}
     } > /acl/users.acl
     exec redis-server /etc/redis/redis.conf

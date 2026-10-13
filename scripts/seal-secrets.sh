@@ -127,10 +127,13 @@ OUT="clusters/${ORG}/instances/${ENV}/secrets.yaml"
 CONTROLLER_NS="kube-system"
 CONTROLLER_NAME="sealed-secrets-controller"
 
-# Redis ACL roles: one account per API declared in global.apis.instances
-# (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
-# KEEP IN SYNC with that file if the list of APIs changes.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api"
+# Redis ACL roles: one account per API and per BFF declared in
+# global.apis.instances / global.bffs.instances
+# (charts/mairie360-stack/values.yaml). The BFF accounts (MAIR-531) are
+# provisioned ahead of their use (MAIR-499).
+# KEEP IN SYNC with that file if the list of APIs or BFFs changes.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api
+  user-bff project-bff calendar-bff message-bff dashboard-bff settings-bff elearning-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
