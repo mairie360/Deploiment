@@ -674,6 +674,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   `postgres://user:password@host:port/db` without percent-encoding, so a `/`
   in the password breaks the URL (`invalid port number`). Seen on the first
   clean deployment: 2 to 4 APIs per instance could not reach Postgres.
+  The Redis ACL passwords are put raw in `REDIS_URL` the same way, and the
+  base64 ones from before that fix were kept by every re-seal (MAIR-531:
+  calendar/message/elearning-api, "Redis URL did not parse"). The script
+  now regenerates any kept role password that `scripts/lib/secret-values.sh`
+  `url_safe` rejects (restart Redis, then the APIs, after the sync), and
+  `scripts/verify.sh` step 4 flags them on the cluster.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`

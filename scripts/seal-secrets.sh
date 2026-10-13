@@ -89,7 +89,15 @@
 #
 # Generated values are hex: the APIs build `postgres://user:password@host`
 # without percent-encoding the password, so a base64 value containing `/`
-# breaks the URL ("invalid port number", "Name or service not known").
+# breaks the URL ("invalid port number", "Name or service not known"). Same
+# for the Redis ACL passwords, put raw in REDIS_URL by the chart ("Redis URL
+# did not parse"). A Redis or Postgres role password kept from the cluster
+# that is not URL-safe (generated base64 before Deploiment#50) is therefore
+# regenerated, even without --rotate (MAIR-531). The Liquibase Job applies the
+# Postgres ones on the next sync; for the Redis ones, restart Redis then the
+# APIs once the new secrets.yaml is synced:
+#   kubectl -n mairie360-<env> rollout restart deploy/<env>-redis
+#   kubectl -n mairie360-<env> rollout restart deploy -l app.kubernetes.io/component=api
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -104,6 +112,9 @@
 # its env vars at every start: a pod restart applies a rotated ACL password.
 # =============================================================================
 set -euo pipefail
+
+# shellcheck source=scripts/lib/secret-values.sh
+. "$(dirname "$0")/lib/secret-values.sh"
 
 CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
@@ -248,6 +259,10 @@ for role in $REDIS_ROLES; do
   else
     val="$(prev "${RELEASE}-redis" "$key")"
   fi
+  # MAIR-531: the chart puts this password raw in the API's REDIS_URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
+  fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   redis_args+=(--from-literal="${key}=${val}")
 done
@@ -263,6 +278,10 @@ for role in $DB_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
+  fi
+  # MAIR-531: the API puts this password raw in its postgres:// URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   db_args+=(--from-literal="${key}=${val}")

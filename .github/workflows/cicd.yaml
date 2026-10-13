@@ -90,6 +90,9 @@ jobs:
           helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2 --verify=false
           helm unittest ./charts/mairie360-stack
 
+      - name: Script tests
+        run: for t in tests/scripts/*_test.sh; do echo "== $t"; "$t" || exit 1; done
+
   # # ================================
   # # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)
   # # ================================

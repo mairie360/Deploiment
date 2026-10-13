@@ -9,6 +9,9 @@
 # =============================================================================
 set -uo pipefail
 
+# shellcheck source=scripts/lib/secret-values.sh
+. "$(dirname "$0")/lib/secret-values.sh"
+
 CTX="${1:?usage: $0 <contexte-kube> <env> [domaine]}"
 ENV="${2:?}"
 DOMAIN="${3:-}"
@@ -68,6 +71,23 @@ case "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_PAS
   '$argon2id$'*) ok "ADMIN_PASSWORD is an argon2id hash" ;;
   *) ko "ADMIN_PASSWORD in ${RELEASE}-database-secret is empty or plaintext: the Liquibase Job refuses to migrate (MAIR-414, re-run scripts/seal-secrets.sh)" ;;
 esac
+
+# MAIR-531: the APIs put these passwords raw in REDIS_URL / their postgres://
+# URL, a base64 one ("/", "+", "=") fails with "Redis URL did not parse".
+# Keys are read from the live Secrets, so the chart's role lists stay the
+# source of truth.
+for spec in "${RELEASE}-redis:-password" "${RELEASE}-database-secret:_PASSWORD"; do
+  s="${spec%%:*}"; suffix="${spec#*:}"
+  for key in $($K get secret "$s" -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null \
+                 | grep -- "${suffix}\$" | grep -v '^ADMIN_PASSWORD$\|^POSTGRES_PASSWORD$\|^redis-password$'); do
+    val="$($K get secret "$s" -o jsonpath="{.data.${key}}" 2>/dev/null | base64 -d 2>/dev/null)"
+    if url_safe "$val"; then
+      ok "$s/$key is URL-safe"
+    else
+      ko "$s/$key is empty or not URL-safe: its API cannot build its URL (MAIR-531, re-run scripts/seal-secrets.sh then restart Redis and the APIs)"
+    fi
+  done
+done
 
 step 5 "Aucun secret en clair dans les manifestes déployés"
 if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
