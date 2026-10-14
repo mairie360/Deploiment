@@ -89,7 +89,15 @@
 #
 # Generated values are hex: the APIs build `postgres://user:password@host`
 # without percent-encoding the password, so a base64 value containing `/`
-# breaks the URL ("invalid port number", "Name or service not known").
+# breaks the URL ("invalid port number", "Name or service not known"). Same
+# for the Redis ACL passwords, put raw in REDIS_URL by the chart ("Redis URL
+# did not parse"). A Redis or Postgres role password kept from the cluster
+# that is not URL-safe (generated base64 before Deploiment#50) is therefore
+# regenerated, even without --rotate (MAIR-531). The Liquibase Job applies the
+# Postgres ones on the next sync; for the Redis ones, restart Redis then the
+# APIs once the new secrets.yaml is synced:
+#   kubectl -n mairie360-<env> rollout restart deploy/<env>-redis
+#   kubectl -n mairie360-<env> rollout restart deploy -l app.kubernetes.io/component=api
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -105,6 +113,9 @@
 # =============================================================================
 set -euo pipefail
 
+# shellcheck source=scripts/lib/secret-values.sh
+. "$(dirname "$0")/lib/secret-values.sh"
+
 CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
 ENV="${3:?}"
@@ -116,10 +127,13 @@ OUT="clusters/${ORG}/instances/${ENV}/secrets.yaml"
 CONTROLLER_NS="kube-system"
 CONTROLLER_NAME="sealed-secrets-controller"
 
-# Redis ACL roles: one account per API declared in global.apis.instances
-# (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
-# KEEP IN SYNC with that file if the list of APIs changes.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api"
+# Redis ACL roles: one account per API and per BFF declared in
+# global.apis.instances / global.bffs.instances
+# (charts/mairie360-stack/values.yaml). The BFF accounts (MAIR-531) are
+# provisioned ahead of their use (MAIR-499).
+# KEEP IN SYNC with that file if the list of APIs or BFFs changes.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api
+  user-bff project-bff calendar-bff message-bff dashboard-bff settings-bff elearning-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
@@ -248,6 +262,10 @@ for role in $REDIS_ROLES; do
   else
     val="$(prev "${RELEASE}-redis" "$key")"
   fi
+  # MAIR-531: the chart puts this password raw in the API's REDIS_URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
+  fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   redis_args+=(--from-literal="${key}=${val}")
 done
@@ -263,6 +281,10 @@ for role in $DB_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
+  fi
+  # MAIR-531: the API puts this password raw in its postgres:// URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   db_args+=(--from-literal="${key}=${val}")

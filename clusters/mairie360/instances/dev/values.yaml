@@ -58,7 +58,7 @@ ingress:
 # The chart defaults (256-512 MiB limits) stay as is for staging and prod.
 database:
   image:
-    tag: "dev-99f6127"
+    tag: "dev-90c22bb"
   secret:
     create: false
   persistence:
@@ -77,7 +77,7 @@ redis:
 
 liquibase:
   image:
-    tag: "dev-99f6127"
+    tag: "dev-90c22bb"
   db:
     name: "mairie_db_dev"
 
@@ -148,7 +148,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-fcdcf79" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-95531e2" }
       env:
         - name: PUBLIC_URL
           value: "https://login.dev.mairie360-eip.fr"
@@ -174,13 +174,13 @@ APIs:
           value: "Mairie360 (dev) <noreply@mairie360-eip.fr>"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-f3f0a8a" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-2b0d884" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-a7252e8" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-7486387" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-2d0319f" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-d33e731" }
     elearning-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-9a33c9b" }
@@ -218,40 +218,40 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-3f35bd8" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-46a698b" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-68d15b9" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-0b18e81" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-9b2bbc2" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-fcc4f16" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-74dd7c2" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-ad5339c" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "dev-bccf2c3" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "dev-c89c35c" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "dev-eb4e17f" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "dev-6d72619" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-88f7caa" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-c4c3f73" }
 
 Fronts:
   resources:
@@ -261,50 +261,50 @@ Fronts:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-0d34195" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-fe6c4a0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-5701791" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-d66d468" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-0731344" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-2f881e1" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-64292a0" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-e9831bb" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-bb9aabd" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-b093848" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-03588b5" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-5089741" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-7cc1010" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-d7af0da" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-3a4f8f5" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-ab2a33d" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"

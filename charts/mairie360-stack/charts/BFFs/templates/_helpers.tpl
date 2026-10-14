@@ -56,8 +56,8 @@ Takes a { root, name } context (name = the current instance, e.g. "user-bff").
 - name: HOSTNAME
   value: "0.0.0.0"
 {{- /*
-MAIR-414: no DB_* nor REDIS_* (no BFF has a database or reads Redis, and the
-database NetworkPolicy refuses them anyway). JWT_SECRET goes to the BFFs
+MAIR-414: no DB_* (no BFF has a database, and the database NetworkPolicy
+refuses them anyway). JWT_SECRET goes to the BFFs
 listed in jwtSecretInstances: every one of them since MAIR-474 made each BFF
 verify the session itself (bffs-lib `requireSession`) and fail at start
 without it (MAIR-520).
@@ -69,6 +69,29 @@ without it (MAIR-520).
       name: {{ include "bffs.appSecretName" $.root }}
       key: JWT_SECRET
 {{- end }}
+{{- /*
+MAIR-531: each BFF gets its own Redis ACL account (charts/redis, prefix
+`<bff>:*`), wired ahead of the bffs-lib Redis client (MAIR-499); no BFF reads
+it yet. Same shape as the APIs: REDIS_URL is expanded from the variables above
+it, so the password (hex, URL-safe) never appears in the manifest. The key is
+optional, so a Secret sealed before these accounts does not block the BFFs:
+REDIS_PASSWORD is then unset and REDIS_URL keeps the literal `$(REDIS_PASSWORD)`
+until the next scripts/seal-secrets.sh.
+*/}}
+- name: REDIS_HOST
+  value: {{ printf "%s-redis" $.root.Release.Name | quote }}
+- name: REDIS_PORT
+  value: "6379"
+- name: REDIS_USERNAME
+  value: {{ $.name | quote }}
+- name: REDIS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-redis" $.root.Release.Name }}
+      key: {{ printf "%s-password" $.name }}
+      optional: true
+- name: REDIS_URL
+  value: {{ printf "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:6379" $.root.Release.Name | quote }}
 {{- /*
 TRUST_PROXY (MAIR-226): Express `trust proxy` = loopback + the in-cluster
 pod CIDR(s), so req.ip is the client address carried by X-Forwarded-For
