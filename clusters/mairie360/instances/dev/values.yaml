@@ -148,7 +148,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-95531e2" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-e70bb95" }
       env:
         - name: PUBLIC_URL
           value: "https://login.dev.mairie360-eip.fr"
@@ -170,16 +170,16 @@ APIs:
           value: "Mairie360 (dev)"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-2b0d884" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-90f4e08" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-7486387" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-8a6222b" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-0191b33" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-5eedad4" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-9a33c9b" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-c3942ca" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
