@@ -392,39 +392,59 @@ subchart renders, all named `<release>-keycloak*`:
 - **`<release>-keycloak-realm`** ConfigMap, mounted at
   `/opt/keycloak/data/import`: the `global.keycloak.realm` realm (`mairie360`)
   with the five `Database` roles (`Admin`, `Maire`, `Responsable`, `User`,
-  `Guest`), two OIDC clients — `login-front` (public, authorization code +
-  PKCE S256) and `bff-user` (confidential, service account) — both redirecting
+  `Guest`), three OIDC clients — `login-front` (public, authorization code +
+  PKCE S256), `bff-user` (confidential, service account) and, since
+  MAIR-554, `core-api` (confidential, PKCE S256, service account holding the
+  `realm-management` roles `manage-users`/`view-realm`/`manage-realm`, the
+  only client allowed to administer the realm) — all redirecting
   to `https://login.<domain>/*` by default (`keycloak.realm.clients.*`), and
   the Resend SMTP relay when `keycloak.realm.smtp.from` is set. **Keycloak
   only imports a realm that does not exist yet**: after the first sync, edit
   the realm in the admin console (it lives in Keycloak's DB), not in values.
-  The ConfigMap holds no secret: `"secret": "${BFF_USER_CLIENT_SECRET}"` and
+  The ConfigMap holds no secret: `"secret": "${BFF_USER_CLIENT_SECRET}"`,
+  `"secret": "${CORE_API_CLIENT_SECRET}"` and
   `"password": "${SMTP_PASSWORD}"` are Keycloak placeholders resolved at
   import from the container env (`secretKeyRef`), not Helm expressions.
 - **`<release>-keycloak-secret`**: `KEYCLOAK_ADMIN_PASSWORD` (bootstrap admin
   `admin` of the master realm, read on the first start of an empty DB only),
   `KEYCLOAK_DB_PASSWORD` (Postgres role, first init only),
-  `BFF_USER_CLIENT_SECRET`. Sealed by `scripts/seal-secrets.sh` like the
-  others, all generated; **never touched by `--rotate`** for the same
-  reason as `ADMIN_PASSWORD`: none of the three is re-read once Keycloak
-  has started, so rotate in Keycloak itself, then re-seal the client secret
-  with `BFF_USER_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
+  `BFF_USER_CLIENT_SECRET`, `CORE_API_CLIENT_SECRET` (MAIR-554). Sealed by
+  `scripts/seal-secrets.sh` like the others, all generated; **never touched
+  by `--rotate`** for the same reason as `ADMIN_PASSWORD`: none of them is
+  re-read once Keycloak has started, so rotate in Keycloak itself, then
+  re-seal the client secret with `BFF_USER_CLIENT_SECRET=…` /
+  `CORE_API_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
   `<release>-app-secrets` (optional), same Resend key as core-api.
 - **Network**: `keycloak` accepts the ingress-controller namespace, `bff`
   and `api` pods on 8080; `keycloak-db` accepts `keycloak` on 5432 and
   nothing else (not the APIs, migration or backup). Fronts never reach it
   server-side, the browser goes through the Ingress.
-- **Tests**: `tests/keycloak_test.yaml` (`helm unittest`), the subchart's
+- **Tests**: `tests/keycloak_test.yaml` and `tests/keycloak_core_api_test.yaml` (`helm unittest`), the subchart's
   `helm test` pod (issuer of the discovery document from a `bff`-labelled
   pod) and, in e2e, the real Keycloak image: the chainsaw `data-access`
   test gets a `client_credentials` token for `bff-user` with the secret
-  from the Secret (proves the placeholder substitution) and
+  from the Secret (proves the placeholder substitution), checks that
+  `core-api`'s token reads the Admin API and `bff-user`'s gets 403
+  (MAIR-554), and
   `network-policies` covers the new hops.
-- `scripts/verify.sh` step 4 expects the Secret, step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
+- `scripts/verify.sh` step 4 expects the Secret (and its
+  `CORE_API_CLIENT_SECRET` key, MAIR-554), step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
   served, step 13 the `auth.` certificate, step 15 that 8080/9000 are closed.
-- Not wired yet (MAIR-140/153): the BFFs and fronts get no `KEYCLOAK_*` env
-  var; `global.keycloak.{hostname,realm}` exist so the BFFs chart can derive
-  the issuer URL when they do.
+- **Core API is wired (MAIR-554).** The APIs of `APIs.keycloakClientInstances`
+  (`core-api`) get `KEYCLOAK_REALM_URL` (in-cluster
+  `http://<release>-keycloak:8080/realms/<realm>`), `KEYCLOAK_ISSUER`
+  (`https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
+  the `iss` Keycloak writes), `KEYCLOAK_CLIENT_ID` (= the instance name) and
+  `KEYCLOAK_CLIENT_SECRET` (`<release>-keycloak-secret` key
+  `<NAME>_CLIENT_SECRET`, optional). Core uses that one client for the
+  sign-in code exchange (ID token audience), the account synchronisation
+  (MAIR-142) and the migration (MAIR-141): the front must redirect with
+  `client_id=core-api` (MAIR-153). A realm imported before MAIR-554 gets
+  the client from `scripts/keycloak-core-api-client.sh <context> <env>`
+  (idempotent, `kcadm` in the Keycloak pod, then restarts core-api), run
+  after `seal-secrets.sh` added `CORE_API_CLIENT_SECRET` and Argo CD synced
+  it. Not wired yet: the BFFs (BFF_user's single logout, MAIR-143) and the
+  other APIs.
 
 ### Network model
 

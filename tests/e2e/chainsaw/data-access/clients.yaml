@@ -1,7 +1,8 @@
 # Client pods labelled as an API (the only component allowed to reach both
 # Postgres and Redis), each reading core-api's credentials from the Secrets
 # the chart wires into the real core-api Deployment — plus one labelled as a
-# BFF for Keycloak (MAIR-139), holding bff-user's client secret.
+# BFF for Keycloak (MAIR-139), holding bff-user's and core-api's (MAIR-554)
+# client secrets.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -94,3 +95,9 @@ spec:
             secretKeyRef:
               name: (join('-', [$release, 'keycloak-secret']))
               key: BFF_USER_CLIENT_SECRET
+        # MAIR-554: core-api's client, the only one allowed to administer the realm.
+        - name: CORE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'keycloak-secret']))
+              key: CORE_API_CLIENT_SECRET

@@ -138,9 +138,39 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
     secretKeyRef:
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
+{{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
 {{- with .root.Values.commonEnv }}
 {{ toYaml . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-554: Keycloak settings of the APIs listed in keycloakClientInstances
+(API_lib / Core `KeycloakConfig::from_env`). Core reaches the realm through
+the in-cluster Service, but Keycloak writes its public hostname into the
+`iss` claim (KC_HOSTNAME), hence the separate KEYCLOAK_ISSUER. The secret is
+optional: with a <release>-keycloak-secret sealed before it, Core still
+starts, Keycloak sign-in works and only the account synchronisation stays off
+until scripts/seal-secrets.sh + scripts/keycloak-core-api-client.sh run.
+*/}}
+{{- define "apis.keycloakEnv" -}}
+{{- if has .name (.root.Values.keycloakClientInstances | default list) }}
+{{- $kc := ((.root.Values.global).keycloak) | default dict }}
+{{- $realm := $kc.realm | default "mairie360" }}
+{{- $host := $kc.hostname | default (printf "auth.%s" (required "global.domain is required (Keycloak issuer)" .root.Values.global.domain)) }}
+- name: KEYCLOAK_REALM_URL
+  value: {{ printf "http://%s-keycloak:8080/realms/%s" .root.Release.Name $realm | quote }}
+- name: KEYCLOAK_ISSUER
+  value: {{ printf "https://%s/realms/%s" $host $realm | quote }}
+- name: KEYCLOAK_CLIENT_ID
+  value: {{ .name | quote }}
+- name: KEYCLOAK_CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ printf "%s-keycloak-secret" .root.Release.Name }}
+      key: {{ printf "%s_CLIENT_SECRET" (.name | upper | replace "-" "_") }}
+      optional: true
 {{- end }}
 {{- end -}}
 

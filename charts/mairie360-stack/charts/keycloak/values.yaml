@@ -58,6 +58,7 @@ env:
   KEYCLOAK_ADMIN_PASSWORD: ""
   KEYCLOAK_DB_PASSWORD: ""
   BFF_USER_CLIENT_SECRET: ""
+  CORE_API_CLIENT_SECRET: ""
 
 # Realm imported at first start. Placeholders `${VAR}` in the rendered JSON
 # are resolved by Keycloak from the container's environment, which is how the
@@ -92,6 +93,16 @@ realm:
       clientId: "bff-user"
       redirectUris: []
       webOrigins: []
+    # Core API (MAIR-554): confidential client (secret = CORE_API_CLIENT_SECRET)
+    # Core signs users in with (authorization code, ID token audience) and
+    # administers the realm with (service account, MAIR-141/142). Its
+    # clientId is the APIs chart's KEYCLOAK_CLIENT_ID (the API instance name).
+    # Only this client gets `realm-management` roles, never bff-user.
+    coreApi:
+      clientId: "core-api"
+      redirectUris: []
+      webOrigins: []
+      serviceAccountRoles: ["manage-users", "view-realm", "manage-realm"]
   # Outbound e-mail of the realm (password reset, invitations of MAIR-142).
   # Same Resend relay as core-api: the API key is read from the SMTP_PASSWORD
   # key of <release>-app-secrets (optional: an instance sealed without it

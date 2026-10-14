@@ -175,6 +175,20 @@ spec:
                   *access_token*) echo "FAIL  login-front (public client) got a service-account token"; FAILED=1 ;;
                   *) echo "ok    login-front is a public client without service account" ;;
                 esac
+                # MAIR-554: core-api administers the realm through its service
+                # account; bff-user must not.
+                at() { sed -n "s/.*\"access_token\":\"\([^\"]*\)\".*/\1/p"; }
+                core=$(curl -s -m 10 -X POST "$REALM/protocol/openid-connect/token" \
+                  -d grant_type=client_credentials -d client_id=core-api \
+                  -d client_secret="$CORE_CLIENT_SECRET" | at)
+                bff=$(echo "$token" | at)
+                users="$KEYCLOAK_URL/admin/realms/mairie360/users?max=1"
+                code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -H "Authorization: Bearer $core" "$users")
+                [ -n "$core" ] && [ "$code" = 200 ] && echo "ok    core-api lists the realm users (Admin API)" \
+                  || { echo "FAIL  core-api Admin API: token=${core:+yes} status=$code"; FAILED=1; }
+                code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 -H "Authorization: Bearer $bff" "$users")
+                [ "$code" = 403 ] && echo "ok    bff-user is refused by the Admin API" \
+                  || { echo "FAIL  bff-user Admin API answered $code, expected 403"; FAILED=1; }
                 exit $FAILED
               '
             check:
