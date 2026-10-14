@@ -4,18 +4,21 @@ Realm imported by Keycloak at first start (`start --import-realm` reads
 /opt/keycloak/data/import/*.json). Only the realm NAME, roles, clients and
 SMTP relay are provisioned here; users come with MAIR-141.
 
-No secret value is rendered: `${BFF_USER_CLIENT_SECRET}` and
-`${SMTP_PASSWORD}` are Keycloak placeholders, resolved at import time from
+No secret value is rendered: `${BFF_USER_CLIENT_SECRET}`,
+`${CORE_API_CLIENT_SECRET}` and `${SMTP_PASSWORD}` are Keycloak placeholders, resolved at import time from
 the container's environment (secretKeyRef in deployment.yaml). They are NOT
 Helm expressions — Helm leaves `${...}` untouched.
 
 Keycloak skips the import when the realm already exists, so editing this
 file after the first sync changes nothing on a running instance: use the
 admin console, or delete the realm and let the next restart re-import it.
+The core-api client (MAIR-554) is added to an existing realm by
+scripts/keycloak-core-api-client.sh.
 */ -}}
 {{- $realm := .Values.realm -}}
 {{- $loginFront := $realm.clients.loginFront -}}
 {{- $bffUser := $realm.clients.bffUser -}}
+{{- $coreApi := $realm.clients.coreApi -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -100,6 +103,37 @@ data:
           "webOrigins": {{ include "keycloak.clientWebOrigins" (dict "root" . "client" $bffUser) }},
           "attributes": {
             "post.logout.redirect.uris": "+"
+          }
+        },
+        {
+          "clientId": {{ $coreApi.clientId | quote }},
+          "name": "Core_API",
+          "description": "Mairie 360 Core API (confidential client: sign-in code exchange + realm administration service account, MAIR-554)",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "${CORE_API_CLIENT_SECRET}",
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "rootUrl": {{ include "keycloak.loginUrl" . | quote }},
+          "redirectUris": {{ include "keycloak.clientRedirectUris" (dict "root" . "client" $coreApi) }},
+          "webOrigins": {{ include "keycloak.clientWebOrigins" (dict "root" . "client" $coreApi) }},
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "post.logout.redirect.uris": "+"
+          }
+        }
+      ],
+      "users": [
+        {
+          "username": {{ printf "service-account-%s" $coreApi.clientId | quote }},
+          "enabled": true,
+          "serviceAccountClientId": {{ $coreApi.clientId | quote }},
+          "clientRoles": {
+            "realm-management": {{ $coreApi.serviceAccountRoles | toJson }}
           }
         }
       ]

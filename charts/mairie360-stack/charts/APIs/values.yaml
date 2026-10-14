@@ -45,8 +45,16 @@ strategy:
   maxSurge: 0
   maxUnavailable: 1
 
+# APIs that are a Keycloak client of their own (MAIR-554): each gets
+# KEYCLOAK_REALM_URL (in-cluster), KEYCLOAK_ISSUER (public, from
+# global.keycloak), KEYCLOAK_CLIENT_ID = the instance name and
+# KEYCLOAK_CLIENT_SECRET from <release>-keycloak-secret key
+# <NAME>_CLIENT_SECRET (e.g. CORE_API_CLIENT_SECRET). The client itself is
+# declared in charts/keycloak (`realm.clients`).
+keycloakClientInstances: ["core-api"]
+
 # Environment variables shared by every API (on top of the ones the chart
-# injects: DB_*, REDIS_*, JWT_SECRET).
+# injects: DB_*, REDIS_*, JWT_SECRET, KEYCLOAK_*).
 commonEnv:
   - name: JWT_TIMEOUT
     value: "3600"

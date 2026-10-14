@@ -72,6 +72,12 @@ case "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_PAS
   *) ko "ADMIN_PASSWORD in ${RELEASE}-database-secret is empty or plaintext: the Liquibase Job refuses to migrate (MAIR-414, re-run scripts/seal-secrets.sh)" ;;
 esac
 
+if [ -n "$($K get secret "${RELEASE}-keycloak-secret" -o jsonpath='{.data.CORE_API_CLIENT_SECRET}' 2>/dev/null)" ]; then
+  ok "CORE_API_CLIENT_SECRET is set (MAIR-554)"
+else
+  ko "CORE_API_CLIENT_SECRET missing from ${RELEASE}-keycloak-secret: core-api cannot administer the realm (MAIR-554, scripts/seal-secrets.sh then scripts/keycloak-core-api-client.sh)"
+fi
+
 # MAIR-531: the APIs put these passwords raw in REDIS_URL / their postgres://
 # URL, a base64 one ("/", "+", "=") fails with "Redis URL did not parse".
 # Keys are read from the live Secrets, so the chart's role lists stay the

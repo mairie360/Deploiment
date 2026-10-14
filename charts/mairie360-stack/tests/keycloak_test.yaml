@@ -319,6 +319,7 @@ tests:
       keycloak.env.KEYCLOAK_ADMIN_PASSWORD: "test-admin"
       keycloak.env.KEYCLOAK_DB_PASSWORD: "test-db"
       keycloak.env.BFF_USER_CLIENT_SECRET: "test-client"
+      keycloak.env.CORE_API_CLIENT_SECRET: "test-core"
     templates: [charts/keycloak/templates/secret.yaml]
     asserts:
       - hasDocuments: { count: 1 }
@@ -326,6 +327,7 @@ tests:
       - equal: { path: stringData.KEYCLOAK_ADMIN_PASSWORD, value: test-admin }
       - equal: { path: stringData.KEYCLOAK_DB_PASSWORD, value: test-db }
       - equal: { path: stringData.BFF_USER_CLIENT_SECRET, value: test-client }
+      - equal: { path: stringData.CORE_API_CLIENT_SECRET, value: test-core }
 
   - it: refuses to create the Secret without every value (create=true)
     set:

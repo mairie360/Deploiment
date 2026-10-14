@@ -60,6 +60,9 @@
 #   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
 #                   to re-seal one regenerated in the admin console; otherwise
 #                   the value on the cluster is kept, or generated once.
+#   CORE_API_CLIENT_SECRET  same for the core-api client (MAIR-554). When
+#                   generated for a realm that already exists, run
+#                   scripts/keycloak-core-api-client.sh once synced.
 #   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
 #                   stored in <env>-cockpit-secret for the OpenTelemetry
 #                   Collector (MAIR-131, charts/observability). When unset, the
@@ -81,7 +84,7 @@
 # and the realm (hence bff-user's client secret) is imported once — rotating
 # the sealed values would change nothing live and only desynchronise them.
 # Rotate those in Keycloak itself (admin console / ALTER ROLE), then re-seal
-# with BFF_USER_CLIENT_SECRET set. --rotate-roles ne régénère que les
+# with BFF_USER_CLIENT_SECRET / CORE_API_CLIENT_SECRET set. --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -253,6 +256,14 @@ else
   KCBFFSECRET="$(prev "${RELEASE}-keycloak-secret" BFF_USER_CLIENT_SECRET)"
   [ -n "$KCBFFSECRET" ] || { KCBFFSECRET="$(gen)"; echo "  BFF_USER_CLIENT_SECRET  : generated"; }
 fi
+# MAIR-554: secret of the core-api client, same lifecycle as bff-user's.
+KCCORESECRET="${CORE_API_CLIENT_SECRET:-}"
+if [ -n "$KCCORESECRET" ]; then
+  echo "  CORE_API_CLIENT_SECRET  : from CORE_API_CLIENT_SECRET"
+else
+  KCCORESECRET="$(prev "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET)"
+  [ -n "$KCCORESECRET" ] || { KCCORESECRET="$(gen)"; echo "  CORE_API_CLIENT_SECRET  : generated (run scripts/keycloak-core-api-client.sh on a realm already imported)"; }
+fi
 
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
@@ -388,6 +399,7 @@ kubectl create secret generic "${RELEASE}-keycloak-secret" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KCADMINPWD" \
   --from-literal=KEYCLOAK_DB_PASSWORD="$KCDBPWD" \
   --from-literal=BFF_USER_CLIENT_SECRET="$KCBFFSECRET" \
+  --from-literal=CORE_API_CLIENT_SECRET="$KCCORESECRET" \
   --dry-run=client -o yaml | seal > "$TMP/keycloak.yaml"
 
 if [ -n "$GHCR_TOKEN" ]; then

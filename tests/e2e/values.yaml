@@ -76,6 +76,7 @@ keycloak:
     KEYCLOAK_ADMIN_PASSWORD: "e2e-keycloak-admin"
     KEYCLOAK_DB_PASSWORD: "e2e-keycloak-db"
     BFF_USER_CLIENT_SECRET: "e2e-bff-user-client-secret"
+    CORE_API_CLIENT_SECRET: "e2e-core-api-client-secret"
   db:
     persistence:
       size: "1Gi"
