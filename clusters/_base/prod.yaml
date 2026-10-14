@@ -109,6 +109,12 @@ keycloak:
       storageClass: "local-path"
 
 APIs:
+  # MAIR-565: every prod instance keeps 2 warm connections per API process;
+  # 5 APIs x 15 stays far below Postgres' max_connections (200).
+  dbPool:
+    minConnections: 2
+    maxConnections: 15
+    idleTimeoutSecs: 900
   instances:
     core-api:
       enabled: true

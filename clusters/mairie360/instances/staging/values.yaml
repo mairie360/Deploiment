@@ -112,6 +112,11 @@ keycloak:
       storageClass: "local-path"
 
 APIs:
+  # MAIR-565: mirrors prod's warm pool at a lower maximum.
+  dbPool:
+    minConnections: 2
+    maxConnections: 10
+    idleTimeoutSecs: 600
   instances:
     core-api:
       enabled: true

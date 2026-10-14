@@ -145,6 +145,12 @@ APIs:
   resources:
     requests: { memory: "24Mi", cpu: "50m" }
     limits:   { memory: "192Mi", cpu: "500m" }
+  # MAIR-565: light traffic; one connection stays open so the first request
+  # after a pause does not reconnect.
+  dbPool:
+    minConnections: 1
+    maxConnections: 5
+    idleTimeoutSecs: 300
   instances:
     core-api:
       enabled: true
