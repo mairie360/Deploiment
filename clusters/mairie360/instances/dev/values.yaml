@@ -58,7 +58,7 @@ ingress:
 # The chart defaults (256-512 MiB limits) stay as is for staging and prod.
 database:
   image:
-    tag: "dev-90c22bb"
+    tag: "dev-61be6d5"
   secret:
     create: false
   persistence:
@@ -77,7 +77,7 @@ redis:
 
 liquibase:
   image:
-    tag: "dev-90c22bb"
+    tag: "dev-61be6d5"
   db:
     name: "mairie_db_dev"
 
