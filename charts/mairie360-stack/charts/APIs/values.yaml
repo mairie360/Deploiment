@@ -53,8 +53,20 @@ strategy:
 # declared in charts/keycloak (`realm.clients`).
 keycloakClientInstances: ["core-api"]
 
+# Postgres pool of each API process (MAIR-565, API_lib `DbPoolConfig`),
+# rendered as DB_POOL_MIN_CONNECTIONS / DB_POOL_MAX_CONNECTIONS /
+# DB_POOL_IDLE_TIMEOUT_SECS. These are the lib's defaults; each environment
+# sets its own (`APIs.dbPool`), one API may override a key
+# (`instances.<name>.dbPool`). minConnections stay open even after a pause.
+# Keep sum(replicas x maxConnections) of all APIs well below
+# database.postgresql.maxConnections (200).
+dbPool:
+  minConnections: 1
+  maxConnections: 10
+  idleTimeoutSecs: 600
+
 # Environment variables shared by every API (on top of the ones the chart
-# injects: DB_*, REDIS_*, JWT_SECRET, KEYCLOAK_*).
+# injects: DB_*, DB_POOL_*, REDIS_*, JWT_SECRET, KEYCLOAK_*).
 commonEnv:
   - name: JWT_TIMEOUT
     value: "3600"
@@ -70,5 +82,6 @@ commonEnv:
 #       image: { repository: ghcr.io/mairie360/core-api, tag: "dev-abc1234" }
 #       replicaCount: 1
 #       resources: {}          # optional, defaults to `resources` above
+#       dbPool: {}             # optional, key by key over `dbPool` above
 #       env: []                # optional, goes through tpl
 instances: {}

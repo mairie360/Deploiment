@@ -1,0 +1,95 @@
+suite: Postgres pool of the APIs, dev (MAIR-565)
+# API_lib `DbPoolConfig::from_env` reads DB_POOL_MIN_CONNECTIONS,
+# DB_POOL_MAX_CONNECTIONS and DB_POOL_IDLE_TIMEOUT_SECS; each environment sets
+# its own pool so the minimum stays open even after a pause.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/APIs/templates/deployment.yaml]
+tests:
+  - it: every API gets the dev pool
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "1" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS, value: "5" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_IDLE_TIMEOUT_SECS, value: "300" }
+
+  - it: one API overrides a key, 0 included, and keeps the others
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    set:
+      APIs.instances.core-api.dbPool: { minConnections: 0, maxConnections: 8 }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "0" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS, value: "8" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_IDLE_TIMEOUT_SECS, value: "300" }
+
+  - it: the override of one API does not leak into the others
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    set:
+      APIs.instances.core-api.dbPool: { minConnections: 0, maxConnections: 8 }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "1" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS, value: "5" }
+
+  - it: a key removed everywhere is not rendered (the API keeps its default)
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    set:
+      APIs.dbPool.maxConnections: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "1" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS }
+          any: true
+---
+suite: Postgres pool of the APIs, staging (MAIR-565)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+templates: [charts/APIs/templates/deployment.yaml]
+tests:
+  - it: every API gets the staging pool
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "2" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS, value: "10" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_IDLE_TIMEOUT_SECS, value: "600" }
+---
+suite: Postgres pool of the APIs, prod (MAIR-565)
+# Both prod instances inherit the pool of clusters/_base/prod.yaml.
+values:
+  - ../../../clusters/_base/prod.yaml
+  - ../../../clusters/mairie360/instances/prod/values.yaml
+templates: [charts/APIs/templates/deployment.yaml]
+tests:
+  - it: every API gets the prod pool
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MIN_CONNECTIONS, value: "2" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_MAX_CONNECTIONS, value: "15" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: DB_POOL_IDLE_TIMEOUT_SECS, value: "900" }

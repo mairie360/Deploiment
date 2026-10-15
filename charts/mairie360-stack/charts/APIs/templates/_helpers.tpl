@@ -138,10 +138,39 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
     secretKeyRef:
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
+{{- include "apis.dbPoolEnv" . }}
 {{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
 {{- with .root.Values.commonEnv }}
 {{ toYaml . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-565: size of the API's Postgres pool (API_lib `DbPoolConfig::from_env`).
+`dbPool` of the chart, overridden key by key by `instances.<name>.dbPool`
+(a key set to 0 still overrides). A key missing from both is not rendered and
+the API keeps its own default. Every replica of every API shares Postgres'
+max_connections (database.postgresql.maxConnections): keep
+sum(replicas x maxConnections) well below it.
+*/}}
+{{- define "apis.dbPoolEnv" -}}
+{{- $pool := deepCopy (.root.Values.dbPool | default dict) }}
+{{- $instance := index (.root.Values.instances | default dict) .name | default dict }}
+{{- range $key, $value := $instance.dbPool | default dict }}
+{{- $_ := set $pool $key $value }}
+{{- end }}
+{{- if hasKey $pool "minConnections" }}
+- name: DB_POOL_MIN_CONNECTIONS
+  value: {{ $pool.minConnections | toString | quote }}
+{{- end }}
+{{- if hasKey $pool "maxConnections" }}
+- name: DB_POOL_MAX_CONNECTIONS
+  value: {{ $pool.maxConnections | toString | quote }}
+{{- end }}
+{{- if hasKey $pool "idleTimeoutSecs" }}
+- name: DB_POOL_IDLE_TIMEOUT_SECS
+  value: {{ $pool.idleTimeoutSecs | toString | quote }}
 {{- end }}
 {{- end -}}
 
