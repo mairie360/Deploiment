@@ -42,7 +42,7 @@ ingress:
 
 database:
   image:
-    tag: "staging-a6e1caa"
+    tag: "staging-fa7c13a"
   secret:
     create: false
   persistence:
@@ -55,7 +55,7 @@ redis:
 
 liquibase:
   image:
-    tag: "staging-a6e1caa"
+    tag: "staging-fa7c13a"
   db:
     name: "mairie_db_staging"
 
@@ -120,7 +120,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-aa4a651" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-b14e21c" }
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
@@ -149,13 +149,13 @@ APIs:
       image: { repository: ghcr.io/mairie360/project-api, tag: "staging-e974cc9" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-82d5092" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-a40acfd" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-7f156fd" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-d35e7df" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e116de2" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-87d9e8f" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -227,28 +227,28 @@ Fronts:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-520b425" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-8fe4db0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-7a22cde" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-da250aa" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-0585c2e" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-9e21e34" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-9691f31" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-d950efe" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
@@ -263,14 +263,14 @@ Fronts:
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-fa940e1" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-322e9d6" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-7b99b63" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-3b39b49" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
