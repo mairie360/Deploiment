@@ -187,40 +187,40 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-68e9c9ceb3e41ada5309b72f24471b77ff1b8061" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-0a21926" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-bb67ea3b3124f282cbf2cdc979463a147af9f6a3" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-313419a" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-66290751c2bd50f30209ee4f1076ee31ebfaa46a" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-e07dbe0" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-e30f50ecb2dfc7eec8c5a4b088020ed752ff6ff1" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-bb90cbf" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-8ec100e7f5cdd0ae2d987f8e93f89aa505949847" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-67de8ac" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-10670b52403e99cd2904a96ac78091c89506551e" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-cec91ef" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-014923a8b66439d530530fe1dea16a83fc0e4a87" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-34ef96d" }
 
 Fronts:
   instances:

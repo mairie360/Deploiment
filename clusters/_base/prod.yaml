@@ -185,7 +185,7 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "0.5.0" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "1.0.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
@@ -196,29 +196,29 @@ BFFs:
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "0.4.0" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "1.0.0" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "0.4.0" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "1.0.0" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "2.0.0" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "2.0.0" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "0.4.0" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "1.0.0" }
 
 Fronts:
   instances:
