@@ -42,7 +42,7 @@ ingress:
 
 database:
   image:
-    tag: "staging-fa7c13a"
+    tag: "staging-5fe90c1"
   secret:
     create: false
   persistence:
@@ -55,7 +55,7 @@ redis:
 
 liquibase:
   image:
-    tag: "staging-fa7c13a"
+    tag: "staging-5fe90c1"
   db:
     name: "mairie_db_staging"
 
@@ -146,7 +146,7 @@ APIs:
           value: "Mairie360 (staging) <noreply@mairie360-eip.fr>"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-e974cc9" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-d52539b" }
     calendar-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-a40acfd" }

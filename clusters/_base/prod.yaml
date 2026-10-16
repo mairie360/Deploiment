@@ -40,7 +40,7 @@ ingress:
 
 database:
   image:
-    tag: "1.3.0"
+    tag: "3.2.0"
   secret:
     create: false
   persistence:
@@ -53,7 +53,7 @@ redis:
 
 liquibase:
   image:
-    tag: "1.3.0"
+    tag: "3.2.0"
   db:
     name: "mairie_db_prod"
 
@@ -144,7 +144,7 @@ APIs:
           value: "Mairie360 <{{ required \"global.emailFrom is required\" .Values.global.emailFrom }}>"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "0.5.1" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "1.1.0" }
     calendar-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/calendar-api, tag: "1.1.0" }
