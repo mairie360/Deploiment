@@ -194,7 +194,7 @@ BFFs:
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-313419a" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-dfbdc37" }
     calendar-bff:
       enabled: true
       port: 4002
