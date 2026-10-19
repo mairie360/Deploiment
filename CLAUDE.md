@@ -446,7 +446,8 @@ subchart renders, all named `<release>-keycloak*`:
   it. Not wired yet: the BFFs (BFF_user's single logout, MAIR-143) and the
   other APIs.
 - **Login front is wired (MAIR-153).** The fronts of
-  `Fronts.keycloakLoginInstances` (`login-front`) get `KEYCLOAK_REALM_URL`
+  `Fronts.keycloakLoginInstances` (`login-front`, and `settings-front` for
+  its link to the account console, MAIR-357) get `KEYCLOAK_REALM_URL`
   (the public `https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
   where the browser is sent) and `KEYCLOAK_CLIENT_ID`
   (`Fronts.keycloakLoginClientId`, `core-api`), from `fronts.keycloakEnv`; an

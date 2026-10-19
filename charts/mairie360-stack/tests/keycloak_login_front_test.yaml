@@ -62,6 +62,7 @@ tests:
   - it: "MAIR-153: an instance KEYCLOAK_REALM_URL wins without resolving the default host"
     set:
       global.domain: ""
+      Fronts.keycloakLoginInstances: [login-front]
       Fronts.instances.login-front.env:
         - { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
     documentSelector:
@@ -71,6 +72,16 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
+          count: 1
+
+  - it: "MAIR-357: settings-front gets the public realm URL to link the account console"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-settings-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }
           count: 1
 
   - it: "MAIR-153: other fronts get no Keycloak setting"
