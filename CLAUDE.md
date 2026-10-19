@@ -445,6 +445,17 @@ subchart renders, all named `<release>-keycloak*`:
   after `seal-secrets.sh` added `CORE_API_CLIENT_SECRET` and Argo CD synced
   it. Not wired yet: the BFFs (BFF_user's single logout, MAIR-143) and the
   other APIs.
+- **Login front is wired (MAIR-153).** The fronts of
+  `Fronts.keycloakLoginInstances` (`login-front`) get `KEYCLOAK_REALM_URL`
+  (the public `https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
+  where the browser is sent) and `KEYCLOAK_CLIENT_ID`
+  (`Fronts.keycloakLoginClientId`, `core-api`), from `fronts.keycloakEnv`; an
+  instance `env` entry of the same name wins. With both set (and
+  `LOGIN_FRONT_URL`, injected for every front), Login shows
+  **Se connecter avec le compte unique** and returns on
+  `https://login.<domain>/api/auth/keycloak/callback`, already covered by
+  `core-api`'s `https://login.<domain>/*` redirect URI.
+  `tests/keycloak_login_front_test.yaml` pins it.
 
 ### Network model
 
