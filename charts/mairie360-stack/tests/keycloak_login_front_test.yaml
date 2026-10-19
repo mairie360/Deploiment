@@ -47,6 +47,32 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: KEYCLOAK_CLIENT_ID, value: "core-api" }
 
+  - it: "MAIR-153: an explicit hostname or instance realm URL needs no global.domain"
+    set:
+      global.domain: ""
+      global.keycloak.hostname: sso.example.org
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://sso.example.org/realms/mairie360" }
+
+  - it: "MAIR-153: an instance KEYCLOAK_REALM_URL wins without resolving the default host"
+    set:
+      global.domain: ""
+      Fronts.instances.login-front.env:
+        - { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
+          count: 1
+
   - it: "MAIR-153: other fronts get no Keycloak setting"
     documentSelector:
       path: metadata.name

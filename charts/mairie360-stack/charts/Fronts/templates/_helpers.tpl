@@ -97,8 +97,10 @@ instance `env` entry of the same name wins. Takes { root, name, config }.
 {{- $names := list -}}
 {{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
 {{- $kc := ((.root.Values.global).keycloak) | default dict -}}
-{{- $host := $kc.hostname | default (printf "auth.%s" (required "global.domain is required (Keycloak realm URL)" .root.Values.global.domain)) -}}
 {{- if not (has "KEYCLOAK_REALM_URL" $names) }}
+{{- /* `default` evaluates both arguments: only require global.domain for the fallback host. */}}
+{{- $host := $kc.hostname -}}
+{{- if not $host }}{{ $host = printf "auth.%s" (required "global.domain is required (Keycloak realm URL)" .root.Values.global.domain) }}{{ end }}
 - name: KEYCLOAK_REALM_URL
   value: {{ printf "https://%s/realms/%s" $host ($kc.realm | default "mairie360") | quote }}
 {{- end }}
