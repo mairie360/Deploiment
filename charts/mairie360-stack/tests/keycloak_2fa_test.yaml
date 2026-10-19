@@ -1,0 +1,37 @@
+# MAIR-572: optional second factor in the imported realm. The flow was checked
+# against Keycloak 26.8.0 (enrolment, code asked on the next sign-in, wrong
+# code refused); the Kind `helm test` (test-realm.yaml) fails if the import breaks.
+suite: Keycloak second factor (MAIR-572)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/keycloak/templates/realm-configmap.yaml]
+tests:
+  - it: "MAIR-572: the realm signs in through the mairie360 browser flow"
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"browserFlow": "mairie360 browser"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"alias": "mairie360 browser",[^\]]*"auth-cookie", "requirement": "ALTERNATIVE"[^\]]*"flowAlias": "mairie360 browser forms", "requirement": "ALTERNATIVE"'
+
+  - it: "MAIR-572: the password is always asked, then the second factor only for users who configured one"
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"alias": "mairie360 browser forms",[^\]]*"auth-username-password-form", "requirement": "REQUIRED"[^\]]*"flowAlias": "mairie360 browser second factor", "requirement": "CONDITIONAL"'
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"alias": "mairie360 browser second factor",[^\]]*"conditional-user-configured", "requirement": "REQUIRED"[^\]]*"auth-otp-form", "requirement": "ALTERNATIVE"[^\]]*"webauthn-authenticator", "requirement": "ALTERNATIVE"'
+
+  - it: "MAIR-572: authenticator apps get the policy they all support, single-use codes"
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"otpPolicyType": "totp",\s+"otpPolicyAlgorithm": "HmacSHA1",\s+"otpPolicyDigits": 6,\s+"otpPolicyPeriod": 30,\s+"otpPolicyLookAheadWindow": 1,\s+"otpPolicyCodeReusable": false'
+
+  - it: "MAIR-572: no SMS authenticator anywhere"
+    asserts:
+      - notMatchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '(?i)sms'

@@ -13,7 +13,8 @@ Keycloak skips the import when the realm already exists, so editing this
 file after the first sync changes nothing on a running instance: use the
 admin console, or delete the realm and let the next restart re-import it.
 The core-api client (MAIR-554) is added to an existing realm by
-scripts/keycloak-core-api-client.sh.
+scripts/keycloak-core-api-client.sh, the second-factor flow and OTP policy
+(MAIR-572) by scripts/keycloak-2fa.sh.
 */ -}}
 {{- $realm := .Values.realm -}}
 {{- $loginFront := $realm.clients.loginFront -}}
@@ -43,6 +44,53 @@ data:
       "internationalizationEnabled": true,
       "supportedLocales": {{ $realm.supportedLocales | toJson }},
       "defaultLocale": {{ $realm.defaultLocale | quote }},
+      {{- with $realm.otpPolicy }}
+      "otpPolicyType": {{ .type | quote }},
+      "otpPolicyAlgorithm": {{ .algorithm | quote }},
+      "otpPolicyDigits": {{ .digits | int }},
+      "otpPolicyPeriod": {{ .period | int }},
+      "otpPolicyLookAheadWindow": {{ .lookAheadWindow | int }},
+      "otpPolicyCodeReusable": false,
+      {{- end }}
+      {{- /*
+      MAIR-572: Keycloak 26's built-in browser flow asks for an OTP but keeps
+      WebAuthn disabled. This flow is the same minus Kerberos and Organizations
+      (unused), with OTP and WebAuthn as alternatives, only for users who
+      configured one ("Condition - user configured"). Importing one flow does
+      not remove the built-in ones: Keycloak still creates them.
+      */}}
+      "browserFlow": "mairie360 browser",
+      "authenticationFlows": [
+        {
+          "alias": "mairie360 browser",
+          "description": "Password, then the second factor the user configured (MAIR-572)",
+          "providerId": "basic-flow", "topLevel": true, "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "auth-cookie", "requirement": "ALTERNATIVE", "priority": 10, "authenticatorFlow": false },
+            { "authenticator": "identity-provider-redirector", "requirement": "ALTERNATIVE", "priority": 25, "authenticatorFlow": false },
+            { "flowAlias": "mairie360 browser forms", "requirement": "ALTERNATIVE", "priority": 30, "authenticatorFlow": true }
+          ]
+        },
+        {
+          "alias": "mairie360 browser forms",
+          "description": "Username and password, then the optional second factor",
+          "providerId": "basic-flow", "topLevel": false, "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false },
+            { "flowAlias": "mairie360 browser second factor", "requirement": "CONDITIONAL", "priority": 20, "authenticatorFlow": true }
+          ]
+        },
+        {
+          "alias": "mairie360 browser second factor",
+          "description": "Authenticator app or security key, for users who configured one",
+          "providerId": "basic-flow", "topLevel": false, "builtIn": false,
+          "authenticationExecutions": [
+            { "authenticator": "conditional-user-configured", "requirement": "REQUIRED", "priority": 10, "authenticatorFlow": false },
+            { "authenticator": "auth-otp-form", "requirement": "ALTERNATIVE", "priority": 20, "authenticatorFlow": false },
+            { "authenticator": "webauthn-authenticator", "requirement": "ALTERNATIVE", "priority": 30, "authenticatorFlow": false }
+          ]
+        }
+      ],
       {{- with $realm.smtp }}
       {{- if .from }}
       "smtpServer": {

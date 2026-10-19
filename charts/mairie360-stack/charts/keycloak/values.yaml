@@ -78,6 +78,17 @@ realm:
     - { name: "Responsable", description: "Head of department" }
     - { name: "User", description: "Standard user" }
     - { name: "Guest", description: "Guest" }
+  # MAIR-572: optional second factor. An agent may add an authenticator app
+  # (TOTP) or a security key / passkey (WebAuthn) from the account console;
+  # the "mairie360 browser" flow then asks for it after the password. Never
+  # SMS. Pinned to Keycloak 26's defaults so an upgrade cannot change them:
+  # SHA1 / 6 digits / 30 s is what every authenticator app supports.
+  otpPolicy:
+    type: "totp"
+    algorithm: "HmacSHA1"
+    digits: 6
+    period: 30
+    lookAheadWindow: 1
   clients:
     # Login_Web_Service: public client, authorization code + PKCE, no secret.
     loginFront:
