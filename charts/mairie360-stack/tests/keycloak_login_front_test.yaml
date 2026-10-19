@@ -1,0 +1,95 @@
+# MAIR-153: Login_Web_Service offers the Keycloak sign-in once it knows the
+# public realm URL and the client Core redeems the code with.
+suite: Keycloak sign-in of login-front (MAIR-153)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/Fronts/templates/deployment.yaml]
+tests:
+  - it: "MAIR-153: login-front gets the public realm URL and Core's client id"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_CLIENT_ID, value: "core-api" }
+          count: 1
+
+  - it: "MAIR-153: the realm URL follows global.keycloak.hostname and realm"
+    set:
+      global.keycloak.hostname: sso.example.org
+      global.keycloak.realm: town
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://sso.example.org/realms/town" }
+
+  - it: "MAIR-153: an instance env entry overrides the injected value"
+    set:
+      Fronts.instances.login-front.env:
+        - { name: KEYCLOAK_CLIENT_ID, value: other-client }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_CLIENT_ID, value: other-client }
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_CLIENT_ID, value: "core-api" }
+
+  - it: "MAIR-153: an explicit hostname or instance realm URL needs no global.domain"
+    set:
+      global.domain: ""
+      global.keycloak.hostname: sso.example.org
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://sso.example.org/realms/mairie360" }
+
+  - it: "MAIR-153: an instance KEYCLOAK_REALM_URL wins without resolving the default host"
+    set:
+      global.domain: ""
+      Fronts.keycloakLoginInstances: [login-front]
+      Fronts.instances.login-front.env:
+        - { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
+          count: 1
+
+  - it: "MAIR-357: settings-front gets the public realm URL to link the account console"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-settings-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }
+          count: 1
+
+  - it: "MAIR-153: other fronts get no Keycloak setting"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-dashboard-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL }
+          any: true
