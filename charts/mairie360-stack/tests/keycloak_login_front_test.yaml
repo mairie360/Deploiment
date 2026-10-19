@@ -73,6 +73,16 @@ tests:
           content: { name: KEYCLOAK_REALM_URL, value: "https://idp.example.org/realms/x" }
           count: 1
 
+  - it: "MAIR-357: settings-front gets the public realm URL to link the account console"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-settings-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }
+          count: 1
+
   - it: "MAIR-153: other fronts get no Keycloak setting"
     documentSelector:
       path: metadata.name
