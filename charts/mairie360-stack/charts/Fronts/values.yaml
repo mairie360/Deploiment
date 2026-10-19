@@ -57,6 +57,13 @@ commonEnv:
 # Login_Web_Service reads it.
 trustIngressIpHeadersInstances:
   - login-front
+# Fronts offering the Keycloak sign-in (MAIR-153, fronts.keycloakEnv): they
+# get KEYCLOAK_REALM_URL (public, from global.keycloak) and KEYCLOAK_CLIENT_ID.
+keycloakLoginInstances:
+  - login-front
+# Client of the authorization request: Core API redeems the code with its own
+# confidential client (APIs keycloakClientInstances, realm clients.coreApi).
+keycloakLoginClientId: "core-api"
 
 # Set per environment:
 #   instances:

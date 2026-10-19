@@ -82,3 +82,31 @@ Takes { root, name, config }.
   value: "true"
 {{- end -}}
 {{- end -}}
+
+
+{{/*
+MAIR-153: Keycloak sign-in of the fronts in keycloakLoginInstances (only
+login-front). KEYCLOAK_REALM_URL is the public realm URL the browser is sent
+to (same host and realm as Core's KEYCLOAK_ISSUER); KEYCLOAK_CLIENT_ID is the
+client Core redeems the code with (keycloakLoginClientId, Core's client), so
+the authorization request and the code exchange use the same client. An
+instance `env` entry of the same name wins. Takes { root, name, config }.
+*/}}
+{{- define "fronts.keycloakEnv" -}}
+{{- if has .name (.root.Values.keycloakLoginInstances | default list) -}}
+{{- $names := list -}}
+{{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
+{{- $kc := ((.root.Values.global).keycloak) | default dict -}}
+{{- if not (has "KEYCLOAK_REALM_URL" $names) }}
+{{- /* `default` evaluates both arguments: only require global.domain for the fallback host. */}}
+{{- $host := $kc.hostname -}}
+{{- if not $host }}{{ $host = printf "auth.%s" (required "global.domain is required (Keycloak realm URL)" .root.Values.global.domain) }}{{ end }}
+- name: KEYCLOAK_REALM_URL
+  value: {{ printf "https://%s/realms/%s" $host ($kc.realm | default "mairie360") | quote }}
+{{- end }}
+{{- if not (has "KEYCLOAK_CLIENT_ID" $names) }}
+- name: KEYCLOAK_CLIENT_ID
+  value: {{ .root.Values.keycloakLoginClientId | default "core-api" | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}
