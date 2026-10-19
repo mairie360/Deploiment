@@ -457,6 +457,22 @@ subchart renders, all named `<release>-keycloak*`:
   `https://login.<domain>/api/auth/keycloak/callback`, already covered by
   `core-api`'s `https://login.<domain>/*` redirect URI.
   `tests/keycloak_login_front_test.yaml` pins it.
+- **Optional second factor (MAIR-572).** The realm signs in through the
+  imported `mairie360 browser` flow: password (REQUIRED), then, only for
+  users who configured one (`conditional-user-configured`), an OTP code or a
+  WebAuthn security key / passkey (ALTERNATIVE). Keycloak 26's built-in
+  `browser` flow keeps WebAuthn DISABLED, hence the custom flow; importing it
+  does not remove the built-in flows. Agents enrol from the account console
+  (`https://auth.<domain>/realms/<realm>/account`, already routed by
+  `/realms/`); nobody is forced to (no default `CONFIGURE_TOTP` action), and
+  there is no SMS. `realm.otpPolicy` pins TOTP / HmacSHA1 / 6 digits / 30 s
+  (what every authenticator app supports), codes are single-use. A realm
+  imported before MAIR-572 gets the policy and the flow from
+  `scripts/keycloak-2fa.sh <context> <env>` (idempotent, reads the synced
+  `<release>-keycloak-realm` ConfigMap so it never diverges from the import,
+  keeps the credentials agents registered). Only Keycloak sign-ins are
+  protected: Login's password sign-in goes through Core without Keycloak.
+  `tests/keycloak_2fa_test.yaml` pins the flow and the policy.
 
 ### Network model
 
