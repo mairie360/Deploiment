@@ -13,8 +13,10 @@
 # rendered (<release>-keycloak-realm), so the script and the import never
 # diverge: it sets the OTP policy, (re)creates the "mairie360 browser" flows
 # and makes them the realm's browser flow. Idempotent: an existing
-# "mairie360 browser" flow is replaced by the ConfigMap's one. Credentials
-# agents already registered (OTP, WebAuthn) are kept.
+# "mairie360 browser" flow is replaced by the ConfigMap's one, built under
+# "-staged" aliases first so the realm never falls back to the built-in flow
+# (WebAuthn disabled) on failure; a rerun finishes an interrupted switch.
+# Credentials agents already registered (OTP, WebAuthn) are kept.
 #
 # The admin of the master realm is `admin` with the sealed
 # KEYCLOAK_ADMIN_PASSWORD, read on the first start only: if it was changed in
@@ -76,45 +78,79 @@ OTP="$(jq -c 'with_entries(select(.key | startswith("otpPolicy")))' <<<"$DEF")"
 kc_with "$OTP" update "realms/${REALM}" -f - >/dev/null
 echo "  OTP policy: $(jq -r '"\(.otpPolicyType) \(.otpPolicyAlgorithm) \(.otpPolicyDigits) digits \(.otpPolicyPeriod) s"' <<<"$OTP")"
 
-# 2. Replace the flows. The realm must not point at a flow being deleted.
-kc update "realms/${REALM}" -s browserFlow=browser >/dev/null
-EXISTING="$(kc get authentication/flows -r "$REALM" --fields id,alias \
-  | jq -r --arg a "$BROWSER_FLOW" '[.[] | select(.alias == $a)][0].id // empty')"
-if [ -n "$EXISTING" ]; then
-  kc delete "authentication/flows/${EXISTING}" -r "$REALM"
-  echo "  flow ${BROWSER_FLOW}: removed, recreating"
+# 2. Replace the flows without ever leaving the realm on Keycloak's built-in
+# browser flow (WebAuthn disabled there): build the new flows under staged
+# aliases, switch the realm to them, then delete the old ones and rename.
+STAGED="-staged"
+flow_id() {
+  kc get authentication/flows -r "$REALM" --fields id,alias \
+    | jq -r --arg a "$1" '[.[] | select(.alias == $a)][0].id // empty'
+}
+bound_flow() { kc get "realms/${REALM}" --fields browserFlow | jq -r .browserFlow; }
+flow_def() { jq -c --arg a "$1" '[.authenticationFlows[] | select(.alias == $a)][0]' <<<"$DEF"; }
+# rename_flows <from suffix> <to suffix>: renames the top flow and its subflows.
+rename_flows() {
+  local top_id sub
+  top_id="$(flow_id "${BROWSER_FLOW}$1")"
+  while read -r sub; do
+    kc_with "$(jq -c --arg s "$2" '{alias: (.alias + $s), description, providerId, topLevel: false, builtIn: false}' <<<"$(flow_def "$sub")")" \
+      update "authentication/flows/$(kc get "authentication/flows/$(path "${BROWSER_FLOW}$1")/executions" -r "$REALM" \
+        | jq -r --arg a "${sub}$1" '[.[] | select(.displayName == $a)][0].flowId')" -r "$REALM" -f - >/dev/null
+  done < <(jq -r --arg top "$BROWSER_FLOW" '.authenticationFlows[] | select(.alias != $top) | .alias' <<<"$DEF")
+  kc_with "$(flow_def "$BROWSER_FLOW" | jq -c --arg s "$2" '{alias: (.alias + $s), description, providerId, topLevel: true, builtIn: false}')" \
+    update "authentication/flows/${top_id}" -r "$REALM" -f - >/dev/null
+}
+
+# Leftovers of an interrupted run: finish it if the realm already uses the
+# staged flows, else drop them.
+if [ -n "$(flow_id "${BROWSER_FLOW}${STAGED}")" ]; then
+  if [ "$(bound_flow)" = "${BROWSER_FLOW}${STAGED}" ]; then
+    OLD="$(flow_id "$BROWSER_FLOW")"
+    [ -z "$OLD" ] || kc delete "authentication/flows/${OLD}" -r "$REALM"
+    rename_flows "$STAGED" ""
+    echo "  finished an interrupted run"
+  else
+    kc delete "authentication/flows/$(flow_id "${BROWSER_FLOW}${STAGED}")" -r "$REALM"
+  fi
 fi
 
-flow_def() { jq -c --arg a "$1" '[.authenticationFlows[] | select(.alias == $a)][0]' <<<"$DEF"; }
 REQUIREMENTS=()
-# add_executions <flow alias>: creates its executions in priority order, depth
-# first, which is also the order the admin API lists them in.
+# add_executions <flow alias>: creates its executions (staged aliases) in
+# priority order, depth first, which is also the order the admin API lists them in.
 add_executions() {
   local parent="$1" execution
   while read -r execution; do
     REQUIREMENTS+=("$(jq -r .requirement <<<"$execution")")
     if [ "$(jq -r .authenticatorFlow <<<"$execution")" = true ]; then
       local sub; sub="$(jq -r .flowAlias <<<"$execution")"
-      kc_with "$(flow_def "$sub" | jq -c '{alias, description, type: .providerId, provider: "registration-page-form"}')" \
-        create "authentication/flows/$(path "$parent")/executions/flow" -r "$REALM" -f - >/dev/null
+      kc_with "$(flow_def "$sub" | jq -c --arg s "$STAGED" '{alias: (.alias + $s), description, type: .providerId, provider: "registration-page-form"}')" \
+        create "authentication/flows/$(path "${parent}${STAGED}")/executions/flow" -r "$REALM" -f - >/dev/null
       add_executions "$sub"
     else
-      kc create "authentication/flows/$(path "$parent")/executions/execution" -r "$REALM" \
+      kc create "authentication/flows/$(path "${parent}${STAGED}")/executions/execution" -r "$REALM" \
         -s provider="$(jq -r .authenticator <<<"$execution")" >/dev/null
     fi
   done < <(flow_def "$parent" | jq -c '.authenticationExecutions | sort_by(.priority)[]')
 }
-kc_with "$(flow_def "$BROWSER_FLOW" | jq -c '{alias, description, providerId, topLevel: true, builtIn: false}')" \
+kc_with "$(flow_def "$BROWSER_FLOW" | jq -c --arg s "$STAGED" '{alias: (.alias + $s), description, providerId, topLevel: true, builtIn: false}')" \
   create authentication/flows -r "$REALM" -f - >/dev/null
 add_executions "$BROWSER_FLOW"
 
-CREATED="$(kc get "authentication/flows/$(path "$BROWSER_FLOW")/executions" -r "$REALM")"
-[ "$(jq length <<<"$CREATED")" -eq "${#REQUIREMENTS[@]}" ] || { echo "unexpected executions in ${BROWSER_FLOW}" >&2; exit 1; }
+CREATED="$(kc get "authentication/flows/$(path "${BROWSER_FLOW}${STAGED}")/executions" -r "$REALM")"
+[ "$(jq length <<<"$CREATED")" -eq "${#REQUIREMENTS[@]}" ] || { echo "unexpected executions in the staged flow; the realm still uses $(bound_flow)" >&2; exit 1; }
 for i in "${!REQUIREMENTS[@]}"; do
   kc_with "$(jq -c --argjson i "$i" --arg r "${REQUIREMENTS[$i]}" '.[$i] | {id, requirement: $r}' <<<"$CREATED")" \
-    update "authentication/flows/$(path "$BROWSER_FLOW")/executions" -r "$REALM" -f - >/dev/null
+    update "authentication/flows/$(path "${BROWSER_FLOW}${STAGED}")/executions" -r "$REALM" -f - >/dev/null
 done
-kc update "realms/${REALM}" -s browserFlow="$BROWSER_FLOW" >/dev/null
+
+# Switch, then retire the old flows and give the new ones their final aliases.
+kc update "realms/${REALM}" -s browserFlow="${BROWSER_FLOW}${STAGED}" >/dev/null
+OLD="$(flow_id "$BROWSER_FLOW")"
+if [ -n "$OLD" ]; then
+  kc delete "authentication/flows/${OLD}" -r "$REALM"
+  echo "  flow ${BROWSER_FLOW}: replaced"
+fi
+rename_flows "$STAGED" ""
 
 kc get "authentication/flows/$(path "$BROWSER_FLOW")/executions" -r "$REALM" \
   | jq -r '.[] | "  " + ("  " * .level) + .displayName + ": " + .requirement'
