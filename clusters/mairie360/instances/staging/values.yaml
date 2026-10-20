@@ -124,26 +124,22 @@ APIs:
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
-        # Transactional e-mails (password reset) go through Resend's SMTP relay.
-        # The Resend API key is the SMTP password: it lives in
-        # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).
-        # `optional` keeps core-api starting on a cluster whose Secret was
-        # sealed before that key existed (scripts/verify.sh reports it).
-        # The EMAIL_FROM domain must be verified in the Resend dashboard.
-        - name: SMTP_HOST
-          value: "smtp.resend.com"
-        - name: SMTP_PORT
-          value: "587"
-        - name: SMTP_USERNAME
-          value: "resend"
-        - name: SMTP_PASSWORD
+        # Transactional e-mails (password reset) are Resend templates sent
+        # through the Resend API since MAIR-522 (API_lib `ResendMailer`), from
+        # no-reply@<EMAIL_DOMAIN>: core-api refuses to start without
+        # RESEND_API_KEY, EMAIL_DOMAIN and PUBLIC_URL. The API key is the one
+        # sealed as SMTP_PASSWORD in <release>-app-secrets
+        # (scripts/seal-secrets.sh, RESEND_API_KEY). EMAIL_DOMAIN must be
+        # verified in the Resend dashboard.
+        - name: RESEND_API_KEY
           valueFrom:
             secretKeyRef:
               name: "{{ .Release.Name }}-app-secrets"
               key: SMTP_PASSWORD
-              optional: true
-        - name: EMAIL_FROM
-          value: "Mairie360 (staging) <noreply@mairie360-eip.fr>"
+        - name: EMAIL_DOMAIN
+          value: "mairie360-eip.fr"
+        - name: EMAIL_SENDER_NAME
+          value: "Mairie360 (staging)"
     project-api:
       enabled: true
       image: { repository: ghcr.io/mairie360/project-api, tag: "staging-be2b410" }
