@@ -23,7 +23,7 @@ global:
   # (`ingress_controller`); switch procedure in
   # docs/adr/0001-replace-ingress-nginx.md. The IngressClass, annotations
   # and NetworkPolicy namespace follow from it.
-  ingressController: "nginx"
+  ingressController: "traefik"
   networkPolicy:
     enabled: true
     # Passer à true une fois les destinations externes connues et déclarées
@@ -120,7 +120,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-b14e21c" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-b900797" }
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
@@ -146,16 +146,16 @@ APIs:
           value: "Mairie360 (staging) <noreply@mairie360-eip.fr>"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-d52539b" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-be2b410" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-a40acfd" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-3b4668b" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-d35e7df" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-75d7650" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-87d9e8f" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e3ffc1c" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -187,90 +187,90 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-0a21926" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-b6b04cf" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-dfbdc37" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-b643e72" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-e07dbe0" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-f6bf247" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-bb90cbf" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-815c732" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-67de8ac" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-3d74a6a" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-cec91ef" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-bdc4a88" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-34ef96d" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-55dfd4b" }
 
 Fronts:
   instances:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-8fe4db0" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-4acf656" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-da250aa" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-8bfd374" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-9e21e34" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-e4129bd" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-d950efe" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-500ac41" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-46b5af3" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-f671932" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-3e64109" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-891e2fa" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-322e9d6" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-6f7aef7" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-3b39b49" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-078db63" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
