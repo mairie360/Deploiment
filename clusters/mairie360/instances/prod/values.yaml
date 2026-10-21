@@ -11,6 +11,10 @@
 
 global:
   domain: "prod.mairie360-eip.fr"
+  # MAIR-612: this machine runs Traefik (ADR 0001), like dev and staging. Must
+  # match ansible's `ingress_controller` for the host; the other prod
+  # instances keep the base's nginx until their machine switches.
+  ingressController: "traefik"
   # Sender of core-api's and Keycloak's e-mails; its domain must be verified
   # in the Resend dashboard.
   emailFrom: "noreply@mairie360-eip.fr"

@@ -13,7 +13,8 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: COOKIE_DOMAIN, value: ".mairie360.ville-exemple.fr" }
 
-  - it: core-api's PUBLIC_URL and EMAIL_FROM come from the instance
+  # MAIR-612: core-api sends through the Resend API (MAIR-522) from no-reply@<EMAIL_DOMAIN>.
+  - it: core-api's PUBLIC_URL and EMAIL_DOMAIN come from the instance
     templates: [charts/APIs/templates/deployment.yaml]
     documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
     asserts:
@@ -22,7 +23,10 @@ tests:
           content: { name: PUBLIC_URL, value: "https://login.mairie360.ville-exemple.fr" }
       - contains:
           path: spec.template.spec.containers[0].env
-          content: { name: EMAIL_FROM, value: "Mairie360 <noreply@mairie360.ville-exemple.fr>" }
+          content: { name: EMAIL_DOMAIN, value: "mairie360.ville-exemple.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: EMAIL_SENDER_NAME, value: "Mairie360" }
 
   - it: elearning-api's bucket comes from the instance
     templates: [charts/APIs/templates/deployment.yaml]
