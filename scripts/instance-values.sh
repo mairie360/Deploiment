@@ -7,6 +7,8 @@
 #
 #   clusters/_base/<env>.yaml   when it exists (shared by every <env> instance)
 #   <instance-dir>/values.yaml
+#   <instance-dir>/images.yaml  when it exists (tags written by
+#                               argocd-image-updater on staging, MAIR-444)
 #   <instance-dir>/secrets.yaml with --secrets, when it exists
 #
 # One path per line; build the -f arguments with:
@@ -21,6 +23,7 @@ case "$dir" in /*) ;; *) dir="$root/$dir" ;; esac
 base="$root/clusters/_base/$(basename "$dir").yaml"
 [ ! -f "$base" ] || echo "$base"
 echo "$dir/values.yaml"
+[ ! -f "$dir/images.yaml" ] || echo "$dir/images.yaml"
 if [ "${2:-}" = "--secrets" ] && [ -f "$dir/secrets.yaml" ]; then
   echo "$dir/secrets.yaml"
 fi

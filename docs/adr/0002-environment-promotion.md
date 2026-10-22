@@ -65,3 +65,34 @@ One long-lived branch per environment, each Application following its own:
    settings (required reviewers on prod).
 4. Re-run the `k8s_argocd` role (through `playbooks/site.yml`) so the AppSet
    gets the per-environment `targetRevision`.
+
+## Amendment (MAIR-444, 2026-10-02): image tags in git
+
+argocd-image-updater used to write the tags into the Applications' Helm
+parameters, outside git, and did not track `database` /
+`liquibase-migrations`. It now writes back to git, for every tracked image
+including those two:
+
+- **dev**: a pull request on `main` editing
+  `clusters/mairie360/instances/dev/values.yaml`, titled
+  `chore(deps): update <app> images`.
+  `.github/workflows/image-updater-automerge.yaml` enables auto-merge on
+  `image-updater-*` branches that touch nothing else, so it squash-merges
+  once the required checks pass; dev auto-syncs from `main`.
+- **staging**: direct commits on the `staging` branch, into
+  `clusters/mairie360/instances/staging/images.yaml`, a file the AppSet reads
+  after `values.yaml` and that `main` never edits. staging auto-syncs
+  (ansible `deploiment_auto_sync_envs`).
+
+So `staging` is no longer always an ancestor of `main`. `Promote` to staging
+fast-forwards when it can; otherwise it **merges** the promoted commit into
+`staging`, but only when the commits that are only on staging touch nothing but
+`images.yaml` files and the promoted commit leaves them untouched. Anything
+else is refused, as before. Prod still only fast-forwards to a commit of
+`staging`; it carries staging's `images.yaml` in its history, but the prod
+Application never reads another environment's directory.
+
+Consequences: what is deployed on dev and staging is in git; a rollback of
+staging also rolls its image tags back; the checks of `cicd.yaml` run on
+pushes to `staging` too, so a tag that does not exist on GHCR is reported.
+The tags pinned in staging's `values.yaml` only seed a fresh instance.
