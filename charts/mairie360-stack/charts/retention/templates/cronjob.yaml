@@ -48,8 +48,10 @@ spec:
                   drop: ["ALL"]
               env:
                 {{- include "retention.env" . | nindent 16 }}
+              # The periods of `policies` are written first (MAIR-294), in one
+              # transaction that fails on an unknown table. Then
               # fn_apply_retention_policies() creates the next access_logs
-              # partitions, then applies every retention_policies row
+              # partitions and applies every retention_policies row
               # (Devops/Database, MAIR-236). SECURITY DEFINER + REVOKE ALL
               # FROM PUBLIC: only the superuser this Job authenticates as
               # can call it.
@@ -57,7 +59,19 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  psql -v ON_ERROR_STOP=1 -c "SELECT * FROM fn_apply_retention_policies();"
+                  psql -v ON_ERROR_STOP=1 <<'SQL'
+                  DO $policies$
+                  BEGIN
+                  {{- range $table, $period := .Values.policies }}
+                  {{- if not (regexMatch "^[a-z_][a-z0-9_]*$" $table) }}{{ fail (printf "retention.policies: %q is not a table name" $table) }}{{ end }}
+                  {{- if not (regexMatch "^[0-9]+ (day|days|month|months|year|years)$" $period) }}{{ fail (printf "retention.policies.%s: %q must be \"<n> day(s)|month(s)|year(s)\"" $table $period) }}{{ end }}
+                    UPDATE retention_policies SET retention_period = INTERVAL '{{ $period }}' WHERE table_name = '{{ $table }}';
+                    IF NOT FOUND THEN RAISE EXCEPTION 'retention_policies has no row for {{ $table }}'; END IF;
+                  {{- end }}
+                  END
+                  $policies$;
+                  SELECT * FROM fn_apply_retention_policies();
+                  SQL
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
 {{- end }}
