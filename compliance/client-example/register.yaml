@@ -43,7 +43,7 @@ processings:
     subprocessors: [Scaleway]
     validated: null
   - id: backups
-    purpose: encrypted backups of the database
+    purpose: encrypted backups of the database; with backup.sealing, each user's personal data is sealed with a key of their own, destroyed at erasure (MAIR-500)
     legal_basis: legal obligation of security (GDPR art. 32)
     data: [all of the above]
     retention: retention.yaml (backups)

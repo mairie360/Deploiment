@@ -117,6 +117,14 @@ global:
       region: ""
       bucket: ""
       prefix: "users/{user_id}/"
+    # MAIR-500: Scaleway Key Manager of the instance, holding one key per user
+    # for the sealed backups (backup.sealing). compliance-api destroys a user's
+    # key at erasure (SCW_SECRET_KEY of the compliance secret), the backup Job
+    # creates keys and data keys (SCW_SECRET_KEY of the backup secret). "" =
+    # not configured: the erasure records the backup-key step as such.
+    keyManager:
+      projectId: ""
+      region: "fr-par"
     redis:
       # Keys of a user, `{user_id}` replaced at erasure time (REDIS_ERASURE_PATTERNS);
       # the ACL grants write on them with `{user_id}` -> `*`.
