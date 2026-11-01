@@ -1,7 +1,7 @@
 {{- if (($.Values.global).networkPolicy).enabled }}
-# Redis is only reachable by the APIs, each with its own ACL account (see
-# templates/configmap.yaml). Fronts and BFFs have no ACL account (MAIR-414)
-# and no network path to Redis either.
+# Redis is only reachable by the APIs and the BFFs, each with its own ACL
+# account (see templates/configmap.yaml; BFFs since MAIR-531, for MAIR-499).
+# Fronts have no ACL account and no network path to Redis either.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -21,6 +21,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bff
       ports:
         - protocol: TCP
           port: 6379
