@@ -41,6 +41,33 @@ REGISTRIES = {"ghcr.io", "docker.io", "quay.io", "registry.k8s.io", "gcr.io", "m
 FILES = ["register.yaml", "retention.yaml", "subprocessors.yaml", "access.yaml", "deadlines.yaml"]
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader refusing a repeated mapping key: yaml.safe_load keeps the last one silently, so a
+    duplicated decision (tables.sessions twice, a gap accepted twice) would replace the first."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+INVALID = object()
+
+
+def load_decisions(path, label, report):
+    """A decision file, or INVALID (reported) when it is not valid YAML or repeats a key."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return yaml.load(handle, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as error:
+        report.error(label, f"invalid YAML: {error}".replace("\n", " "))
+        return INVALID
+
+
 class Report:
     def __init__(self, strict):
         self.strict = strict
@@ -209,7 +236,9 @@ def check_org(org, report, rendered):
         if not os.path.exists(path):
             report.error(f"compliance/{org}", f"{name} is missing")
             continue
-        doc = yaml.safe_load(open(path, encoding="utf-8"))
+        doc = load_decisions(path, f"compliance/{org}/{name}", report)
+        if doc is INVALID:
+            continue
         if not isinstance(doc, dict) or doc.get("version") != 1:
             report.error(f"compliance/{org}/{name}", "must be a mapping with version: 1")
             continue
@@ -268,7 +297,8 @@ def check_org(org, report, rendered):
     accepted_path = os.path.join(base, "accepted-gaps.yaml")
     accepted = {}
     if os.path.exists(accepted_path):
-        doc = yaml.safe_load(open(accepted_path, encoding="utf-8")) or {}
+        doc = load_decisions(accepted_path, f"compliance/{org}/accepted-gaps.yaml", report)
+        doc = {} if doc is INVALID else doc or {}
         for gap_id, entry in (doc.get("gaps") or {}).items():
             if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
                 report.error(f"compliance/{org}/accepted-gaps.yaml", f"{gap_id}: reason is required")
@@ -280,7 +310,11 @@ def check_org(org, report, rendered):
         label = f"clusters/{org}/instances/{env}"
         key = f"{org}/{env}"
         try:
-            text = open(rendered[key], encoding="utf-8").read() if key in rendered else render(org, env)
+            if key in rendered:
+                with open(rendered[key], encoding="utf-8") as handle:
+                    text = handle.read()
+            else:
+                text = render(org, env)
         except (subprocess.CalledProcessError, OSError) as error:
             report.error(label, f"cannot render the instance: {getattr(error, 'stderr', error)}")
             continue

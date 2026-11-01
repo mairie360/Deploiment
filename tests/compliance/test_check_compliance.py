@@ -78,6 +78,18 @@ class CheckComplianceTest(unittest.TestCase):
         self.edit("register.yaml", "    legal_basis: public task (GDPR art. 6.1.e), management of the town hall's staff\n", "")
         self.assertIn("accounts: legal_basis is required", " ".join(self.run_check().errors))
 
+    def test_a_duplicated_decision_fails(self):
+        self.edit("retention.yaml", '  sessions: {period: "6 months", validated: null}\n',
+                  '  sessions: {period: "6 months", validated: null}\n  sessions: {period: "3 months", validated: null}\n')
+        self.assertIn("duplicate key 'sessions'", " ".join(self.run_check().errors))
+
+    def test_a_gap_accepted_twice_fails(self):
+        path = os.path.join(self.root, "compliance", "mairie360", "accepted-gaps.yaml")
+        text = open(path, encoding="utf-8").read()
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text + "  egress-not-restricted:\n    reason: again\n")
+        self.assertIn("duplicate key 'egress-not-restricted'", " ".join(self.run_check().errors))
+
     def test_an_infrastructure_gap_fails_unless_accepted(self):
         os.remove(os.path.join(self.root, "compliance", "mairie360", "accepted-gaps.yaml"))
         self.assertIn("egress-not-restricted", " ".join(self.run_check().errors))
