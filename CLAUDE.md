@@ -227,9 +227,15 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   or they would not relay the client IP to BFF_user at all (MAIR-414,
   `tests/trust_ingress_headers_test.yaml`).
 - **BFFs get only what they read (MAIR-414).** No `DB_*` (no BFF has a
-  database), no `REDIS_*` (none reads Redis), and `JWT_SECRET` only for
-  `BFFs.jwtSecretInstances` (`user-bff`): any other BFF holding it could
-  forge an admin token.
+  database). Since MAIR-531 each BFF does get `REDIS_*` and its own Redis
+  ACL account (`~<bff>:*`, no `revoked:*`, no channel), ahead of the bffs-lib
+  Redis client (MAIR-499): the password `secretKeyRef` is `optional`, so a
+  `secrets.yaml` sealed before those accounts neither blocks the BFFs nor
+  Redis (the account is then written `off`). `JWT_SECRET` goes to
+  `BFFs.jwtSecretInstances`: MAIR-414 kept it to `user-bff`, but since
+  MAIR-474 every BFF verifies the session itself (bffs-lib `requireSession`)
+  and refuses to start without it, so the list names all seven (MAIR-520; on
+  dev the six others crash-looped and blocked the Argo CD sync of the fronts).
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.
@@ -320,14 +326,20 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   rows before retention can prune them.
 - `redis` uses ACL, not `requirepass`: an entrypoint script (in the ConfigMap)
   writes `/acl/users.acl` at container start from per-role env vars
-  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances`; the
-  BFFs have no account since MAIR-414) and starts `redis-server --aclfile`. The `default`
+  (`<ROLE>_REDIS_PASSWORD`, one per entry of `global.apis.instances` and of
+  `global.bffs.instances`, MAIR-531) and starts `redis-server --aclfile`. The `default`
   account is disabled; `admin` (Secret key `redis-password`) is for probes and
   `helm test`. Fronts have no Redis account — they never used it. `helm test`
   asserts that an unauthenticated `PING` is refused and that `admin` works.
   Each role is confined to `~<role>:*`, plus the **shared JWT revocation
   list `revoked:*` (MAIR-264, values `redis.revokedTokens`)**: read-write for
-  `core-api`, read-only `%R~revoked:*` for every other API. Because Redis now holds that list, `maxmemory-policy` is
+  `core-api`, read-only `%R~revoked:*` for every other API, none for the
+  BFFs. Every channel is
+  reset (`resetchannels`) except for the roles of `redis.pubSubRoles`
+  (`message-api`, MAIR-394), which get `&<role>:*` plus `PUBLISH` /
+  `SUBSCRIBE`: Message API relays its SSE chat events on
+  `message-api:sse:chat-events` so every replica notifies its own streams.
+  Because Redis now holds that list, `maxmemory-policy` is
   **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
   TTL; `volatile-*` would even drop them first, they are the only keys with a
   TTL) and AOF is on (`config.appendonly`, survives container restarts;
@@ -393,39 +405,87 @@ subchart renders, all named `<release>-keycloak*`:
 - **`<release>-keycloak-realm`** ConfigMap, mounted at
   `/opt/keycloak/data/import`: the `global.keycloak.realm` realm (`mairie360`)
   with the five `Database` roles (`Admin`, `Maire`, `Responsable`, `User`,
-  `Guest`), two OIDC clients — `login-front` (public, authorization code +
-  PKCE S256) and `bff-user` (confidential, service account) — both redirecting
+  `Guest`), three OIDC clients — `login-front` (public, authorization code +
+  PKCE S256), `bff-user` (confidential, service account) and, since
+  MAIR-554, `core-api` (confidential, PKCE S256, service account holding the
+  `realm-management` roles `manage-users`/`view-realm`/`manage-realm`, the
+  only client allowed to administer the realm) — all redirecting
   to `https://login.<domain>/*` by default (`keycloak.realm.clients.*`), and
   the Resend SMTP relay when `keycloak.realm.smtp.from` is set. **Keycloak
   only imports a realm that does not exist yet**: after the first sync, edit
   the realm in the admin console (it lives in Keycloak's DB), not in values.
-  The ConfigMap holds no secret: `"secret": "${BFF_USER_CLIENT_SECRET}"` and
+  The ConfigMap holds no secret: `"secret": "${BFF_USER_CLIENT_SECRET}"`,
+  `"secret": "${CORE_API_CLIENT_SECRET}"` and
   `"password": "${SMTP_PASSWORD}"` are Keycloak placeholders resolved at
   import from the container env (`secretKeyRef`), not Helm expressions.
 - **`<release>-keycloak-secret`**: `KEYCLOAK_ADMIN_PASSWORD` (bootstrap admin
   `admin` of the master realm, read on the first start of an empty DB only),
   `KEYCLOAK_DB_PASSWORD` (Postgres role, first init only),
-  `BFF_USER_CLIENT_SECRET`. Sealed by `scripts/seal-secrets.sh` like the
-  others, all generated; **never touched by `--rotate`** for the same
-  reason as `ADMIN_PASSWORD`: none of the three is re-read once Keycloak
-  has started, so rotate in Keycloak itself, then re-seal the client secret
-  with `BFF_USER_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
+  `BFF_USER_CLIENT_SECRET`, `CORE_API_CLIENT_SECRET` (MAIR-554). Sealed by
+  `scripts/seal-secrets.sh` like the others, all generated; **never touched
+  by `--rotate`** for the same reason as `ADMIN_PASSWORD`: none of them is
+  re-read once Keycloak has started, so rotate in Keycloak itself, then
+  re-seal the client secret with `BFF_USER_CLIENT_SECRET=…` /
+  `CORE_API_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
   `<release>-app-secrets` (optional), same Resend key as core-api.
 - **Network**: `keycloak` accepts the ingress-controller namespace, `bff`
   and `api` pods on 8080; `keycloak-db` accepts `keycloak` on 5432 and
   nothing else (not the APIs, migration or backup). Fronts never reach it
   server-side, the browser goes through the Ingress.
-- **Tests**: `tests/keycloak_test.yaml` (`helm unittest`), the subchart's
+- **Tests**: `tests/keycloak_test.yaml` and `tests/keycloak_core_api_test.yaml` (`helm unittest`), the subchart's
   `helm test` pod (issuer of the discovery document from a `bff`-labelled
   pod) and, in e2e, the real Keycloak image: the chainsaw `data-access`
   test gets a `client_credentials` token for `bff-user` with the secret
-  from the Secret (proves the placeholder substitution) and
+  from the Secret (proves the placeholder substitution), checks that
+  `core-api`'s token reads the Admin API and `bff-user`'s gets 403
+  (MAIR-554), and
   `network-policies` covers the new hops.
-- `scripts/verify.sh` step 4 expects the Secret, step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
+- `scripts/verify.sh` step 4 expects the Secret (and its
+  `CORE_API_CLIENT_SECRET` key, MAIR-554), step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
   served, step 13 the `auth.` certificate, step 15 that 8080/9000 are closed.
-- Not wired yet (MAIR-140/153): the BFFs and fronts get no `KEYCLOAK_*` env
-  var; `global.keycloak.{hostname,realm}` exist so the BFFs chart can derive
-  the issuer URL when they do.
+- **Core API is wired (MAIR-554).** The APIs of `APIs.keycloakClientInstances`
+  (`core-api`) get `KEYCLOAK_REALM_URL` (in-cluster
+  `http://<release>-keycloak:8080/realms/<realm>`), `KEYCLOAK_ISSUER`
+  (`https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
+  the `iss` Keycloak writes), `KEYCLOAK_CLIENT_ID` (= the instance name) and
+  `KEYCLOAK_CLIENT_SECRET` (`<release>-keycloak-secret` key
+  `<NAME>_CLIENT_SECRET`, optional). Core uses that one client for the
+  sign-in code exchange (ID token audience), the account synchronisation
+  (MAIR-142) and the migration (MAIR-141): the front must redirect with
+  `client_id=core-api` (MAIR-153). A realm imported before MAIR-554 gets
+  the client from `scripts/keycloak-core-api-client.sh <context> <env>`
+  (idempotent, `kcadm` in the Keycloak pod, then restarts core-api), run
+  after `seal-secrets.sh` added `CORE_API_CLIENT_SECRET` and Argo CD synced
+  it. Not wired yet: the BFFs (BFF_user's single logout, MAIR-143) and the
+  other APIs.
+- **Login front is wired (MAIR-153).** The fronts of
+  `Fronts.keycloakLoginInstances` (`login-front`, and `settings-front` for
+  its link to the account console, MAIR-357) get `KEYCLOAK_REALM_URL`
+  (the public `https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
+  where the browser is sent) and `KEYCLOAK_CLIENT_ID`
+  (`Fronts.keycloakLoginClientId`, `core-api`), from `fronts.keycloakEnv`; an
+  instance `env` entry of the same name wins. With both set (and
+  `LOGIN_FRONT_URL`, injected for every front), Login shows
+  **Se connecter avec le compte unique** and returns on
+  `https://login.<domain>/api/auth/keycloak/callback`, already covered by
+  `core-api`'s `https://login.<domain>/*` redirect URI.
+  `tests/keycloak_login_front_test.yaml` pins it.
+- **Optional second factor (MAIR-572).** The realm signs in through the
+  imported `mairie360 browser` flow: password (REQUIRED), then, only for
+  users who configured one (`conditional-user-configured`), an OTP code or a
+  WebAuthn security key / passkey (ALTERNATIVE). Keycloak 26's built-in
+  `browser` flow keeps WebAuthn DISABLED, hence the custom flow; importing it
+  does not remove the built-in flows. Agents enrol from the account console
+  (`https://auth.<domain>/realms/<realm>/account`, already routed by
+  `/realms/`); nobody is forced to (no default `CONFIGURE_TOTP` action), and
+  there is no SMS. `realm.otpPolicy` pins TOTP / HmacSHA1 / 6 digits / 30 s
+  (what every authenticator app supports), codes are single-use. A realm
+  imported before MAIR-572 gets the policy and the flow from
+  `scripts/keycloak-2fa.sh <context> <env>` (idempotent, reads the synced
+  `<release>-keycloak-realm` ConfigMap so it never diverges from the import,
+  keeps the credentials agents registered). Only Keycloak sign-ins are
+  protected: Login's password sign-in goes through Core without Keycloak.
+  `tests/keycloak_2fa_test.yaml` pins the flow and the policy.
 
 ### Network model
 
@@ -436,7 +496,8 @@ add one.
 
 ```
 ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
-                                    └──────────► redis
+                                 │          └──► redis
+                                 └─────────────► redis   (MAIR-531)
               liquibase job ──────────────────► postgres
               backup CronJob ─────────────────► postgres
               backup CronJob ─────────────────► keycloak-db   (MAIR-231)
@@ -664,7 +725,8 @@ and maintaining a parallel Kind topology is what produced the earlier
   Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
-  sync with `global.apis.instances` (APIs only since MAIR-414); `DB_ROLES`
+  sync with `global.apis.instances` + `global.bffs.instances` (BFFs again
+  since MAIR-531); `DB_ROLES`
   must be kept in sync with the shorter `global.database.roles` (both in
   `charts/mairie360-stack/values.yaml`) — add a role there and forget the
   script, and that API/BFF's pod comes up with no `<ROLE>-password` (Redis)
@@ -680,6 +742,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   `postgres://user:password@host:port/db` without percent-encoding, so a `/`
   in the password breaks the URL (`invalid port number`). Seen on the first
   clean deployment: 2 to 4 APIs per instance could not reach Postgres.
+  The Redis ACL passwords are put raw in `REDIS_URL` the same way, and the
+  base64 ones from before that fix were kept by every re-seal (MAIR-531:
+  calendar/message/elearning-api, "Redis URL did not parse"). The script
+  now regenerates any kept role password that `scripts/lib/secret-values.sh`
+  `url_safe` rejects (restart Redis, then the APIs, after the sync), and
+  `scripts/verify.sh` step 4 flags them on the cluster.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`

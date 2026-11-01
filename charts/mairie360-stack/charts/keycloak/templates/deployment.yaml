@@ -123,6 +123,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "keycloak.secretName" . }}
                   key: BFF_USER_CLIENT_SECRET
+            # MAIR-554. Optional: a Secret sealed before it still starts
+            # Keycloak; only an import (empty realm) needs it.
+            - name: CORE_API_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: CORE_API_CLIENT_SECRET
+                  optional: true
             # Resend API key shared with core-api; optional so that an
             # instance sealed before it existed still starts.
             - name: SMTP_PASSWORD

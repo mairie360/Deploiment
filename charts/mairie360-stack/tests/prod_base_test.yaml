@@ -5,15 +5,28 @@ values:
   - ../../../clusters/_base/prod.yaml
   - ../../../clusters/client-example/instances/prod/values.yaml
 tests:
-  - it: the fronts' COOKIE_DOMAIN follows the instance's domain
+  - it: all seven enabled SSO fronts get the instance's shared COOKIE_DOMAIN
     templates: [charts/Fronts/templates/deployment.yaml]
-    documentSelector: { path: metadata.name, value: RELEASE-NAME-login-front }
     asserts:
+      - hasDocuments: { count: 7 }
       - contains:
           path: spec.template.spec.containers[0].env
           content: { name: COOKIE_DOMAIN, value: ".mairie360.ville-exemple.fr" }
+          count: 1
 
-  - it: core-api's PUBLIC_URL and EMAIL_FROM come from the instance
+  - it: every SSO front follows an overridden instance domain without a hardcoded host
+    templates: [charts/Fronts/templates/deployment.yaml]
+    set:
+      global.domain: sso.example.test
+    asserts:
+      - hasDocuments: { count: 7 }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".sso.example.test" }
+          count: 1
+
+  # MAIR-612: core-api sends through the Resend API (MAIR-522) from no-reply@<EMAIL_DOMAIN>.
+  - it: core-api's PUBLIC_URL and EMAIL_DOMAIN come from the instance
     templates: [charts/APIs/templates/deployment.yaml]
     documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
     asserts:
@@ -22,7 +35,10 @@ tests:
           content: { name: PUBLIC_URL, value: "https://login.mairie360.ville-exemple.fr" }
       - contains:
           path: spec.template.spec.containers[0].env
-          content: { name: EMAIL_FROM, value: "Mairie360 <noreply@mairie360.ville-exemple.fr>" }
+          content: { name: EMAIL_DOMAIN, value: "mairie360.ville-exemple.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: EMAIL_SENDER_NAME, value: "Mairie360" }
 
   - it: elearning-api's bucket comes from the instance
     templates: [charts/APIs/templates/deployment.yaml]
