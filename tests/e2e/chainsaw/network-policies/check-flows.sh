@@ -46,7 +46,7 @@ frontend  $KC        deny
 bff       $FRONT     deny
 bff       $OTHER_BFF allow
 bff       $API       allow
-bff       $REDIS     deny
+bff       $REDIS     allow
 bff       $DB        deny
 bff       $KC        allow
 bff       $KCDB      deny
