@@ -65,6 +65,9 @@ spec:
                 secretKeyRef:
                   name: {{ include "redis.fullname" $ }}
                   key: {{ include "redis.rolePasswordKey" $role }}
+                  {{- if has $role (include "redis.optionalRoles" $ | fromYamlArray) }}
+                  optional: true
+                  {{- end }}
             {{- end }}
           securityContext:
             allowPrivilegeEscalation: false

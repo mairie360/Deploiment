@@ -76,6 +76,7 @@ keycloak:
     KEYCLOAK_ADMIN_PASSWORD: "e2e-keycloak-admin"
     KEYCLOAK_DB_PASSWORD: "e2e-keycloak-db"
     BFF_USER_CLIENT_SECRET: "e2e-bff-user-client-secret"
+    CORE_API_CLIENT_SECRET: "e2e-core-api-client-secret"
   db:
     persistence:
       size: "1Gi"
@@ -92,6 +93,12 @@ redis:
     message-api: "e2e-message-api"
     elearning-api: "e2e-elearning-api"
     user-bff: "e2e-user-bff"
+    project-bff: "e2e-project-bff"
+    calendar-bff: "e2e-calendar-bff"
+    message-bff: "e2e-message-bff"
+    dashboard-bff: "e2e-dashboard-bff"
+    settings-bff: "e2e-settings-bff"
+    elearning-bff: "e2e-elearning-bff"
     project-bff: "e2e-project-bff"
     calendar-bff: "e2e-calendar-bff"
     message-bff: "e2e-message-bff"
