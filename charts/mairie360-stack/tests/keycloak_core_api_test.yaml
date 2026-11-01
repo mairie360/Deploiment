@@ -1,0 +1,85 @@
+# MAIR-554: core-api is a Keycloak client of its own (sign-in + realm
+# administration through its service account), wired into Core's env.
+suite: keycloak core-api client (MAIR-554)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: the realm declares a confidential core-api client whose secret is a placeholder
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"clientId": "core-api",\s+"name": "Core_API",[^}]*"publicClient": false,[^}]*"secret": "\$\{CORE_API_CLIENT_SECRET\}",[^}]*"serviceAccountsEnabled": true,[^}]*"redirectUris": \["https://login.dev.mairie360-eip.fr/\*"\]'
+
+  - it: only core-api's service account gets the realm-management roles Core needs, never bff-user
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: '"username": "service-account-core-api",\s+"enabled": true,\s+"serviceAccountClientId": "core-api",\s+"clientRoles": \{\s+"realm-management": \["manage-users","view-realm","manage-realm"\]'
+      - notMatchRegex:
+          path: data["mairie360-realm.json"]
+          pattern: 'service-account-bff-user|"serviceAccountClientId": "bff-user"'
+
+  - it: Keycloak reads the core-api secret for the import, optional for Secrets sealed before it
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CORE_API_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: CORE_API_CLIENT_SECRET, optional: true }
+
+  - it: core-api gets the in-cluster realm URL, the public issuer, its client id and secret
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 1 # calendar-api, core-api, ... (alphabetical range)
+    asserts:
+      - equal: { path: metadata.name, value: RELEASE-NAME-core-api }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "http://RELEASE-NAME-keycloak:8080/realms/mairie360" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_ISSUER, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_CLIENT_ID, value: "core-api" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYCLOAK_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-keycloak-secret, key: CORE_API_CLIENT_SECRET, optional: true }
+
+  - it: the issuer follows global.keycloak.hostname and realm
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 1
+    set:
+      global.keycloak.hostname: sso.example.org
+      global.keycloak.realm: town
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_ISSUER, value: "https://sso.example.org/realms/town" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KEYCLOAK_REALM_URL, value: "http://RELEASE-NAME-keycloak:8080/realms/town" }
+
+  - it: the other APIs get no Keycloak client settings
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 0 # calendar-api
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: '^KEYCLOAK_'
+
+  - it: an empty keycloakClientInstances wires no API
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentIndex: 1
+    set:
+      APIs.keycloakClientInstances: []
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: '^KEYCLOAK_'
