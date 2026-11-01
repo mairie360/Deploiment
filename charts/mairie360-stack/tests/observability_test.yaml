@@ -106,3 +106,84 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content: { name: OTEL_SERVICE_NAME, value: core-api }
+
+  # MAIR-501: traces carry actions only; the usage ledger is scraped, filtered and exported.
+  - it: every span keeps the allowlisted attributes only
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'keep_keys\(span\.attributes, \["http\.request\.method", "http\.method", "http\.route"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'processors: \[memory_limiter, transform/span-allowlist, resource, batch\]'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'prometheus/usage|otlphttp/usage'
+
+  - it: scrapes the usage ledgers, drops counts under the threshold and exports to Mairie 360 when asked
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+      observability.usage.enabled: true
+      observability.usage.threshold: 7
+      observability.usage.services: [{ name: core-api, port: 3000 }, { name: user-bff, port: 4000 }]
+      observability.usage.export.enabled: true
+      observability.usage.export.endpoint: "https://usage.example.com/v1/metrics"
+      observability.usage.export.mairie: "ville-exemple"
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- "RELEASE-NAME-core-api:3000"\s+- "RELEASE-NAME-user-bff:4000"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'value_double < 7 and value_int < 7'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'keep_keys\(datapoint\.attributes, \["service", "operation", "method", "status", "period_start"\]\)'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(resource\.attributes\["mairie360\.mairie"\], "ville-exemple"\)'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'exporters: \[otlphttp/cockpit-metrics, otlphttp/usage\]'
+
+  - it: the export needs its endpoint
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+      observability.usage.enabled: true
+      observability.usage.services: [{ name: core-api, port: 3000 }]
+      observability.usage.export.enabled: true
+    templates: [charts/observability/templates/deployment.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "observability.usage.export.endpoint is required"
+
+  - it: only the collector reaches /internal/usage, on the listed ports
+    set:
+      global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+      observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+      observability.usage.enabled: true
+      observability.usage.services: [{ name: core-api, port: 3000 }, { name: user-bff, port: 4000 }]
+    templates: [charts/observability/templates/network-policy-usage.yaml]
+    asserts:
+      - equal:
+          path: spec.podSelector.matchExpressions[0].values
+          value: [api, bff]
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: telemetry
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - { protocol: TCP, port: 3000 }
+            - { protocol: TCP, port: 4000 }
