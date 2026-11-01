@@ -14,6 +14,22 @@ on:
         default: ""
 
 jobs:
+  # Blocks any new commit that adds a secret (MAIR-677: a GHCR PAT stayed
+  # readable in this public repo's history). Rules: .gitleaks.toml, which only
+  # lets SealedSecret ciphertext through.
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Run Gitleaks on the new commits
+        uses: mairie360/CICD/actions/security/gitleaks@v4.12.1
+
   # ================================
   # 🧱 JOB 1 : Validation & Qualité
   # ================================

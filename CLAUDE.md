@@ -79,7 +79,12 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
 `helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
 and `bootstrap/` → `scripts/check-image-tags.sh` → `helm unittest`, all
-blocking, plus `scripts/check-instance-secrets.sh --warn` (annotations only). `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
+blocking, plus `scripts/check-instance-secrets.sh --warn` (annotations only).
+The `secret-scan` job runs Gitleaks (mairie360/CICD `actions/security/gitleaks`)
+on the new commits of every push/PR and blocks on any finding (MAIR-677). Rules are
+`.gitleaks.toml`: defaults plus one allowlist, the `KEY: Ag…` SealedSecret ciphertext
+lines of `clusters/*/instances/*/secrets.yaml`; `tests/scripts/mair_677_secret_scan_test.sh`
+pins it. `trivy config` is not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
 (it calls `cicd.yaml` as a reusable workflow on the promoted commit, and
@@ -667,9 +672,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   `elearning-api` stays there too when `secrets.yaml` was sealed before the
   `S3_*` keys existed: re-run `seal-secrets.sh` with `S3_ACCESS_KEY` /
   `S3_SECRET_KEY` set (`scripts/verify.sh` step 4 reports empty keys).
-- **The GHCR PAT leaked into git history.** `configs/ghcr-registry-secret.yaml`
-  and every `image.pullSecretData` have been removed, but the token is still
-  readable in past commits: rotate it, then purge history (`git filter-repo`).
+- **A GHCR PAT leaked into git history (MAIR-677).** `configs/ghcr-registry-secret.yaml`
+  and every `image.pullSecretData` have been removed and the token is revoked
+  (GitHub API answers 401, checked 2026-11-01); the history purge is tracked in
+  MAIR-677. Never commit a registry credential again: the GHCR credentials live
+  in ansible (`GHCR_USER` / `GHCR_TOKEN`), and the `secret-scan` CI job blocks it.
 - `helm lint` on subcharts standalone fails (they need umbrella `global.*`);
   CI lints the umbrella only and validates subcharts through the per-env render.
 - **Instance image tags must exist without the image-updater (MAIR-172).**
