@@ -95,6 +95,15 @@ class CheckComplianceTest(unittest.TestCase):
         self.assertEqual([g[0] for g in check.infrastructure_gaps([no_bucket])], ["egress-not-restricted", "backups-no-bucket"])
         self.assertEqual([g[0] for g in check.infrastructure_gaps([deny])], ["backups-off"])
 
+    def test_the_legal_pages_must_show_the_decided_periods(self):
+        self.edit("retention.yaml", 'connection_logs: {period: "1 year"', 'connection_logs: {period: "2 years"')
+        errors = " ".join(self.run_check().errors)
+        self.assertIn("global.legal.retention.connection_logs is 1 year, retention.yaml decides 2 years", errors)
+
+    def test_the_legal_pages_must_list_the_subprocessors(self):
+        self.edit("subprocessors.yaml", 'purpose_fr: "envoi des e-mails', 'purpose_fr: "envoi de tous les e-mails')
+        self.assertIn("global.legal.subprocessors differ", " ".join(self.run_check().errors))
+
 
 if __name__ == "__main__":
     unittest.main()
