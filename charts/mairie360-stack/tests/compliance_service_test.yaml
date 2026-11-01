@@ -155,6 +155,10 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'logs:\s+receivers: \[otlp\]\s+processors: \[memory_limiter, transform/mask-personal-data, resource, batch\]'
+      # Traces: the MAIR-501 allowlist drops the other attributes, then the kept values are masked.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'traces:\s+receivers: \[otlp\]\s+processors: \[memory_limiter, transform/span-allowlist, transform/mask-personal-data, resource, batch\]'
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'replace_pattern\(body, \\"\\\\\\\\\$\$argon2'
