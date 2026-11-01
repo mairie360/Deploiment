@@ -28,15 +28,27 @@ app.kubernetes.io/part-of: mairie360
 {{- end -}}
 
 {{/*
-Redis ACL roles: one account per API, derived from global.apis.instances —
-the same single source as the Services/URLs of that chart, so the ACL
-accounts never drift from the real list of instances. No BFF reads Redis
-(MAIR-414), so none gets an account. Returns a sorted YAML list.
+Redis ACL roles: one account per API and per BFF, derived from
+global.apis.instances and global.bffs.instances — the same single source as
+the Services/URLs of those charts, so the ACL accounts never drift from the
+real list of instances. Returns a sorted YAML list.
 */}}
 {{- define "redis.roles" -}}
 {{- $g := .Values.global | default dict -}}
 {{- $apis := (($g.apis | default dict).instances) | default dict -}}
-{{- keys $apis | sortAlpha | toYaml -}}
+{{- $bffs := (($g.bffs | default dict).instances) | default dict -}}
+{{- concat (keys $apis) (keys $bffs) | uniq | sortAlpha | toYaml -}}
+{{- end -}}
+
+{{/*
+BFF accounts (MAIR-531): no BFF reads Redis yet (MAIR-499 will), so their
+passwords are optional. A Secret sealed before them leaves Redis and the BFFs
+starting; the account is then written `off` until the next seal-secrets.sh.
+*/}}
+{{- define "redis.optionalRoles" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $bffs := (($g.bffs | default dict).instances) | default dict -}}
+{{- keys $bffs | sortAlpha | toYaml -}}
 {{- end -}}
 
 {{/* Nom de la variable d'env portant le mot de passe ACL d'un rôle. */}}
