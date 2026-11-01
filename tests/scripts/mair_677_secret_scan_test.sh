@@ -13,9 +13,20 @@ IMAGE="zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a
 FAILED=0
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
-# Fake values built at runtime so this file itself never matches a rule.
-fake_pat="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 36)"
-sealed="Ag$(head -c 300 /dev/urandom | base64 -w0 | tr -d '\n' | cut -c1-400)"
+# Fake values built at runtime so this file itself never matches a rule, and
+# derived from fixed seeds (not /dev/urandom) so the result never depends on a
+# random substring hitting a Gitleaks stopword.
+alnum() { # alnum <seed> <length>: deterministic high-entropy [A-Za-z0-9] string
+  local out="" i=0
+  while [ "${#out}" -lt "$2" ]; do
+    out+="$(printf '%s-%s' "$1" "$i" | openssl dgst -sha512 -binary | base64 -w0 | tr -d '+/=')"
+    i=$((i + 1)); [ "$i" -lt 100 ] || { echo "alnum: no output (openssl missing?)" >    i=$((i + 1))2; return 1; }
+  done
+  printf '%s' "${out:0:$2}"
+}
+fake_pat="ghp_$(alnum pat 36)"
+sealed="Ag$(alnum sealed 718)"
+short_ag="Ag$(alnum short 120)"
 
 scan() { # scan <expected: clean|leak> <label> <file> <content>
   local repo="$WORK/$RANDOM$RANDOM"
@@ -56,6 +67,13 @@ scan leak "PAT pasted into secrets.yaml next to sealed values" "$SEALED_FILE" \
       encryptedData:
         JWT_SECRET: $sealed
         GHCR_TOKEN: $fake_pat"
+
+scan leak "short Ag... plaintext token under stringData in secrets.yaml" "$SEALED_FILE" \
+  "extraObjects:
+  - |
+    kind: Secret
+    stringData:
+      API_TOKEN: $short_ag"
 
 scan leak "PAT in chart values (no allowlist outside secrets.yaml)" \
   charts/mairie360-stack/values.yaml \

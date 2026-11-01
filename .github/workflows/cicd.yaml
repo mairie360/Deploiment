@@ -17,15 +17,21 @@ jobs:
   # Blocks any new commit that adds a secret (MAIR-677: a GHCR PAT stayed
   # readable in this public repo's history). Rules: .gitleaks.toml, which only
   # lets SealedSecret ciphertext through.
+  # Skipped when promote.yaml calls this workflow: a promotion only
+  # fast-forwards to a commit already on main, which this job scanned on push,
+  # and the shared action scans the caller's GITHUB_SHA, not `inputs.ref`.
   secret-scan:
     name: Secret scan (Gitleaks)
+    if: ${{ inputs.ref == '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Run Gitleaks on the new commits
         uses: mairie360/CICD/actions/security/gitleaks@v4.12.1

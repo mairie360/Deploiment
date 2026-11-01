@@ -7,9 +7,10 @@
 # clusters/<org>/instances/<env>/secrets.yaml. Those values are encrypted with
 # the instance's sealed-secrets controller key and are meant to be committed,
 # but they look like generic API keys. Only lines of the form
-# `KEY: Ag<long base64>` in those files are allowed, so a plain Secret
-# (`stringData:` / `data:` with clear or base64 values) pasted into the same
-# file is still reported.
+# `KEY: Ag<base64 of 700+ chars>` in those files are allowed: a sealed value
+# carries an RSA-4096 wrapped session key, so it is never shorter (720 to 952
+# chars in this repo). A plain Secret (`stringData:` / `data:`) pasted into the
+# same file, even an `Ag...` token, is still reported.
 
 [extend]
 useDefault = true
@@ -19,4 +20,4 @@ description = "SealedSecret ciphertext written by scripts/seal-secrets.sh"
 condition = "AND"
 paths = ['''(^|/)clusters/[^/]+/instances/[^/]+/secrets\.yaml$''']
 regexTarget = "line"
-regexes = ['''^\s+[A-Za-z0-9_.-]+:\s+Ag[A-Za-z0-9+/]{100,}={0,2}\s*$''']
+regexes = ['''^\s+[A-Za-z0-9_.-]+:\s+Ag[A-Za-z0-9+/]{700,}={0,2}\s*$''']
