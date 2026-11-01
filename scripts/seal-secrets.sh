@@ -60,6 +60,9 @@
 #   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
 #                   to re-seal one regenerated in the admin console; otherwise
 #                   the value on the cluster is kept, or generated once.
+#   CORE_API_CLIENT_SECRET  same for the core-api client (MAIR-554). When
+#                   generated for a realm that already exists, run
+#                   scripts/keycloak-core-api-client.sh once synced.
 #   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
 #                   stored in <env>-cockpit-secret for the OpenTelemetry
 #                   Collector (MAIR-131, charts/observability). When unset, the
@@ -88,7 +91,7 @@
 # and the realm (hence bff-user's client secret) is imported once — rotating
 # the sealed values would change nothing live and only desynchronise them.
 # Rotate those in Keycloak itself (admin console / ALTER ROLE), then re-seal
-# with BFF_USER_CLIENT_SECRET set. --rotate-roles ne régénère que les
+# with BFF_USER_CLIENT_SECRET / CORE_API_CLIENT_SECRET set. --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -96,7 +99,15 @@
 #
 # Generated values are hex: the APIs build `postgres://user:password@host`
 # without percent-encoding the password, so a base64 value containing `/`
-# breaks the URL ("invalid port number", "Name or service not known").
+# breaks the URL ("invalid port number", "Name or service not known"). Same
+# for the Redis ACL passwords, put raw in REDIS_URL by the chart ("Redis URL
+# did not parse"). A Redis or Postgres role password kept from the cluster
+# that is not URL-safe (generated base64 before Deploiment#50) is therefore
+# regenerated, even without --rotate (MAIR-531). The Liquibase Job applies the
+# Postgres ones on the next sync; for the Redis ones, restart Redis then the
+# APIs once the new secrets.yaml is synced:
+#   kubectl -n mairie360-<env> rollout restart deploy/<env>-redis
+#   kubectl -n mairie360-<env> rollout restart deploy -l app.kubernetes.io/component=api
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -112,6 +123,9 @@
 # =============================================================================
 set -euo pipefail
 
+# shellcheck source=scripts/lib/secret-values.sh
+. "$(dirname "$0")/lib/secret-values.sh"
+
 CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
 ENV="${3:?}"
@@ -123,12 +137,16 @@ OUT="clusters/${ORG}/instances/${ENV}/secrets.yaml"
 CONTROLLER_NS="kube-system"
 CONTROLLER_NAME="sealed-secrets-controller"
 
-# Redis ACL roles: one account per API declared in global.apis.instances
-# (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
-# KEEP IN SYNC with that file if the list of APIs changes. compliance-api
-# (MAIR-498) only gets its account with global.compliance.enabled, but its
-# password is sealed everywhere so the switch needs no re-seal.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api"
+# Redis ACL roles: one account per API and per BFF declared in
+# global.apis.instances / global.bffs.instances
+# (charts/mairie360-stack/values.yaml). The BFF accounts (MAIR-531) are
+# provisioned ahead of their use (MAIR-499).
+# KEEP IN SYNC with that file if the list of APIs or BFFs changes.
+# compliance-api (MAIR-498) only gets its account with
+# global.compliance.enabled, but its password is sealed everywhere so the
+# switch needs no re-seal.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api
+  user-bff project-bff calendar-bff message-bff dashboard-bff settings-bff elearning-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
@@ -249,6 +267,14 @@ else
   KCBFFSECRET="$(prev "${RELEASE}-keycloak-secret" BFF_USER_CLIENT_SECRET)"
   [ -n "$KCBFFSECRET" ] || { KCBFFSECRET="$(gen)"; echo "  BFF_USER_CLIENT_SECRET  : generated"; }
 fi
+# MAIR-554: secret of the core-api client, same lifecycle as bff-user's.
+KCCORESECRET="${CORE_API_CLIENT_SECRET:-}"
+if [ -n "$KCCORESECRET" ]; then
+  echo "  CORE_API_CLIENT_SECRET  : from CORE_API_CLIENT_SECRET"
+else
+  KCCORESECRET="$(prev "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET)"
+  [ -n "$KCCORESECRET" ] || { KCCORESECRET="$(gen)"; echo "  CORE_API_CLIENT_SECRET  : generated (run scripts/keycloak-core-api-client.sh on a realm already imported)"; }
+fi
 
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
@@ -257,6 +283,10 @@ for role in $REDIS_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-redis" "$key")"
+  fi
+  # MAIR-531: the chart puts this password raw in the API's REDIS_URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   redis_args+=(--from-literal="${key}=${val}")
@@ -273,6 +303,10 @@ for role in $DB_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
+  fi
+  # MAIR-531: the API puts this password raw in its postgres:// URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   db_args+=(--from-literal="${key}=${val}")
@@ -396,6 +430,7 @@ kubectl create secret generic "${RELEASE}-keycloak-secret" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KCADMINPWD" \
   --from-literal=KEYCLOAK_DB_PASSWORD="$KCDBPWD" \
   --from-literal=BFF_USER_CLIENT_SECRET="$KCBFFSECRET" \
+  --from-literal=CORE_API_CLIENT_SECRET="$KCCORESECRET" \
   --dry-run=client -o yaml | seal > "$TMP/keycloak.yaml"
 
 if [ -n "$GHCR_TOKEN" ]; then
