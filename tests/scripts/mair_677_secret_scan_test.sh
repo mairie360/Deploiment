@@ -20,7 +20,8 @@ alnum() { # alnum <seed> <length>: deterministic high-entropy [A-Za-z0-9] string
   local out="" i=0
   while [ "${#out}" -lt "$2" ]; do
     out+="$(printf '%s-%s' "$1" "$i" | openssl dgst -sha512 -binary | base64 -w0 | tr -d '+/=')"
-    i=$((i + 1)); [ "$i" -lt 100 ] || { echo "alnum: no output (openssl missing?)" >    i=$((i + 1))2; return 1; }
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "alnum: no output (openssl missing?)" >&2; return 1; }
   done
   printf '%s' "${out:0:$2}"
 }
