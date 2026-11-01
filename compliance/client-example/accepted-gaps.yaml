@@ -1,0 +1,11 @@
+# Infrastructure gaps accepted for now (MAIR-293): scripts/check-compliance.py fails on any gap of
+# a prod instance that is not listed here with its reason. Remove an entry once the gap is fixed.
+version: 1
+gaps:
+  egress-not-restricted:
+    reason: >-
+      Resend (smtp.resend.com) and Scaleway Object Storage (s3.fr-par.scw.cloud) are reached by DNS
+      name and have no published fixed address range, so egress cannot be limited with
+      egressAllowCIDRs yet; it needs a DNS-based egress rule (CiliumNetworkPolicy toFQDNs) or an
+      egress proxy. Tracked by MAIR-293.
+    validated: null
