@@ -78,6 +78,44 @@ class CheckComplianceTest(unittest.TestCase):
         self.edit("register.yaml", "    legal_basis: public task (GDPR art. 6.1.e), management of the town hall's staff\n", "")
         self.assertIn("accounts: legal_basis is required", " ".join(self.run_check().errors))
 
+    def test_a_duplicated_decision_fails(self):
+        self.edit("retention.yaml", '  sessions: {period: "6 months", validated: null}\n',
+                  '  sessions: {period: "6 months", validated: null}\n  sessions: {period: "3 months", validated: null}\n')
+        self.assertIn("duplicate key 'sessions'", " ".join(self.run_check().errors))
+
+    def test_a_gap_accepted_twice_fails(self):
+        path = os.path.join(self.root, "compliance", "mairie360", "accepted-gaps.yaml")
+        text = open(path, encoding="utf-8").read()
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text + "  egress-not-restricted:\n    reason: again\n")
+        self.assertIn("duplicate key 'egress-not-restricted'", " ".join(self.run_check().errors))
+
+    def test_an_infrastructure_gap_fails_unless_accepted(self):
+        os.remove(os.path.join(self.root, "compliance", "mairie360", "accepted-gaps.yaml"))
+        self.assertIn("egress-not-restricted", " ".join(self.run_check().errors))
+
+    def test_an_accepted_gap_is_reported_not_failed(self):
+        report = self.run_check()
+        self.assertEqual(report.errors, [])
+        self.assertIn("egress-not-restricted", " ".join(report.accepted))
+
+    def test_infrastructure_gaps_of_the_manifests(self):
+        deny = {"kind": "NetworkPolicy", "metadata": {"name": "r-default-deny"}, "spec": {"policyTypes": ["Ingress", "Egress"]}}
+        backup = {"kind": "CronJob", "metadata": {"name": "r-backup"}, "spec": {"env": [{"name": "RESTIC_REPOSITORY", "value": "s3:https://s3.fr-par.scw.cloud/bucket"}]}}
+        self.assertEqual(check.infrastructure_gaps([deny, backup]), [])
+        no_bucket = {"kind": "CronJob", "metadata": {"name": "r-backup"}, "spec": {"env": [{"name": "RESTIC_REPOSITORY", "value": "s3:https://s3.fr-par.scw.cloud/"}]}}
+        self.assertEqual([g[0] for g in check.infrastructure_gaps([no_bucket])], ["egress-not-restricted", "backups-no-bucket"])
+        self.assertEqual([g[0] for g in check.infrastructure_gaps([deny])], ["backups-off"])
+
+    def test_the_legal_pages_must_show_the_decided_periods(self):
+        self.edit("retention.yaml", 'connection_logs: {period: "1 year"', 'connection_logs: {period: "2 years"')
+        errors = " ".join(self.run_check().errors)
+        self.assertIn("global.legal.retention.connection_logs is 1 year, retention.yaml decides 2 years", errors)
+
+    def test_the_legal_pages_must_list_the_subprocessors(self):
+        self.edit("subprocessors.yaml", 'purpose_fr: "envoi des e-mails', 'purpose_fr: "envoi de tous les e-mails')
+        self.assertIn("global.legal.subprocessors differ", " ".join(self.run_check().errors))
+
 
 if __name__ == "__main__":
     unittest.main()
