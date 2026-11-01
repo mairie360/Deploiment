@@ -111,6 +111,8 @@ tests:
   - it: every span keeps the allowlisted attributes only
     set:
       global.observability.enabled: true
+      # The masking of MAIR-498 is pinned in compliance_service_test.yaml.
+      observability.logMasking.enabled: false
       observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
       observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
     templates: [charts/observability/templates/configmap.yaml]

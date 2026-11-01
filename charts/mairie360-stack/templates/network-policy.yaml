@@ -10,6 +10,7 @@ chaque sous-chart ouvre UNIQUEMENT le flux dont il a besoin :
                         (migration liquibase ──────► postgres)
   ingress-controller ─► keycloak ─► keycloak-db      (MAIR-139)
                 bffs / apis ─► keycloak
+         core-api ─► compliance-api                 (MAIR-498, global.compliance.enabled)
 
 Toute policy permissive (podSelector: {} + namespaceSelector: {}) annulerait
 l'ensemble : ne jamais en rajouter une.

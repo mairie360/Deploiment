@@ -78,6 +78,56 @@ global:
     enabled: false
     apis: ["core-api"]
 
+  # MAIR-498: the instance's compliance service (mairie360/Compliance_API),
+  # deployed as the `compliance-api` entry of APIs.instances. `enabled` is the
+  # one switch: it adds the compliance-api Postgres role password to the
+  # Liquibase job and the API (DB_USER compliance_api), its Redis ACL account
+  # (read on every key for the long-TTL scan, write on `redis.erasurePatterns`
+  # only), the compliance-only env below, and a NetworkPolicy that admits
+  # core-api alone. Off, nothing changes for the other services and the
+  # Liquibase job still passes a random throwaway password for the
+  # compliance_api role the Database changelog creates (v3.0.1+), so the role
+  # exists but cannot be logged into.
+  # Before turning it on: the COMPLIANCE_API_PASSWORD key of the database
+  # secret and the compliance-api-password key of the Redis secret
+  # (scripts/seal-secrets.sh), and an APIs.instances.compliance-api entry.
+  compliance:
+    enabled: false
+    port: 3004
+    # Secret with the erasure credentials, ONLY mounted in compliance-api,
+    # every key optional (a connector without its credentials is "not
+    # configured" and its erasure step is recorded as such):
+    #   KEYCLOAK_ADMIN_CLIENT_SECRET  service account with realm-management manage-users
+    #   RESEND_API_KEY                full access key (removes audience contacts)
+    #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  delete rights on s3.bucket
+    # Default: <release>-compliance-secret (scripts/seal-secrets.sh).
+    secretName: ""
+    keycloak:
+      # Confidential client of the realm with a service account. Keycloak only
+      # imports a realm once: create it in the admin console on a running
+      # instance.
+      adminClientId: "compliance"
+      # "" = the in-cluster Service (<release>-keycloak:8080, global.keycloak.realm)
+      adminUrl: ""
+      tokenUrl: ""
+    resend:
+      audienceId: ""
+    s3:
+      endpoint: ""
+      region: ""
+      bucket: ""
+      prefix: "users/{user_id}/"
+    redis:
+      # Keys of a user, `{user_id}` replaced at erasure time (REDIS_ERASURE_PATTERNS);
+      # the ACL grants write on them with `{user_id}` -> `*`.
+      erasurePatterns: []
+      # Commands added to redis.aclCommands for this account (SCAN + TTL for
+      # the long-TTL scan).
+      extraCommands: ["scan", "ttl"]
+      longTtlSeconds: 2592000
+    scanIntervalSeconds: 21600
+    erasureRetrySeconds: 300
+
   secrets:
     # Secret contenant les secrets applicatifs partagés : JWT_SECRET (toutes
     # les APIs/BFFs), SMTP_PASSWORD (clé API Resend, lue par core-api) et

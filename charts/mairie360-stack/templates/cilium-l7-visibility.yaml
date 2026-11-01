@@ -57,6 +57,9 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/component: api
+    # Not compliance-api (MAIR-498): this rule would let every BFF reach it.
+    matchExpressions:
+      - { key: app, operator: NotIn, values: ["compliance-api"] }
   ingress:
     - fromEndpoints:
         - matchLabels:
