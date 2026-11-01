@@ -39,12 +39,36 @@ tests:
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
 
-  - it: calls fn_apply_retention_policies() through psql
+  - it: writes the configured periods, then calls fn_apply_retention_policies() through psql
     templates: [charts/retention/templates/cronjob.yaml]
     asserts:
       - matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
-          pattern: 'psql -v ON_ERROR_STOP=1 -c "SELECT \* FROM fn_apply_retention_policies\(\);"'
+          pattern: "UPDATE retention_policies SET retention_period = INTERVAL '6 months' WHERE table_name = 'sessions';"
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: "RAISE EXCEPTION 'retention_policies has no row for users_audit_log'"
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'SELECT \* FROM fn_apply_retention_policies\(\);'
+
+  # MAIR-294: the periods come from the values (compliance/<org>/retention.yaml decides them).
+  - it: a mairie's period overrides the default
+    set:
+      retention: { policies: { connection_logs: "6 months" } }
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: "INTERVAL '6 months' WHERE table_name = 'connection_logs'"
+
+  - it: refuses a malformed period or table name
+    set:
+      retention: { policies: { sessions: "6 months; DROP TABLE users" } }
+    templates: [charts/retention/templates/cronjob.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "retention.policies.sessions"
 
   - it: the schedule is required
     set:

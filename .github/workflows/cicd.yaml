@@ -70,6 +70,15 @@ jobs:
           kubeconform -strict -summary -schema-location default \
             -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
 
+      # GDPR decisions of each mairie (compliance/<org>/, MAIR-294) against the
+      # rendered configuration: retention periods, backup retention, external
+      # hosts and egress rules of subprocessors, complete register. A mismatch
+      # fails; decisions not validated by the mairie yet are warnings.
+      - name: Check the GDPR decisions against the configuration
+        run: |
+          python3 -m unittest discover -s tests/compliance -v
+          ./scripts/check-compliance.py
+
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and
       # exist on their registry. skopeo is preinstalled on ubuntu-latest.
