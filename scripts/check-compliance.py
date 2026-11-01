@@ -12,7 +12,12 @@ configuration does not follow the decisions:
 - every external host of the rendered manifests (URLs, *_HOST variables, SMTP hosts) is a
   declared subprocessor, every egress CIDR belongs to one;
 - the register is complete (purpose, legal basis, data, retention, known subprocessors);
-- technical logs at most their maximum (1 year), files well formed.
+- the legal pages of the fronts (LEGAL_CONFIG, global.legal, MAIR-292) show these periods and
+  subprocessors;
+- technical logs at most their maximum (1 year), files well formed;
+- infrastructure of the prod instances (MAIR-293): backups on with a bucket, egress restricted.
+  An infrastructure gap fails unless compliance/<org>/accepted-gaps.yaml accepts it with its
+  reason (tracked, never silent).
 
 Decisions without `validated` are proposals of Mairie 360: reported as pending, blocking with
 --strict. Usage: scripts/check-compliance.py [--strict] [--org <org>] [--rendered <org>/<env>=<file>]
@@ -20,6 +25,7 @@ Decisions without `validated` are proposals of Mairie 360: reported as pending, 
 """
 import argparse
 import fnmatch
+import json
 import ipaddress
 import os
 import re
@@ -35,11 +41,39 @@ REGISTRIES = {"ghcr.io", "docker.io", "quay.io", "registry.k8s.io", "gcr.io", "m
 FILES = ["register.yaml", "retention.yaml", "subprocessors.yaml", "access.yaml", "deadlines.yaml"]
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader refusing a repeated mapping key: yaml.safe_load keeps the last one silently, so a
+    duplicated decision (tables.sessions twice, a gap accepted twice) would replace the first."""
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+INVALID = object()
+
+
+def load_decisions(path, label, report):
+    """A decision file, or INVALID (reported) when it is not valid YAML or repeats a key."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return yaml.load(handle, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as error:
+        report.error(label, f"invalid YAML: {error}".replace("\n", " "))
+        return INVALID
+
+
 class Report:
     def __init__(self, strict):
         self.strict = strict
         self.errors = []
         self.pending = []
+        self.accepted = []
 
     def error(self, where, message):
         self.errors.append(f"{where}: {message}")
@@ -145,6 +179,55 @@ def egress_cidrs(docs):
     return cidrs
 
 
+def infrastructure_gaps(docs):
+    """Gaps of a prod instance's manifests (MAIR-293): [(id, message)]."""
+    gaps = []
+    egress = False
+    for doc in docs:
+        if doc.get("kind") == "NetworkPolicy" and doc["metadata"]["name"].endswith("-default-deny"):
+            egress = "Egress" in (doc["spec"].get("policyTypes") or [])
+    if not egress:
+        gaps.append(("egress-not-restricted", "egress is not denied by default (global.networkPolicy.egressDefaultDeny)"))
+    repositories = [v for doc in docs if doc.get("kind") == "CronJob" for n, v in env_vars(doc) if n == "RESTIC_REPOSITORY"]
+    if not repositories:
+        gaps.append(("backups-off", "no backup CronJob with a RESTIC_REPOSITORY (backup.enabled)"))
+    elif any(not re.search(r"https?://[^/]+/[^/]+", r) for r in repositories):
+        gaps.append(("backups-no-bucket", "the backup repository names no bucket (backup.s3.bucket)"))
+    return gaps
+
+
+def legal_config(docs):
+    for name, value in env_vars(docs):
+        if name == "LEGAL_CONFIG":
+            return value
+    return None
+
+
+def check_legal(label, docs, retention, subs, report):
+    """The legal pages (MAIR-292) show the periods and subprocessors decided here."""
+    raw = legal_config(docs)
+    if raw is None:
+        report.error(label, "no front gets LEGAL_CONFIG (global.legal): the legal pages cannot show the decisions")
+        return
+    try:
+        legal = json.loads(raw)
+    except ValueError:
+        report.error(label, "LEGAL_CONFIG is not JSON")
+        return
+    shown = legal.get("retention") or {}
+    decided = {k: (retention.get(k) or {}).get("period") for k in ("technical_logs", "archived_accounts_anonymization")}
+    decided.update({t: (e or {}).get("period") for t, e in (retention.get("tables") or {}).items()})
+    for key, period in decided.items():
+        if months_days(shown.get(key)) != months_days(period):
+            report.error(label, f"global.legal.retention.{key} is {shown.get(key)}, retention.yaml decides {period}")
+    for key in sorted(set(shown) - set(decided)):
+        report.error(label, f"global.legal.retention.{key} is not decided in retention.yaml")
+    want = sorted((s.get("name"), s.get("location"), s.get("purpose_fr")) for s in subs.get("subprocessors") or [])
+    got = sorted((s.get("name"), s.get("location"), s.get("purpose")) for s in legal.get("subprocessors") or [])
+    if want != got:
+        report.error(label, "global.legal.subprocessors differ from subprocessors.yaml (name, location, purpose_fr)")
+
+
 def check_org(org, report, rendered):
     base = os.path.join(ROOT, "compliance", org)
     data = {}
@@ -153,7 +236,9 @@ def check_org(org, report, rendered):
         if not os.path.exists(path):
             report.error(f"compliance/{org}", f"{name} is missing")
             continue
-        doc = yaml.safe_load(open(path, encoding="utf-8"))
+        doc = load_decisions(path, f"compliance/{org}/{name}", report)
+        if doc is INVALID:
+            continue
         if not isinstance(doc, dict) or doc.get("version") != 1:
             report.error(f"compliance/{org}/{name}", "must be a mapping with version: 1")
             continue
@@ -209,11 +294,27 @@ def check_org(org, report, rendered):
         if not d.get("id") or not d.get("task") or months_days(d.get("every")) is None:
             report.error(label, "needs id, task and every ('<n> day(s)|month(s)|year(s)')")
 
+    accepted_path = os.path.join(base, "accepted-gaps.yaml")
+    accepted = {}
+    if os.path.exists(accepted_path):
+        doc = load_decisions(accepted_path, f"compliance/{org}/accepted-gaps.yaml", report)
+        doc = {} if doc is INVALID else doc or {}
+        for gap_id, entry in (doc.get("gaps") or {}).items():
+            if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
+                report.error(f"compliance/{org}/accepted-gaps.yaml", f"{gap_id}: reason is required")
+            else:
+                accepted[gap_id] = entry
+                report.unvalidated(f"compliance/{org}/accepted-gaps.yaml {gap_id}", entry)
+
     for env in retention.get("applies_to") or []:
         label = f"clusters/{org}/instances/{env}"
         key = f"{org}/{env}"
         try:
-            text = open(rendered[key], encoding="utf-8").read() if key in rendered else render(org, env)
+            if key in rendered:
+                with open(rendered[key], encoding="utf-8") as handle:
+                    text = handle.read()
+            else:
+                text = render(org, env)
         except (subprocess.CalledProcessError, OSError) as error:
             report.error(label, f"cannot render the instance: {getattr(error, 'stderr', error)}")
             continue
@@ -240,11 +341,18 @@ def check_org(org, report, rendered):
                 found = set(re.findall(rf"--keep-{flag} (\d+)", script))
                 if found != {str(backups.get(key_name))}:
                     report.error(label, f"backup.retention keep {flag} is {', '.join(sorted(found)) or 'unset'}, retention.yaml decides {backups.get(key_name)}")
+        check_legal(label, docs, retention, subs, report)
         for host in external_hosts(docs):
             if not any(fnmatch.fnmatch(host, p.lower()) for p in patterns):
                 report.error(label, f"external host {host} is not a declared subprocessor (subprocessors.yaml)")
         for cidr in sorted(egress_cidrs(docs) - declared_cidrs):
             report.error(label, f"egress rule to {cidr} belongs to no declared subprocessor")
+        if env == "prod":
+            for gap_id, message in infrastructure_gaps(docs):
+                if gap_id in accepted:
+                    report.accepted.append(f"{label}: {gap_id} ({accepted[gap_id]['reason']})")
+                else:
+                    report.error(label, f"{gap_id}: {message} (fix it, or accept it in accepted-gaps.yaml with its reason)")
 
 
 def main(argv=None):
@@ -267,7 +375,9 @@ def main(argv=None):
     level = "error" if args.strict else "warning"
     for where in report.pending:
         print(f"::{level} title=GDPR compliance::{where}: not validated by the mairie yet")
-    print(f"GDPR compliance: {len(report.errors)} mismatch(es), {len(report.pending)} decision(s) pending validation.")
+    for gap in report.accepted:
+        print(f"::warning title=GDPR compliance::accepted gap {gap}")
+    print(f"GDPR compliance: {len(report.errors)} mismatch(es), {len(report.accepted)} accepted gap(s), {len(report.pending)} decision(s) pending validation.")
     return 1 if report.errors or (args.strict and report.pending) else 0
 
 

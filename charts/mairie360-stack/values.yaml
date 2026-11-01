@@ -105,6 +105,26 @@ global:
   emailFrom: ""
   elearningBucket: ""
 
+  # Legal notice and privacy policy of the instance (MAIR-292), shown by the
+  # login front at /mentions-legales and /confidentialite (every front's
+  # footer links there). Passed as LEGAL_CONFIG (JSON) to the fronts of
+  # Fronts.legalConfigInstances, read at request time: one image serves every
+  # mairie. `retention` and `subprocessors` repeat the decisions of
+  # compliance/<org>/ (MAIR-294): scripts/check-compliance.py fails when they
+  # differ. Empty values are shown as "to be completed by the mairie".
+  legal:
+    mairie: { name: "", address: "", email: "" }
+    publicationDirector: ""
+    dpo: { name: "", email: "" }
+    host: { name: "", address: "" }
+    # Keys of compliance/<org>/retention.yaml: technical_logs,
+    # archived_accounts_anonymization and the tables (sessions,
+    # connection_logs, access_logs, users_audit_log) -> "<n> day(s)|month(s)|year(s)".
+    retention: {}
+    # { name, location, purpose } of compliance/<org>/subprocessors.yaml
+    # (purpose: its French `purpose_fr`).
+    subprocessors: []
+
   # Keycloak (MAIR-139): the instance's identity provider, charts/keycloak.
   # Global because the BFFs/APIs will need the same issuer URL
   # (https://<hostname>/realms/<realm>) as the browser.
