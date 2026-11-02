@@ -19,8 +19,10 @@ name: Promote
 # staging-only change is refused, as before. Prod still only fast-forwards to
 # a commit of `staging`.
 #
-# Image tags are a separate lane (argocd-image-updater for dev/staging, a
-# semver in prod's values.yaml) and are not affected by this workflow.
+# The decision (fast-forward, merge, rollback, nothing) is
+# scripts/promote-mode.sh, tested by tests/scripts/mair_444_promote_mode_test.sh.
+# Prod's image tags (clusters/_base/prod.yaml) only move through this
+# workflow: prod has no argocd-image-updater (MAIR-186).
 
 on:
   workflow_dispatch:
@@ -100,42 +102,15 @@ jobs:
             CURRENT=$(git rev-parse "origin/$TARGET")
           fi
 
-          CHANGED=true
-          MODE=fast-forward
-          if [ "$ROLLBACK" = "true" ]; then
-            [ -n "$CURRENT" ] || { echo "::error::'$TARGET' does not exist, nothing to roll back."; exit 1; }
-            if ! git merge-base --is-ancestor "$SHA" "$CURRENT"; then
-              echo "::error::Rollback needs a commit that is already in '$TARGET' history."
-              exit 1
-            fi
-          else
-            if [ "$TARGET" = "prod" ] && [ "$STAGING_VERIFIED" != "true" ]; then
-              echo "::error::Run scripts/verify.sh against staging, then tick 'staging_verified'."
-              exit 1
-            fi
-            if [ -n "$CURRENT" ] && git merge-base --is-ancestor "$SHA" "$CURRENT"; then
-              # Already in the target (staging merged it, or it is its head).
-              CHANGED=false
-            elif [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
-              # MAIR-444: staging may only be ahead by image-updater commits.
-              BASE=$(git merge-base "$SHA" "$CURRENT")
-              OTHER=$(git diff --name-only "$BASE" "$CURRENT" \
-                | grep -vE '^clusters/[^/]+/instances/staging/images\.yaml$' || true)
-              if [ "$TARGET" != "staging" ] || [ -n "$OTHER" ]; then
-                echo "::error::'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
-                [ -z "$OTHER" ] || printf '::error::Changed only on %s: %s\n' "$TARGET" "$(echo $OTHER)"
-                exit 1
-              fi
-              if [ -n "$(git diff --name-only "$BASE" "$SHA" -- 'clusters/*/instances/staging/images.yaml')" ]; then
-                echo "::error::$SHA edits a staging images.yaml on main: only argocd-image-updater writes it, on staging."
-                exit 1
-              fi
-              MODE=merge
-            fi
+          if [ "$ROLLBACK" != "true" ] && [ "$TARGET" = "prod" ] && [ "$STAGING_VERIFIED" != "true" ]; then
+            echo "::error::Run scripts/verify.sh against staging, then tick 'staging_verified'."
+            exit 1
           fi
-          if [ "$CURRENT" = "$SHA" ]; then
-            CHANGED=false
-          fi
+          # fast-forward, merge (staging ahead by image-updater commits only,
+          # MAIR-444), rollback or none; fails on any other path.
+          PROMOTE_MODE=$(./scripts/promote-mode.sh "$TARGET" "$SHA" "$CURRENT" \
+            "$([ "$ROLLBACK" = "true" ] && echo rollback || true)")
+          read -r MODE CHANGED <<<"$PROMOTE_MODE"
 
           {
             echo "sha=$SHA"

@@ -144,10 +144,14 @@ describes desired state.
    repo because it depends on `org_id` (which `clusters/<org>/` to scan).
 4. Same for **argocd-image-updater's configuration**: the chart installed by
    `image-updater-app.yaml` is v1, driven by `ImageUpdater` resources (one per
-   instance, tag policy per env name), rendered by Ansible from
-   `roles/k8s_argocd/templates/image-updaters.yaml.j2`. The GHCR credentials
-   it reads (`argocd/ghcr-secret`) are written by the same role from
-   `GHCR_USER` / `GHCR_TOKEN`; nothing in this repo creates them.
+   dev / staging instance, tag policy per env name; prod and client instances
+   have none since MAIR-186, their tags are the ones pinned here), rendered by
+   Ansible from `roles/k8s_argocd/templates/image-updaters.yaml.j2`. They
+   write to git only (MAIR-444). The GHCR credentials it reads
+   (`argocd/ghcr-secret`) and the write-back token
+   (`argocd/deploiment-git-creds`) are written by the same role from
+   `GHCR_USER` / `GHCR_TOKEN` and `DEPLOIMENT_GIT_USER` /
+   `DEPLOIMENT_GIT_TOKEN`; nothing in this repo creates them.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
@@ -746,7 +750,9 @@ and maintaining a parallel Kind topology is what produced the earlier
   prod/client values a published semver. Since MAIR-444 the image-updater also moves `database` /
   `liquibase`, and writes to git: dev through auto-merged `chore(deps)` PRs
   on `main` (`.github/workflows/image-updater-automerge.yaml`), staging
-  through commits on the `staging` branch into `images.yaml`. On GHCR
+  through commits on the `staging` branch into `images.yaml`, which
+  `Promote` merges main into (`scripts/promote-mode.sh`). Prod has no
+  image-updater (MAIR-186): its tags only move through a commit here. On GHCR
   several `<env>-<sha>` of one image can share the same `Created` date
   (build cache): pick by commit date, not by `Created`.
 - **Front image name mismatch**: the values key is `project-front` but the image
