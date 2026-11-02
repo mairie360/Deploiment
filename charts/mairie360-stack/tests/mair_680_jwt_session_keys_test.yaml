@@ -4,7 +4,8 @@ suite: session token keys (MAIR-680, audit A1)
 # key(s) of global.jwt.publicKey (JWT_PUBLIC_KEY). Before MAIR-680 the same
 # HS256 JWT_SECRET reached 12 services, so any compromised pod could forge an
 # administrator token.
-# The throwaway public keys below were generated for this test only.
+# The throwaway public keys below were generated for this test only. No
+# private key PEM block appears here (Gitleaks private-key rule, MAIR-677).
 values:
   - ../../../clusters/mairie360/instances/dev/values.yaml
 tests:
@@ -189,7 +190,7 @@ tests:
 
   - it: "MAIR-680: a private key pasted as publicKey fails the render"
     set:
-      global.jwt.publicKey: "-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----\n"
+      global.jwt.publicKey: "pasted PRIVATE KEY instead of the public one"
     templates: [templates/jwt-session-keys.yaml]
     asserts:
       - failedTemplate:
@@ -219,7 +220,7 @@ tests:
       secrets.s3SecretKey: "test-secret"
       database.image.tag: "test"
       liquibase.image.tag: "test"
-      secrets.jwtPrivateKey: "-----BEGIN PRIVATE KEY-----\ntest-only\n-----END PRIVATE KEY-----\n"
+      secrets.jwtPrivateKey: "test-only-not-a-pem-key"
       global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
       global.jwt.signing.enabled: true
     templates: [templates/jwt-session-keys.yaml]
@@ -231,7 +232,7 @@ tests:
           value: RELEASE-NAME-jwt-signing-secret
       - equal:
           path: stringData.JWT_PRIVATE_KEY
-          value: "-----BEGIN PRIVATE KEY-----\ntest-only\n-----END PRIVATE KEY-----\n"
+          value: "test-only-not-a-pem-key"
 
   - it: "MAIR-680: the local cluster refuses signing without secrets.jwtPrivateKey"
     set:
