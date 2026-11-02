@@ -2,7 +2,8 @@ name: Helm CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    # staging: argocd-image-updater commits its image tags there (MAIR-444).
+    branches: [ main, develop, staging ]
   pull_request:
   # Called by promote.yaml to re-run every check on the exact commit that is
   # about to reach staging or prod.
@@ -91,6 +92,15 @@ jobs:
           echo "Validating bootstrap/"
           kubeconform -strict -summary -schema-location default \
             -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
+
+      # GDPR decisions of each mairie (compliance/<org>/, MAIR-294) against the
+      # rendered configuration: retention periods, backup retention, external
+      # hosts and egress rules of subprocessors, complete register. A mismatch
+      # fails; decisions not validated by the mairie yet are warnings.
+      - name: Check the GDPR decisions against the configuration
+        run: |
+          python3 -m unittest discover -s tests/compliance -v
+          ./scripts/check-compliance.py
 
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and

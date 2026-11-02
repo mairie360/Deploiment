@@ -91,6 +91,37 @@ end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 refuses to move the branch while `scripts/check-instance-secrets.sh` reports
 a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
 
+## GDPR decisions (`compliance/`, MAIR-294)
+
+`compliance/<org>/` holds a mairie's GDPR decisions (`register.yaml`, `retention.yaml`,
+`subprocessors.yaml`, `access.yaml`, `deadlines.yaml`, see `compliance/README.md`); every org of
+`clusters/` needs one. `scripts/check-compliance.py` (CI, after the renders; tests in
+`tests/compliance/`) renders each instance of `retention.yaml`'s `applies_to` and fails when the
+retention CronJob's periods (`retention.policies`, written into `retention_policies` before every
+purge), the backup retention, an external host or an egress CIDR does not follow the decisions, or
+when the register is incomplete, or when `global.legal` (the legal pages of the fronts, MAIR-292:
+`LEGAL_CONFIG` of the fronts of `Fronts.legalConfigInstances`, i.e. login-front) shows other periods
+or subprocessors; for the prod instances (MAIR-293) it also fails on an
+infrastructure gap (egress not denied by default, backups off or without bucket) unless
+`compliance/<org>/accepted-gaps.yaml` accepts it with its reason (today: egress, DNS-only
+subprocessors; `tests/gdpr_prod_test.yaml` pins backups, retention and default-deny ingress);
+decisions without `validated: {date, by}` are warnings
+(`--strict` makes them fail). A period changes in the decision file and in the values together.
+
+## Usage telemetry (`observability.usage`, MAIR-501)
+
+The collector keeps only `observability.spanAttributesAllowlist` on every span
+(`transform/span-allowlist`, `keep_keys(span.attributes, …)`), so traces carry actions, never a
+user id, query string, body, client address or user agent. With `observability.usage.enabled`, it
+also scrapes `/internal/usage` of the services listed in `observability.usage.services`
+(`<release>-<name>:<port>`; the APIs/BFFs serve their usage ledger there, `mairie360_api_lib::usage`
+/ bffs-lib), keeps only the ledger series and their labels, drops counts under
+`observability.usage.threshold` again (`filter/usage-threshold`) and exports the ledger to the
+instance's Cockpit metrics, plus Mairie 360 when `observability.usage.export` is enabled (endpoint
+required, host to declare in `compliance/<org>/subprocessors.yaml`). The network policy
+`…-usage-scrape` lets only the collector reach those ports. Validate a config change with
+`docker run otel/opentelemetry-collector-k8s:<tag> validate --config=…` (kubeletstats off).
+
 ## Architecture
 
 ### Topology: one Argo CD + one Mairie360 instance per machine
@@ -118,10 +149,14 @@ describes desired state.
    repo because it depends on `org_id` (which `clusters/<org>/` to scan).
 4. Same for **argocd-image-updater's configuration**: the chart installed by
    `image-updater-app.yaml` is v1, driven by `ImageUpdater` resources (one per
-   instance, tag policy per env name), rendered by Ansible from
-   `roles/k8s_argocd/templates/image-updaters.yaml.j2`. The GHCR credentials
-   it reads (`argocd/ghcr-secret`) are written by the same role from
-   `GHCR_USER` / `GHCR_TOKEN`; nothing in this repo creates them.
+   dev / staging instance, tag policy per env name; prod and client instances
+   have none since MAIR-186, their tags are the ones pinned here), rendered by
+   Ansible from `roles/k8s_argocd/templates/image-updaters.yaml.j2`. They
+   write to git only (MAIR-444). The GHCR credentials it reads
+   (`argocd/ghcr-secret`) and the write-back token
+   (`argocd/deploiment-git-creds`) are written by the same role from
+   `GHCR_USER` / `GHCR_TOKEN` and `DEPLOIMENT_GIT_USER` /
+   `DEPLOIMENT_GIT_TOKEN`; nothing in this repo creates them.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
@@ -305,6 +340,12 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
+  `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
+  copy of the live dump, `compliance-backup seal` (Compliance_API image) moves each user's personal
+  values into blobs encrypted under a data key wrapped by the user's key in Scaleway Key Manager
+  (`global.compliance.keyManager`), and restic backs up the sealed dump and the blobs as one
+  snapshot; the restore Job unseals after `pg_restore` (erased users stay anonymized). Erasure =
+  compliance-api destroys the key; no backup is ever modified. See `charts/backup/README.md`.
 - **`retention` (MAIR-236), on by default.** A daily CronJob running
   `SELECT * FROM fn_apply_retention_policies()`, which itself creates the
   next few months of `access_logs` partitions
@@ -363,6 +404,25 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `scripts/seal-secrets.sh` from the `COCKPIT_TOKEN` env var). A Deployment,
   not a DaemonSet: it only sees the kubelet of its own node, which is enough
   on single-node instances.
+- **`compliance-api` (MAIR-498), off by default.** The instance's compliance
+  service (mairie360/Compliance_API: permanent scan, centralized erasure,
+  compliance journal), an entry of `APIs.instances` switched on by
+  `global.compliance.enabled` (the render fails for the instance without the
+  switch). The switch adds its Postgres role (`COMPLIANCE_API_PASSWORD`, read
+  by the Liquibase job and the API; while off, the job passes a random
+  throwaway password for the `compliance_api` role the Database changelog
+  creates everywhere), its Redis account (`%R~*` for the long-TTL scan, write
+  on its own keys and `global.compliance.redis.erasurePatterns` only,
+  `+scan +ttl`), its settings, and the erasure credentials of
+  `<release>-compliance-secret` (Keycloak admin client, Resend, S3, every key
+  optional, `scripts/seal-secrets.sh` `COMPLIANCE_*`), **injected into
+  compliance-api only**. Its NetworkPolicy admits core-api alone: the BFF rule
+  and the Cilium L7 rule of the APIs leave it out. The collector
+  (`observability.logMasking`) masks personal data in the OTLP logs (body and
+  attributes) and span attributes with a copy of Compliance_API's
+  `masking-patterns.yaml`: change both together. `observability.cockpit.logsEndpoint`
+  turns on the logs pipeline. Container stdout is not collected yet: only OTLP
+  logs go through the masking. `tests/compliance_service_test.yaml`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
   data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup
   CronJob, the retention CronJob and the collector → `2` APIs and Keycloak →
@@ -610,6 +670,7 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
 clusters/_base/<env>.yaml   # shared by every <env> instance of every group (prod only so far)
 clusters/<org>/instances/<env>/
   values.yaml     # what differs per instance: domain, image tags, sizes
+  images.yaml     # staging only: tags written by argocd-image-updater on the staging branch (MAIR-444)
   secrets.yaml    # GENERATED by scripts/seal-secrets.sh — never hand-edited
 ```
 
@@ -620,7 +681,8 @@ every prod instance (mairie360's and the clients'); an instance's
 replaces lists instead of merging them, so anything instance-specific inside
 an `env` list is a `global.*` value the base reads through `tpl`, never a
 copied list. The instances AppSet (ansible) passes the base first
-(`ignoreMissingValueFiles` covers dev/staging); every script, the CI and the
+(`ignoreMissingValueFiles` covers dev/staging), then `values.yaml`, then
+`images.yaml` when present; every script, the CI and the
 unit tests go through `scripts/instance-values.sh` to do the same. Prod
 image tags therefore live in the base: bumping them moves every prod.
 
@@ -652,7 +714,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   additionally needs the `staging_verified` box (run `scripts/verify.sh` on
   staging first: GitHub runners cannot reach the instance API servers) and the
   approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
-  the branch back to an older commit. Consequences: a change to
+  the branch back to an older commit. **MAIR-444:** argocd-image-updater
+  commits staging's tags straight onto `staging`
+  (`clusters/mairie360/instances/staging/images.yaml`, never edited on `main`),
+  so `Promote` to staging merges instead of fast-forwarding when `staging` is
+  ahead by such commits only (ADR 0002 amendment). Consequences: a change to
   `clusters/mairie360/instances/prod/values.yaml` or a freshly sealed
   `secrets.yaml` also needs a promotion; the AppSet generator still lists
   directories on `main`, so a **new environment directory must be promoted
@@ -688,8 +754,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   option either: the BFFs, `database` and `liquibase-migrations` do not push
   them yet. So dev/staging values pin an explicit `<env>-<sha>` (the family
   `image_updater_policies` tracks, `newest-build` then moves it forward) and
-  prod/client values a published semver. `database` / `liquibase` are not
-  handled by the image-updater: bump their `<env>-<sha>` by hand. On GHCR
+  prod/client values a published semver. Since MAIR-444 the image-updater also moves `database` /
+  `liquibase`, and writes to git: dev through auto-merged `chore(deps)` PRs
+  on `main` (`.github/workflows/image-updater-automerge.yaml`), staging
+  through commits on the `staging` branch into `images.yaml`, which
+  `Promote` merges main into (`scripts/promote-mode.sh`). Prod has no
+  image-updater (MAIR-186): its tags only move through a commit here. On GHCR
   several `<env>-<sha>` of one image can share the same `Created` date
   (build cache): pick by commit date, not by `Created`.
 - **Front image name mismatch**: the values key is `project-front` but the image

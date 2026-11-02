@@ -151,3 +151,65 @@ capabilities:
 - { name: cache, emptyDir: { sizeLimit: 1Gi } }
 - { name: tmp, emptyDir: { sizeLimit: 256Mi } }
 {{- end -}}
+
+
+{{/*
+MAIR-500: sealed backups. The throwaway Postgres runs as a native sidecar
+(initContainer with restartPolicy Always, Kubernetes >= 1.29), so the copy
+and seal steps (initContainers) and the backup itself (main container) can
+reach it on 127.0.0.1; trust authentication on the loopback only, the pod
+admits nothing else (no Service, no port exposed).
+*/}}
+{{- define "backup.keyManagerEnv" -}}
+{{- $km := ((.Values.global).compliance).keyManager | default dict }}
+- name: SCW_SECRET_KEY
+  valueFrom:
+    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: SCW_SECRET_KEY }
+- name: SCW_DEFAULT_PROJECT_ID
+  value: {{ required "global.compliance.keyManager.projectId is required when backup.sealing.enabled=true" $km.projectId | quote }}
+- name: SCW_REGION
+  value: {{ $km.region | default "fr-par" | quote }}
+{{- end -}}
+
+{{- define "backup.scratchDb" -}}
+- name: scratch-db
+  image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  restartPolicy: Always
+  securityContext:
+    {{- include "backup.containerSecurityContext" . | nindent 4 }}
+  env:
+    - { name: PGDATA, value: /scratch/pgdata }
+    - { name: POSTGRES_HOST_AUTH_METHOD, value: trust }
+  args: ["-c", "listen_addresses=127.0.0.1", "-c", "fsync=off"]
+  startupProbe:
+    exec: { command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"] }
+    periodSeconds: 2
+    failureThreshold: 60
+  volumeMounts:
+    - { name: scratch, mountPath: /scratch }
+    - { name: pgrun, mountPath: /var/run/postgresql }
+    - { name: tmp, mountPath: /tmp }
+{{- end -}}
+
+{{- define "backup.sealVolumes" -}}
+- { name: scratch, emptyDir: { sizeLimit: {{ .Values.sealing.scratchSize }} } }
+- { name: work, emptyDir: { sizeLimit: {{ .Values.sealing.workSize }} } }
+- { name: inventory, emptyDir: { sizeLimit: 16Mi } }
+- { name: pgrun, emptyDir: { sizeLimit: 16Mi } }
+{{- end -}}
+
+{{- define "backup.inventoryInit" -}}
+- name: inventory
+  image: "{{ .Values.sealing.inventoryImage.repository }}:{{ required "backup.sealing.inventoryImage.tag is required when backup.sealing.enabled=true (the liquibase.image.tag of the instance)" .Values.sealing.inventoryImage.tag }}"
+  imagePullPolicy: IfNotPresent
+  command: ["cp", "/gdpr/inventory.yaml", "/inventory/inventory.yaml"]
+  securityContext:
+    {{- include "backup.containerSecurityContext" . | nindent 4 }}
+  volumeMounts:
+    - { name: inventory, mountPath: /inventory }
+{{- end -}}
+
+{{- define "backup.complianceImage" -}}
+"{{ .Values.sealing.image.repository }}:{{ required "backup.sealing.image.tag is required when backup.sealing.enabled=true" .Values.sealing.image.tag }}"
+{{- end -}}

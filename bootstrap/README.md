@@ -18,13 +18,16 @@ Ansible (rôle k8s_argocd) sur la machine Argo CD du groupe
   ├── kubectl apply <instances-appset rendu>   ← templates/ du dépôt ansible
   │     └── une Application par clusters/<org>/instances/*
   ├── argocd/ghcr-secret                       ← GHCR_USER / GHCR_TOKEN, never committed
-  └── kubectl apply <image-updaters rendus>    ← one ImageUpdater per instance
+  ├── argocd/deploiment-git-creds              ← DEPLOIMENT_GIT_USER / DEPLOIMENT_GIT_TOKEN
+  └── kubectl apply <image-updaters rendus>    ← one ImageUpdater per dev / staging instance
 ```
 
 `argocd-image-updater` v1 is configured by `ImageUpdater` resources, not by
-Application annotations. They depend on the group's instances (one per
-environment, tag policy per environment name), so Ansible renders them too,
-from `roles/k8s_argocd/templates/image-updaters.yaml.j2`.
+Application annotations. They depend on the group's instances (one per dev /
+staging environment, tag policy per environment name; none for prod), so
+Ansible renders them too, from `roles/k8s_argocd/templates/image-updaters.yaml.j2`.
+They write the tags to git (MAIR-444): a PR on `main` for dev, a commit on
+the `staging` branch for staging.
 
 ## Ingress controller: ingress-nginx or Traefik (MAIR-260)
 

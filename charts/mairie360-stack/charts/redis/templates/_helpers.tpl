@@ -37,7 +37,13 @@ real list of instances. Returns a sorted YAML list.
 {{- $g := .Values.global | default dict -}}
 {{- $apis := (($g.apis | default dict).instances) | default dict -}}
 {{- $bffs := (($g.bffs | default dict).instances) | default dict -}}
-{{- concat (keys $apis) (keys $bffs) | uniq | sortAlpha | toYaml -}}
+{{- $roles := concat (keys $apis) (keys $bffs) -}}
+{{- /* MAIR-498: the compliance service's account, only once it is enabled
+     (its password key must be sealed first). */ -}}
+{{- if (($g.compliance | default dict).enabled) -}}
+{{- $roles = append $roles "compliance-api" -}}
+{{- end -}}
+{{- $roles | uniq | sortAlpha | toYaml -}}
 {{- end -}}
 
 {{/*

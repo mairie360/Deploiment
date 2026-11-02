@@ -33,6 +33,11 @@
 #                   stores course attachments there). When unset, the values
 #                   already present on the cluster are kept; with neither, the
 #                   keys are sealed empty and elearning-api will not start.
+#   BACKUP_SCW_SECRET_KEY  Scaleway Key Manager API key of the sealed backups
+#                   (MAIR-500, backup.sealing): create keys, generate and decrypt
+#                   data keys. COMPLIANCE_SCW_SECRET_KEY: the one compliance-api
+#                   uses to destroy a user's key at erasure. Kept from the
+#                   cluster when unset.
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  backup bucket key pair (MAIR-119),
 #                   see below. When unset, the pair already on the cluster is
 #                   kept; with neither, <env>-backup-secret is not sealed.
@@ -69,6 +74,13 @@
 #                   value already on the cluster is kept; with neither, that
 #                   Secret is not sealed (only needed with
 #                   global.observability.enabled).
+#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET / COMPLIANCE_RESEND_API_KEY /
+#   COMPLIANCE_S3_ACCESS_KEY_ID / COMPLIANCE_S3_SECRET_ACCESS_KEY  erasure
+#                   credentials of the compliance service (MAIR-498), stored in
+#                   <env>-compliance-secret, mounted in compliance-api only.
+#                   Each one unset keeps the value on the cluster; with none at
+#                   all, that Secret is not sealed (only needed with
+#                   global.compliance.enabled, every key is optional).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
@@ -135,7 +147,10 @@ CONTROLLER_NAME="sealed-secrets-controller"
 # (charts/mairie360-stack/values.yaml). The BFF accounts (MAIR-531) are
 # provisioned ahead of their use (MAIR-499).
 # KEEP IN SYNC with that file if the list of APIs or BFFs changes.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api
+# compliance-api (MAIR-498) only gets its account with
+# global.compliance.enabled, but its password is sealed everywhere so the
+# switch needs no re-seal.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api
   user-bff project-bff calendar-bff message-bff dashboard-bff settings-bff elearning-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
@@ -143,8 +158,9 @@ REDIS_ROLES="core-api project-api calendar-api message-api elearning-api
 # a SHORTER list than REDIS_ROLES: dashboard-bff/settings-bff have no
 # database of their own, so no role is created for them by
 # Devops/Database's Liquibase changelog. Keep in sync with that values.yaml
-# key.
-DB_ROLES="core-api project-api calendar-api message-api elearning-api"
+# key. compliance-api (MAIR-498): same as REDIS_ROLES, sealed ahead of
+# global.compliance.enabled.
+DB_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api"
 
 for bin in kubectl kubeseal openssl; do
   command -v "$bin" >/dev/null || { echo "manquant : $bin"; exit 1; }
@@ -354,6 +370,26 @@ else
   fi
 fi
 
+# MAIR-498: erasure credentials of the compliance service, issued elsewhere
+# (Keycloak admin console, Resend, Object Storage): never generated, kept from
+# the cluster when not supplied.
+COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
+compliance_args=()
+for key in $COMPLIANCE_KEYS; do
+  case "$key" in
+    KEYCLOAK_ADMIN_CLIENT_SECRET) var=COMPLIANCE_KEYCLOAK_CLIENT_SECRET ;;
+    *) var="COMPLIANCE_${key}" ;;
+  esac
+  val="${!var:-}"
+  if [ -n "$val" ]; then
+    echo "  compliance ${key} : from ${var}"
+  else
+    val="$(prev "${RELEASE}-compliance-secret" "$key")"
+    [ -z "$val" ] || echo "  compliance ${key} : kept from cluster"
+  fi
+  [ -z "$val" ] || compliance_args+=(--from-literal="${key}=${val}")
+done
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -409,12 +445,23 @@ if [ -n "$GHCR_TOKEN" ]; then
     --dry-run=client -o yaml | seal > "$TMP/ghcr.yaml"
 fi
 
+# MAIR-500: API key of Scaleway Key Manager for the sealed backups
+# (backup.sealing), never generated; kept from the cluster when not supplied.
+BACKUP_SCW_SECRET_KEY="${BACKUP_SCW_SECRET_KEY:-}"
+if [ -z "$BACKUP_SCW_SECRET_KEY" ]; then
+  BACKUP_SCW_SECRET_KEY="$(prev "${RELEASE}-backup-secret" SCW_SECRET_KEY)"
+  [ -z "$BACKUP_SCW_SECRET_KEY" ] || echo "  backup SCW_SECRET_KEY : kept from cluster"
+fi
+backup_args=()
+[ -z "$BACKUP_SCW_SECRET_KEY" ] || backup_args+=(--from-literal=SCW_SECRET_KEY="$BACKUP_SCW_SECRET_KEY")
+
 if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   kubectl create secret generic "${RELEASE}-backup-secret" \
     --namespace "$NS" \
     --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
     --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
     --from-literal=RESTIC_PASSWORD="$RESTICPASS" \
+    "${backup_args[@]}" \
     --dry-run=client -o yaml | seal > "$TMP/backup.yaml"
 else
   echo "  backup-secret : skipped (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not provided)"
@@ -427,6 +474,14 @@ if [ -n "$COCKPITTOKEN" ]; then
     --dry-run=client -o yaml | seal > "$TMP/cockpit.yaml"
 else
   echo "  cockpit-secret : skipped (COCKPIT_TOKEN not provided)"
+fi
+
+if [ "${#compliance_args[@]}" -gt 0 ]; then
+  kubectl create secret generic "${RELEASE}-compliance-secret" \
+    --namespace "$NS" "${compliance_args[@]}" \
+    --dry-run=client -o yaml | seal > "$TMP/compliance.yaml"
+else
+  echo "  compliance-secret : skipped (no COMPLIANCE_* credential provided)"
 fi
 
 mkdir -p "$(dirname "$OUT")"
@@ -455,6 +510,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
   echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Set the erasure credentials of the compliance service (MAIR-498):"
+  echo "#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET=... COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do

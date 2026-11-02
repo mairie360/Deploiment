@@ -87,6 +87,40 @@ snapshot by hand (`restic dump --host keycloak-<db-name> <snapshot> ... |
 pg_restore` against `<release>-keycloak-db`), same connection details as
 `charts/keycloak/templates/db-statefulset.yaml`.
 
+## Sealed backups: a key per user (MAIR-500)
+
+`backup.sealing.enabled` turns the backup into crypto-shredding: an erased user becomes unreadable
+in every backup taken before the erasure, without anything being deleted from a backup.
+
+1. A native sidecar (`scratch-db`, Postgres on `127.0.0.1` only, emptyDir) receives a copy of the
+   live database (`copy`: `pg_dump | pg_restore`). The live database is only read.
+2. `seal` (mairie360/Compliance_API image, `/app/compliance-backup seal`) reads the inventory of the
+   deployed schema (`/gdpr/inventory.yaml` of the `liquibase-migrations` image, `inventoryImage.tag`
+   = the instance's `liquibase.image.tag`) and, for each user, moves the personal values the
+   erasure clears into `users/<id>.json`, encrypted with AES-256-GCM under a fresh data key that is
+   only stored wrapped by the user's key in Scaleway Key Manager. The values are replaced by
+   placeholders in the copy.
+3. `backup` dumps the sealed copy into `/work` and runs `restic backup` on `/work`: the dump and the
+   sealed users form **one** snapshot (tags `scheduled`, `sealed`), encrypted with the instance key
+   (`RESTIC_PASSWORD`, outside the backup). Retention (`restic forget`) is unchanged and follows
+   `compliance/<org>/retention.yaml` (MAIR-294).
+
+Erasure: compliance-api destroys the user's key in Key Manager (`global.compliance.keyManager`,
+`SCW_SECRET_KEY` of the compliance secret). No backup is modified; the user's wrapped data keys can
+no longer be decrypted.
+
+Restore (`restore.enabled`, below): with sealing on, the restore Job runs `restic restore` of the
+snapshot, `pg_restore` of the dump, then `compliance-backup unseal env /work`: every user whose key
+still exists comes back, erased ones stay anonymized (placeholders).
+
+Before turning it on: a Key Manager in the instance's Scaleway project
+(`global.compliance.keyManager.projectId`), an API key with Key Manager rights sealed as
+`SCW_SECRET_KEY` in `<release>-backup-secret` (`BACKUP_SCW_SECRET_KEY=... scripts/seal-secrets.sh`)
+and one allowed to delete keys in `<release>-compliance-secret` (`COMPLIANCE_SCW_SECRET_KEY`),
+`sealing.image.tag` (a compliance-api release with `compliance-backup`) and `sealing.inventoryImage.tag`.
+Size `sealing.scratchSize` / `workSize` for a copy of the database. The pod needs Kubernetes 1.29+
+(native sidecars).
+
 ## Restoring
 
 `templates/restore-job.yaml` renders nothing unless `backup.restore.enabled`

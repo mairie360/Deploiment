@@ -7,8 +7,9 @@
 #
 # Ce fichier ne contient QUE ce qui change d'un déploiement à l'autre.
 # Les défauts sont dans charts/mairie360-stack/values.yaml.
-# APIs/BFFs/Fronts image tags are moved forward by argocd-image-updater
-# (newest dev-<sha>); database and liquibase are not, bump them by hand.
+# Every image tag (APIs, BFFs, fronts, database, liquibase) is moved forward
+# by argocd-image-updater (newest dev-<sha>) through a `chore(deps)` PR on
+# main that edits this file, auto-merged once CI passes (MAIR-444).
 # The pinned dev-<sha> tags below are only a starting point, but they must
 # exist so a fresh instance starts without it (MAIR-172): never *-latest (no
 # longer pushed) nor the mobile `dev` tag (not pushed by every repo yet).
@@ -16,6 +17,24 @@
 # ============================================================================
 
 global:
+  # Legal pages (MAIR-292): identity of the mairie to complete; retention and
+  # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
+  legal:
+    mairie: { name: "", address: "", email: "" }
+    publicationDirector: ""
+    dpo: { name: "", email: "" }
+    host: { name: "", address: "" }
+    retention:
+      technical_logs: "1 year"
+      archived_accounts_anonymization: "1 year"
+      sessions: "6 months"
+      connection_logs: "1 year"
+      access_logs: "3 years"
+      users_audit_log: "10 years"
+    subprocessors:
+      - { name: Scaleway, location: "France (fr-par)", purpose: "hébergement des sauvegardes chiffrées de la base et des pièces jointes des formations (stockage objet)" }
+      - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
+      - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
   domain: "dev.mairie360-eip.fr"
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
