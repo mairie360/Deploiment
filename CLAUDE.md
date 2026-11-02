@@ -720,6 +720,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   before its Application can render**. The bootstrap appsets (`bootstrap/`,
   cert-manager, ingress-nginx, sealed-secrets, cluster-addons) are **not**
   covered: the root `platform` app follows `main` and hits every instance at once.
+  Since MAIR-710 it at least deletes nothing there: `platform` does not prune
+  (remove an ApplicationSet by hand once its file is gone) and the add-on
+  AppSets set `preserveResourcesOnDeletion` (only the two ingress-controller
+  AppSets keep their resources finalizer, to free ports 80/443 on a switch);
+  `tests/scripts/mair_710_bootstrap_no_prune_test.sh` pins both. Per-env
+  revisions for the add-ons: MAIR-346.
   Also, when working on a branch, Ansible's `deploiment_repo_branch` repoints
   `platform-app.yaml`, the instances AppSet generator and the `dev` revision —
   do not let them diverge, or Argo CD silently serves the old appsets from

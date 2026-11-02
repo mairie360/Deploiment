@@ -29,7 +29,11 @@ spec:
     namespace: argocd
   syncPolicy:
     automated:
-      prune: true
+      # No prune (MAIR-710): this app follows main on every group, prod
+      # included. Deleting or renaming a file of bootstrap/appsets/ must not
+      # delete an ApplicationSet (and with it the add-ons of every instance):
+      # remove an ApplicationSet by hand once its file is gone.
+      prune: false
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
