@@ -96,3 +96,24 @@ Consequences: what is deployed on dev and staging is in git; a rollback of
 staging also rolls its image tags back; the checks of `cicd.yaml` run on
 pushes to `staging` too, so a tag that does not exist on GHCR is reported.
 The tags pinned in staging's `values.yaml` only seed a fresh instance.
+
+## Amendment (MAIR-745, 2026-11-02): the environment branches are kept
+
+On 2026-10-23 the `staging` and `prod` branches were deleted, both at
+`3c006cc` (the MAIR-612 prod release). Ansible (`deploiment_env_revisions`),
+`Promote`, this ADR and the image-updater's staging write-back all still rely
+on them, so the staging and prod Applications had no revision to follow and
+every promotion was refused. The decision of this ADR stands (one branch per
+environment; MAIR-492 keeps "versions per environment on `main`" as a later
+target, which would supersede this ADR explicitly):
+
+- both branches were recreated at `3c006cc`, the commit Argo CD last
+  deployed on staging and prod, so recreating them changed nothing on either
+  environment;
+- the "environment branches protection" ruleset refuses their deletion and
+  any non-fast-forward push. A `rollback: true` Promote therefore needs a
+  ruleset bypass for the run, as the Consequences above already warned;
+- `.github/workflows/environment-branches.yaml` runs
+  `scripts/check-env-branches.sh` on every branch deletion, every day and on
+  demand, and fails when either branch is missing, for the cases the ruleset
+  does not cover (ruleset disabled or edited).
