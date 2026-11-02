@@ -258,11 +258,9 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   ACL account (`~<bff>:*`, no `revoked:*`, no channel), ahead of the bffs-lib
   Redis client (MAIR-499): the password `secretKeyRef` is `optional`, so a
   `secrets.yaml` sealed before those accounts neither blocks the BFFs nor
-  Redis (the account is then written `off`). `JWT_SECRET` goes to
-  `BFFs.jwtSecretInstances`: MAIR-414 kept it to `user-bff`, but since
-  MAIR-474 every BFF verifies the session itself (bffs-lib `requireSession`)
-  and refuses to start without it, so the list names all seven (MAIR-520; on
-  dev the six others crash-looped and blocked the Argo CD sync of the fronts).
+  Redis (the account is then written `off`). Since MAIR-474 every BFF
+  verifies the session itself (bffs-lib `requireSession`); since MAIR-680 it
+  does so with `JWT_PUBLIC_KEY` only, no BFF gets `JWT_SECRET` anymore.
 - **`env` goes through `tpl`**, so instance values can reference the release:
   `value: "http://{{ .Release.Name }}-calendar-api:3002/api"`. Never hardcode a
   release prefix such as `local-dev-` — it breaks as soon as `releaseName` differs.
@@ -273,7 +271,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `frontend` / `database` / `cache` / `migration`) — that is what NetworkPolicies
   select on. The legacy `app: <instance>` label is kept because
   `spec.selector` is immutable on existing Deployments/StatefulSets.
-- **No secret value lives in the chart.** `JWT_SECRET`, `POSTGRES_*` and the
+- **No secret value lives in the chart.** `JWT_PRIVATE_KEY`, `POSTGRES_*` and the
   Redis ACL passwords always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
@@ -283,11 +281,14 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   (`JWT_PRIVATE_KEY`, EdDSA) and every API and BFF (compliance-api included)
   verifies with `global.jwt.publicKey`, injected in clear as
   `JWT_PUBLIC_KEY` (PEM, several `PUBLIC KEY` blocks during a rotation;
-  `""` = not injected). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
+  required: the render fails without it as soon as an API or BFF is
+  enabled, since `JWT_SECRET` is gone). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
   (`<release>-jwt-signing-secret`, sealed) to the instance named `core-api`
   and to nothing else; `templates/jwt-session-keys.yaml` fails the render
   when signing is on without a public key, or when `publicKey` is not PEM or
-  holds a `PRIVATE KEY`. `scripts/seal-secrets.sh` generates the pair once
+  holds a `PRIVATE KEY`. **`JWT_SECRET` is removed** from every service and
+  from what `seal-secrets.sh` seals (an older `secrets.yaml` still carries
+  the key, unused, until its next re-seal). `scripts/seal-secrets.sh` generates the pair once
   per instance (`openssl genpkey -algorithm ed25519`), seals the private key,
   never replaces it (not even with `--rotate`, and a failed read of the
   Secret stops it), and prints the public key to paste into the instance's
@@ -295,12 +296,11 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   shows that output). `tests/mair_680_jwt_session_keys_test.yaml`,
   `tests/scripts/mair_680_seal_signing_key_test.sh`, `scripts/verify.sh`
   step 5b (no workload but core-api reads `JWT_PRIVATE_KEY`).
-  **Rollout order per instance:** seal + paste `publicKey` (harmless: services
-  keep accepting HS256 while `JWT_SECRET` is set) → every API/BFF image
-  verifies EdDSA (API_lib / bffs-lib MAIR-680) → `signing.enabled: true` →
-  after `JWT_TIMEOUT`, drop `JWT_SECRET` (follow-up branch
-  `mair-680-drop-jwt-secret`). Turning signing on before every image
-  verifies EdDSA logs every user out of the older services.
+  **Order it was rolled out in, per instance:** seal + paste `publicKey` →
+  every API/BFF image verifies EdDSA (API_lib / bffs-lib MAIR-680) →
+  `signing.enabled: true` → after `JWT_TIMEOUT`, `JWT_SECRET` dropped. A new
+  instance needs its key pair sealed and `publicKey` set before its first
+  sync, like its other secrets.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
@@ -909,7 +909,7 @@ and maintaining a parallel Kind topology is what produced the earlier
   block after `JWT_TIMEOUT`. core-api refuses to start when its private key
   matches no block of `JWT_PUBLIC_KEY`.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
-  too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
+  too**, same as `POSTGRES_PASSWORD`/ACL passwords — but restic
   derives its master key from that one password, and nothing here runs the
   equivalent of `restic key passwd` against the existing repository. Rotate
   it naively and the *whole* bucket (every past snapshot, not just future

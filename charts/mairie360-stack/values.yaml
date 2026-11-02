@@ -137,8 +137,7 @@ global:
     erasureRetrySeconds: 300
 
   secrets:
-    # Secret contenant les secrets applicatifs partagés : JWT_SECRET (toutes
-    # les APIs/BFFs), SMTP_PASSWORD (clé API Resend, lue par core-api) et
+    # Shared application Secret: SMTP_PASSWORD (clé API Resend, lue par core-api) et
     # S3_ACCESS_KEY / S3_SECRET_KEY (Object Storage, lus par elearning-api).
     # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
     appSecretName: ""
@@ -155,8 +154,8 @@ global:
     # JWT_PUBLIC_KEY of every API and BFF (compliance-api included): plain
     # PEM, not a secret. Several `PUBLIC KEY` blocks are allowed during a
     # rotation (publish the new key first, then let core-api sign with it).
-    # "" = not injected: the services then only accept the HS256 tokens of
-    # JWT_SECRET (transition, safe as long as JWT_SECRET is set).
+    # Required since JWT_SECRET is gone: no service could verify a session
+    # without it (templates/jwt-session-keys.yaml fails the render).
     publicKey: ""
     signing:
       # core-api (and only core-api) gets JWT_PRIVATE_KEY and signs EdDSA
@@ -258,7 +257,6 @@ image:
 # -----------------------------------------------------------------------------
 secrets:
   create: false
-  jwtSecret: ""
   # Resend API key (SMTP password of core-api). Optional: empty means core-api
   # starts but cannot send e-mails.
   smtpPassword: ""

@@ -66,7 +66,7 @@ dbPool:
   idleTimeoutSecs: 600
 
 # Environment variables shared by every API (on top of the ones the chart
-# injects: DB_*, DB_POOL_*, REDIS_*, JWT_SECRET, KEYCLOAK_*).
+# injects: DB_*, DB_POOL_*, REDIS_*, JWT_PUBLIC_KEY, KEYCLOAK_*).
 commonEnv:
   - name: JWT_TIMEOUT
     value: "3600"

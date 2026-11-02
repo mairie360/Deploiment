@@ -87,6 +87,12 @@ else
   ok "JWT_PRIVATE_KEY is only in the signing Secret"
 fi
 
+if grep -q 'JWT_SECRET' "$WORK/root/clusters/org/instances/env/secrets.yaml"; then
+  fail "the shared HS256 JWT_SECRET is still sealed"
+else
+  ok "no JWT_SECRET sealed anymore"
+fi
+
 echo "== re-run and --rotate: the key on the cluster is kept"
 mkdir -p "$WORK/cluster/env-jwt-signing-secret"
 printf '%s\n' "$key1" > "$WORK/cluster/env-jwt-signing-secret/JWT_PRIVATE_KEY"
