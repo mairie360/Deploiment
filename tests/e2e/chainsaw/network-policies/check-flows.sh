@@ -48,7 +48,7 @@ bff       $OTHER_BFF allow
 bff       $API       allow
 bff       $REDIS     allow
 bff       $DB        deny
-bff       $KC        allow
+bff       $KC        deny
 bff       $KCDB      deny
 
 api       $FRONT     deny
@@ -56,7 +56,7 @@ api       $BFF       deny
 api       $API       deny
 api       $DB        allow
 api       $REDIS     allow
-api       $KC        allow
+api       $KC        deny
 api       $KCDB      deny
 
 migration $DB        allow
@@ -73,6 +73,12 @@ retention $API       deny
 retention $REDIS     deny
 retention $KCDB      deny
 
+# MAIR-610: Keycloak admits the APIs of APIs.keycloakClientInstances by name
+# (core-api), not every bff / api pod.
+core-api    $KC      allow
+core-api    $KCDB    deny
+project-api $KC      deny
+
 keycloak  $KCDB      allow
 keycloak  $DB        deny
 keycloak  $API       deny
@@ -81,7 +87,9 @@ keycloak  $REDIS     deny
 
 FAILED=0
 while read -r source target expected; do
+  # Blank lines and comments of the matrix.
   [ -z "$source" ] && continue
+  [[ "$source" == \#* ]] && continue
 
   if [ "$source" = ingress ]; then
     # Cross-namespace: the Service needs its fully qualified name.
@@ -106,9 +114,9 @@ while read -r source target expected; do
   fi
 
   if [ "$actual" = "$expected" ]; then
-    printf 'ok    %-10s -> %-26s %s\n' "$source" "$target" "$actual"
+    printf 'ok    %-11s -> %-26s %s\n' "$source" "$target" "$actual"
   else
-    printf 'FAIL  %-10s -> %-26s expected %s, got %s\n' "$source" "$target" "$expected" "$actual"
+    printf 'FAIL  %-11s -> %-26s expected %s, got %s\n' "$source" "$target" "$expected" "$actual"
     FAILED=1
   fi
 done <<< "$FLOWS"

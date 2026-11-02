@@ -1,0 +1,58 @@
+{{- /*
+Who may reach Keycloak (MAIR-139, narrowed by MAIR-610) on 8080:
+- the ingress controller's namespace: the browser, through auth.<domain>,
+  which only routes "mairie360.keycloakIngressPaths";
+- the APIs that are a Keycloak client of their own, selected by their
+  instance name (app.kubernetes.io/name), not by component: the APIs of
+  APIs.keycloakClientInstances (core-api: sign-in code exchange, JWKS, realm
+  administration, MAIR-554) and, with global.compliance.enabled,
+  compliance-api (Keycloak admin client of the erasure, MAIR-498);
+- the `helm test` pod of charts/keycloak (component keycloak-test), which
+  checks the realm from inside the namespace.
+No BFF and no front: none calls Keycloak server-side (BFF_user only builds
+the public sign-out URL for the browser). An API or BFF that starts calling
+Keycloak in-cluster must be listed in APIs.keycloakClientInstances (or added
+here) or it times out.
+Rendered by the umbrella, not by charts/keycloak, because only the umbrella
+sees APIs.* and global.compliance. Same name as the policy the subchart
+rendered before MAIR-610, so Argo CD updates it in place and the old
+`bff` / `api` peers cannot survive the sync even without pruning.
+*/ -}}
+{{- if and .Values.global.networkPolicy.enabled .Values.keycloak.enabled }}
+{{- $clients := (.Values.APIs).keycloakClientInstances | default list }}
+{{- if (.Values.global.compliance).enabled }}
+{{- $clients = append $clients "compliance-api" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-keycloak-allow-from-ingress-and-apps" .Release.Name }}
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "mairie360.ingressNamespace" . }}
+        {{- range ($clients | uniq | sortAlpha) }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+              app.kubernetes.io/component: api
+        {{- end }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: keycloak-test
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}

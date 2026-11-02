@@ -1,6 +1,7 @@
 # Checks, on a cluster that enforces them (Cilium), that the NetworkPolicies
 # really allow each hop of
 #   ingress-controller -> fronts -> bffs -> apis -> postgres / redis
+#   ingress-controller / core-api -> keycloak -> keycloak-db (MAIR-610)
 # and refuse everything else. `helm unittest` only proves the selectors are
 # written as intended; this proves the traffic actually follows them.
 apiVersion: chainsaw.kyverno.io/v1alpha1

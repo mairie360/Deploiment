@@ -188,10 +188,7 @@ tests:
           path: metadata.annotations["nginx.ingress.kubernetes.io/force-ssl-redirect"]
 
   - it: the Keycloak NetworkPolicy admits the namespace of the instance's controller
-    templates: [charts/keycloak/templates/network-policy.yaml]
-    documentSelector:
-      path: metadata.name
-      value: RELEASE-NAME-keycloak-allow-from-ingress-and-apps
+    templates: [templates/keycloak-network-policy.yaml]
     set:
       global.ingressController: nginx
     asserts:
@@ -200,10 +197,7 @@ tests:
           value: ingress-nginx
 
   - it: the Keycloak NetworkPolicy follows traefik and global.ingressNamespace
-    templates: [charts/keycloak/templates/network-policy.yaml]
-    documentSelector:
-      path: metadata.name
-      value: RELEASE-NAME-keycloak-allow-from-ingress-and-apps
+    templates: [templates/keycloak-network-policy.yaml]
     set:
       global.ingressController: traefik
     asserts:

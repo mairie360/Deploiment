@@ -1,8 +1,9 @@
 # Client pods labelled as an API (the only component allowed to reach both
 # Postgres and Redis), each reading core-api's credentials from the Secrets
-# the chart wires into the real core-api Deployment — plus one labelled as a
-# BFF for Keycloak (MAIR-139), holding bff-user's and core-api's (MAIR-554)
-# client secrets.
+# the chart wires into the real core-api Deployment — plus one for Keycloak
+# (MAIR-139), holding bff-user's and core-api's (MAIR-554) client secrets and
+# labelled as core-api (name + component, no `app` so no Service selects it):
+# since MAIR-610 only the Keycloak-client APIs reach Keycloak, not the BFFs.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -80,7 +81,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: client-keycloak
-  labels: { app.kubernetes.io/component: bff }
+  labels: { app.kubernetes.io/component: api, app.kubernetes.io/name: core-api }
 spec:
   terminationGracePeriodSeconds: 0
   containers:

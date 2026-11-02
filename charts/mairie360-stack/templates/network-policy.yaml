@@ -1,19 +1,19 @@
 {{- /*
-Politique réseau de base du namespace.
+Base network policy of the namespace.
 
-Principe : les NetworkPolicy s'ADDITIONNENT. Il n'existe pas de "deny" qui
-prime sur un "allow". On pose donc un default-deny sur tous les pods, puis
-chaque sous-chart ouvre UNIQUEMENT le flux dont il a besoin :
+NetworkPolicies ADD UP: there is no "deny" that wins over an "allow". So a
+default-deny is set on every pod, then each (sub)chart opens ONLY the flow
+it needs:
 
   ingress-controller ─► fronts ─► bffs ─► apis ─► postgres / redis
                                    └──────────────► redis
-                        (migration liquibase ──────► postgres)
+                        (liquibase migration ──────► postgres)
   ingress-controller ─► keycloak ─► keycloak-db      (MAIR-139)
-                bffs / apis ─► keycloak
+  core-api [+ compliance-api] ─► keycloak            (MAIR-610, templates/keycloak-network-policy.yaml)
          core-api ─► compliance-api                 (MAIR-498, global.compliance.enabled)
 
-Toute policy permissive (podSelector: {} + namespaceSelector: {}) annulerait
-l'ensemble : ne jamais en rajouter une.
+Any permissive policy (podSelector: {} + namespaceSelector: {}) would cancel
+everything: never add one.
 */ -}}
 {{- if .Values.global.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
