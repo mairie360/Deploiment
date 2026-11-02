@@ -114,7 +114,9 @@ for how the CNI itself is installed.
   est propre à chaque machine.
 - **No mobile image tag.** The tag is required and must exist: `dev-<sha>` on
   dev, `staging-<sha>` on staging, a published semver elsewhere, never
-  `latest` / `*-latest`. `argocd-image-updater` moves it forward;
+  `latest` / `*-latest`. On dev and staging, `argocd-image-updater` moves it
+  forward by committing here (MAIR-444); prod's only moves through a reviewed
+  commit and a `Promote` (MAIR-186);
   `scripts/check-image-tags.sh` checks it in CI (MAIR-172).
 - **Seuls les fronts et Keycloak (`auth.<domain>`) sont exposés.** APIs,
   BFFs, Postgres, Redis et la base de Keycloak sont en `ClusterIP`,

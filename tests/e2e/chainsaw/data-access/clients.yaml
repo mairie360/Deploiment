@@ -1,7 +1,9 @@
 # Client pods labelled as an API (the only component allowed to reach both
 # Postgres and Redis), each reading core-api's credentials from the Secrets
-# the chart wires into the real core-api Deployment — plus one labelled as a
-# BFF for Keycloak (MAIR-139), holding bff-user's client secret.
+# the chart wires into the real core-api Deployment — plus one for Keycloak
+# (MAIR-139), holding bff-user's and core-api's (MAIR-554) client secrets and
+# labelled as core-api (name + component, no `app` so no Service selects it):
+# since MAIR-610 only the Keycloak-client APIs reach Keycloak, not the BFFs.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -26,13 +28,18 @@ spec:
             secretKeyRef:
               name: (join('-', [$release, 'redis']))
               key: redis-password
-        # MAIR-264: the revocation list checks use a reader API. BFFs have no
-        # Redis account since MAIR-414, so there is no BFF password to read.
+        # MAIR-264: the revocation list checks use a reader API.
         - name: PROJECT_API_PASSWORD
           valueFrom:
             secretKeyRef:
               name: (join('-', [$release, 'redis']))
               key: project-api-password
+        # MAIR-531: a BFF account, confined to its own prefix.
+        - name: USER_BFF_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'redis']))
+              key: user-bff-password
         # Same construction as the APIs chart: REDIS_URL carries the role's
         # credentials through Kubernetes $(VAR) expansion.
         - name: REDIS_USERNAME
@@ -74,7 +81,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: client-keycloak
-  labels: { app.kubernetes.io/component: bff }
+  labels: { app.kubernetes.io/component: api, app.kubernetes.io/name: core-api }
 spec:
   terminationGracePeriodSeconds: 0
   containers:
@@ -89,3 +96,9 @@ spec:
             secretKeyRef:
               name: (join('-', [$release, 'keycloak-secret']))
               key: BFF_USER_CLIENT_SECRET
+        # MAIR-554: core-api's client, the only one allowed to administer the realm.
+        - name: CORE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: (join('-', [$release, 'keycloak-secret']))
+              key: CORE_API_CLIENT_SECRET

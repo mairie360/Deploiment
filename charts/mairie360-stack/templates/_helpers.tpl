@@ -50,7 +50,81 @@ auth.<global.domain>. Same rule as "keycloak.hostname" in charts/keycloak,
 which builds KC_HOSTNAME from it — the two must stay identical.
 */}}
 {{- define "mairie360.keycloakHost" -}}
-{{- .Values.global.keycloak.hostname | default (printf "auth.%s" (required "global.domain est obligatoire pour l'Ingress de Keycloak" .Values.global.domain)) -}}
+{{- .Values.global.keycloak.hostname | default (printf "auth.%s" (required "global.domain is required for the Keycloak Ingress" .Values.global.domain)) -}}
+{{- end }}
+
+{{/* Instance realm (MAIR-139): global.keycloak.realm, same rule as "keycloak.realmName" in charts/keycloak. */}}
+{{- define "mairie360.keycloakRealm" -}}
+{{- .Values.global.keycloak.realm | default "mairie360" -}}
+{{- end }}
+
+{{/*
+Paths routed to Keycloak on auth.<domain> (MAIR-610), as a JSON list of
+{path, pathType}. Each `keycloak.ingress.paths` entry is either a string (a
+Prefix path) or {path, pathType: Exact|Prefix}; `path` goes through `tpl`, so
+the values derive it from the realm name.
+The render fails on a path that would expose what MAIR-610 closed:
+- a Prefix path must end with "/": Traefik matches Prefix as a plain string
+  prefix, so "/realms/x/account" would also route "/realms/x/accountfoo";
+- any realm but global.keycloak.realm (the `master` realm first: Keycloak's
+  super-admin sign-in), the admin console and REST API (/admin), the
+  management endpoints (/metrics, /health: port 9000, never routed anyway) and
+  the realm's `userinfo` endpoint, nor any Prefix path above one of them
+  ("/", "/realms/", "/realms/<realm>/", ".../openid-connect/");
+- any path inside the realm that is not one of the browser routes below, with
+  that exact pathType: a Prefix `.../token/` would route `token/introspect`,
+  an Exact `.../certs` the JWKS, and so on. Opening another realm path means
+  adding it to $realmRoutes here, on purpose, with its test.
+*/}}
+{{- define "mairie360.keycloakIngressPaths" -}}
+{{- $realm := include "mairie360.keycloakRealm" . -}}
+{{- $realmPrefix := printf "/realms/%s/" $realm -}}
+{{- $closed := list "/admin" "/metrics" "/health" "/realms/master" (printf "%sprotocol/openid-connect/userinfo" $realmPrefix) -}}
+{{- $realmRoutes := dict
+  "protocol/openid-connect/auth" "Exact"
+  "protocol/openid-connect/token" "Exact"
+  "protocol/openid-connect/logout" "Exact"
+  "protocol/openid-connect/logout/" "Prefix"
+  "protocol/openid-connect/login-status-iframe.html" "Exact"
+  "protocol/openid-connect/login-status-iframe.html/" "Prefix"
+  "protocol/openid-connect/3p-cookies/" "Prefix"
+  "login-actions/" "Prefix"
+  "account" "Exact"
+  "account/" "Prefix" -}}
+{{- $paths := list -}}
+{{- range (required "keycloak.ingress.paths must list what auth.<domain> exposes" ((.Values.keycloak).ingress).paths) -}}
+{{- $entry := . -}}
+{{- if kindIs "string" . -}}
+{{- $entry = dict "path" . -}}
+{{- end -}}
+{{- $path := tpl (required "keycloak.ingress.paths: every entry needs a path" $entry.path) $ -}}
+{{- $type := $entry.pathType | default "Prefix" -}}
+{{- if not (has $type (list "Exact" "Prefix")) -}}
+{{- fail (printf "keycloak.ingress.paths: pathType of %q must be Exact or Prefix, got %q" $path $type) -}}
+{{- end -}}
+{{- if not (hasPrefix "/" $path) -}}
+{{- fail (printf "keycloak.ingress.paths: %q must start with /" $path) -}}
+{{- end -}}
+{{- if and (eq $type "Prefix") (not (hasSuffix "/" $path)) -}}
+{{- fail (printf "keycloak.ingress.paths: Prefix path %q must end with / (Traefik would also match %s<anything>); use pathType Exact for a single URL" $path $path) -}}
+{{- end -}}
+{{- if and (hasPrefix "/realms/" $path) (not (hasPrefix $realmPrefix $path)) -}}
+{{- fail (printf "keycloak.ingress.paths: %q is outside the instance realm %q: no other realm (master first) is routed (MAIR-610)" $path $realmPrefix) -}}
+{{- end -}}
+{{- range $closed -}}
+{{- if or (hasPrefix . $path) (and (eq $type "Prefix") (hasPrefix $path .)) -}}
+{{- fail (printf "keycloak.ingress.paths: %q would route %s, which stays closed to the Internet (MAIR-414, MAIR-610)" $path .) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasPrefix $realmPrefix $path -}}
+{{- $route := trimPrefix $realmPrefix $path -}}
+{{- if ne (get $realmRoutes $route) $type -}}
+{{- fail (printf "keycloak.ingress.paths: %s %q is not one of the realm's browser routes (auth, token, logout, login-status-iframe.html, 3p-cookies/, login-actions/, account): token/introspect, certs and the other server-side endpoints stay closed (MAIR-610)" $type $path) -}}
+{{- end -}}
+{{- end -}}
+{{- $paths = append $paths (dict "path" $path "pathType" $type) -}}
+{{- end -}}
+{{- toJson $paths -}}
 {{- end }}
 
 {{/*

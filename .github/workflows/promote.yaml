@@ -24,8 +24,18 @@ name: Promote
 # It only ever runs from this workflow_dispatch workflow, never for pull
 # requests (see the job's comment).
 #
-# Image tags are a separate lane (argocd-image-updater for dev/staging, a
-# semver in prod's values.yaml) and are not affected by this workflow.
+# One exception to the fast-forward (MAIR-444): argocd-image-updater commits
+# staging's image tags straight onto the `staging` branch, into
+# clusters/*/instances/staging/images.yaml. When `staging` carries such
+# commits and nothing else, promoting to staging MERGES ref into it instead
+# (main never edits images.yaml, so the merge cannot conflict). Any other
+# staging-only change is refused, as before. Prod still only fast-forwards to
+# a commit of `staging`.
+#
+# The decision (fast-forward, merge, rollback, nothing) is
+# scripts/promote-mode.sh, tested by tests/scripts/mair_444_promote_mode_test.sh.
+# Prod's image tags (clusters/_base/prod.yaml) only move through this
+# workflow: prod has no argocd-image-updater (MAIR-186).
 
 on:
   workflow_dispatch:
@@ -61,6 +71,13 @@ jobs:
       current: ${{ steps.resolve.outputs.current }}
       changed: ${{ steps.resolve.outputs.changed }}
       staging_domain: ${{ steps.resolve.outputs.staging_domain }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      # The commit the target moves to: sha, or in merge mode the merge of
+      # sha into the target (what validate and secrets check).
+      promoted: ${{ steps.resolve.outputs.promoted }}
+    # Merge mode pushes the prospective merge commit to a temporary branch.
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -101,28 +118,32 @@ jobs:
             CURRENT=$(git rev-parse "origin/$TARGET")
           fi
 
-          CHANGED=true
-          if [ "$ROLLBACK" = "true" ]; then
-            [ -n "$CURRENT" ] || { echo "::error::'$TARGET' does not exist, nothing to roll back."; exit 1; }
-            if ! git merge-base --is-ancestor "$SHA" "$CURRENT"; then
-              echo "::error::Rollback needs a commit that is already in '$TARGET' history."
-              exit 1
-            fi
-          else
-            # verify-staging checks what the staging instance runs, which
-            # can only vouch for staging's head: an older staging commit
-            # would reach prod unverified.
-            if [ "$TARGET" = "prod" ] && [ "$SHA" != "$(git rev-parse origin/staging)" ]; then
-              echo "::error::Only staging's head can be promoted to prod: that is the commit verify-staging checks."
-              exit 1
-            fi
-            if [ -n "$CURRENT" ] && ! git merge-base --is-ancestor "$CURRENT" "$SHA"; then
-              echo "::error::'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
-              exit 1
-            fi
+          # verify-staging checks what the staging instance runs, which can
+          # only vouch for staging's head: an older staging commit would reach
+          # prod unverified (MAIR-346).
+          if [ "$ROLLBACK" != "true" ] && [ "$TARGET" = "prod" ] && [ "$SHA" != "$(git rev-parse origin/staging)" ]; then
+            echo "::error::Only staging's head can be promoted to prod: that is the commit verify-staging checks."
+            exit 1
           fi
-          if [ "$CURRENT" = "$SHA" ]; then
-            CHANGED=false
+          # fast-forward, merge (staging ahead by image-updater commits only,
+          # MAIR-444), rollback or none; fails on any other path.
+          PROMOTE_MODE=$(./scripts/promote-mode.sh "$TARGET" "$SHA" "$CURRENT" \
+            "$([ "$ROLLBACK" = "true" ] && echo rollback || true)")
+          read -r MODE CHANGED <<<"$PROMOTE_MODE"
+
+          # Merge mode: build the merge now, so validate and secrets check the
+          # tree staging will really run (main's chart with staging's image
+          # tags), not main's commit alone. It waits on promote-tmp/<target>,
+          # which no workflow watches; the promote job fast-forwards the
+          # target to it. A later run overwrites it.
+          PROMOTED=$SHA
+          if [ "$MODE" = "merge" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git checkout -q --detach "$CURRENT"
+            git merge --no-ff --no-edit -m "chore: promote ${SHA::7} to $TARGET" "$SHA"
+            PROMOTED=$(git rev-parse HEAD)
+            git push --force origin "$PROMOTED:refs/heads/promote-tmp/$TARGET"
           fi
 
           # Domain verify-staging checks (TLS, redirect, closed ports), read
@@ -141,13 +162,15 @@ jobs:
             echo "current=$CURRENT"
             echo "changed=$CHANGED"
             echo "staging_domain=$STAGING_DOMAIN"
+            echo "mode=$MODE"
+            echo "promoted=$PROMOTED"
           } >> "$GITHUB_OUTPUT"
 
           {
             echo "### Promote \`$TARGET\`"
             echo
             echo "- From: \`${CURRENT:-<new branch>}\`"
-            echo "- To: \`$SHA\` (rollback: $ROLLBACK)"
+            echo "- To: \`$SHA\` (rollback: $ROLLBACK, $MODE)"
             if [ "$CHANGED" = "false" ]; then
               echo "- Nothing to do, \`$TARGET\` is already at this commit."
             elif [ -n "$CURRENT" ] && [ "$ROLLBACK" != "true" ]; then
@@ -173,12 +196,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ needs.resolve.outputs.promoted }}
 
       - name: Setup Helm
         uses: azure/setup-helm@v5
         with:
-          version: v4.3.0
+          version: v4.3.1
 
       # MAIR-414: staging and prod were promoted with backup and Keycloak
       # enabled but neither Secret sealed, and without ADMIN_*: refuse to
@@ -197,7 +220,7 @@ jobs:
     if: needs.resolve.outputs.changed == 'true' && !inputs.rollback
     uses: ./.github/workflows/cicd.yaml
     with:
-      ref: ${{ needs.resolve.outputs.sha }}
+      ref: ${{ needs.resolve.outputs.promoted }}
 
   # Acceptance test of the staging instance before prod moves, replacing the
   # former `staging_verified` checkbox (MAIR-346).
@@ -279,8 +302,19 @@ jobs:
           ROLLBACK: ${{ inputs.rollback }}
           SHA: ${{ needs.resolve.outputs.sha }}
           CURRENT: ${{ needs.resolve.outputs.current }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          PROMOTED: ${{ needs.resolve.outputs.promoted }}
         run: |
           set -euo pipefail
+          if [ "$MODE" = "merge" ]; then
+            # MAIR-444: the merge commit built and validated by resolve. Still
+            # no force: it descends from CURRENT, and an image-updater commit
+            # landing on the target meanwhile makes git reject the push.
+            git push origin "$PROMOTED:refs/heads/$TARGET"
+            git push origin --delete "promote-tmp/$TARGET"
+            echo "\`$TARGET\` merged \`$SHA\` as \`$PROMOTED\` (kept its image-updater commits)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ "$ROLLBACK" = "true" ]; then
             # Refuse if the branch moved since it was resolved.
             git push --force-with-lease="refs/heads/$TARGET:$CURRENT" origin "$SHA:refs/heads/$TARGET"

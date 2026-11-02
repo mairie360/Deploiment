@@ -7,8 +7,9 @@
 #
 # Ce fichier ne contient QUE ce qui change d'un déploiement à l'autre.
 # Les défauts sont dans charts/mairie360-stack/values.yaml.
-# APIs/BFFs/Fronts image tags are moved forward by argocd-image-updater
-# (newest staging-<sha>); database and liquibase are not, bump them by hand.
+# Every image tag (APIs, BFFs, fronts, database, liquibase) is moved forward
+# by argocd-image-updater (newest staging-<sha>), committed on the `staging`
+# branch into images.yaml, which overrides this file (MAIR-444).
 # The pinned staging-<sha> tags below are only a starting point, but they must
 # exist so a fresh instance starts without it (MAIR-172): never *-latest (no
 # longer pushed) nor the mobile `staging` tag (not pushed by every repo yet).
@@ -16,6 +17,24 @@
 # ============================================================================
 
 global:
+  # Legal pages (MAIR-292): identity of the mairie to complete; retention and
+  # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
+  legal:
+    mairie: { name: "", address: "", email: "" }
+    publicationDirector: ""
+    dpo: { name: "", email: "" }
+    host: { name: "", address: "" }
+    retention:
+      technical_logs: "1 year"
+      archived_accounts_anonymization: "1 year"
+      sessions: "6 months"
+      connection_logs: "1 year"
+      access_logs: "3 years"
+      users_audit_log: "10 years"
+    subprocessors:
+      - { name: Scaleway, location: "France (fr-par)", purpose: "hébergement des sauvegardes chiffrées de la base et des pièces jointes des formations (stockage objet)" }
+      - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
+      - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
   domain: "staging.mairie360-eip.fr"
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
@@ -23,7 +42,7 @@ global:
   # (`ingress_controller`); switch procedure in
   # docs/adr/0001-replace-ingress-nginx.md. The IngressClass, annotations
   # and NetworkPolicy namespace follow from it.
-  ingressController: "nginx"
+  ingressController: "traefik"
   networkPolicy:
     enabled: true
     # Passer à true une fois les destinations externes connues et déclarées
@@ -42,7 +61,7 @@ ingress:
 
 database:
   image:
-    tag: "staging-a6e1caa"
+    tag: "staging-5fe90c1"
   secret:
     create: false
   persistence:
@@ -55,7 +74,7 @@ redis:
 
 liquibase:
   image:
-    tag: "staging-a6e1caa"
+    tag: "staging-5fe90c1"
   db:
     name: "mairie_db_staging"
 
@@ -112,45 +131,46 @@ keycloak:
       storageClass: "local-path"
 
 APIs:
+  # MAIR-565: mirrors prod's warm pool at a lower maximum.
+  dbPool:
+    minConnections: 2
+    maxConnections: 10
+    idleTimeoutSecs: 600
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-aa4a651" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-b900797" }
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
-        # Transactional e-mails (password reset) go through Resend's SMTP relay.
-        # The Resend API key is the SMTP password: it lives in
-        # <release>-app-secrets (scripts/seal-secrets.sh, RESEND_API_KEY).
-        # `optional` keeps core-api starting on a cluster whose Secret was
-        # sealed before that key existed (scripts/verify.sh reports it).
-        # The EMAIL_FROM domain must be verified in the Resend dashboard.
-        - name: SMTP_HOST
-          value: "smtp.resend.com"
-        - name: SMTP_PORT
-          value: "587"
-        - name: SMTP_USERNAME
-          value: "resend"
-        - name: SMTP_PASSWORD
+        # Transactional e-mails (password reset) are Resend templates sent
+        # through the Resend API since MAIR-522 (API_lib `ResendMailer`), from
+        # no-reply@<EMAIL_DOMAIN>: core-api refuses to start without
+        # RESEND_API_KEY, EMAIL_DOMAIN and PUBLIC_URL. The API key is the one
+        # sealed as SMTP_PASSWORD in <release>-app-secrets
+        # (scripts/seal-secrets.sh, RESEND_API_KEY). EMAIL_DOMAIN must be
+        # verified in the Resend dashboard.
+        - name: RESEND_API_KEY
           valueFrom:
             secretKeyRef:
               name: "{{ .Release.Name }}-app-secrets"
               key: SMTP_PASSWORD
-              optional: true
-        - name: EMAIL_FROM
-          value: "Mairie360 (staging) <noreply@mairie360-eip.fr>"
+        - name: EMAIL_DOMAIN
+          value: "mairie360-eip.fr"
+        - name: EMAIL_SENDER_NAME
+          value: "Mairie360 (staging)"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-e974cc9" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-be2b410" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-82d5092" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-3b4668b" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-7f156fd" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-75d7650" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e116de2" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e3ffc1c" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -182,90 +202,90 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-68e9c9ceb3e41ada5309b72f24471b77ff1b8061" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-b6b04cf" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-bb67ea3b3124f282cbf2cdc979463a147af9f6a3" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-b643e72" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-66290751c2bd50f30209ee4f1076ee31ebfaa46a" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-f6bf247" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-e30f50ecb2dfc7eec8c5a4b088020ed752ff6ff1" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-815c732" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-8ec100e7f5cdd0ae2d987f8e93f89aa505949847" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-3d74a6a" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-10670b52403e99cd2904a96ac78091c89506551e" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-bdc4a88" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-014923a8b66439d530530fe1dea16a83fc0e4a87" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-55dfd4b" }
 
 Fronts:
   instances:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-520b425" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-4acf656" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-7a22cde" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-8bfd374" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-0585c2e" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-e4129bd" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-9691f31" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-500ac41" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-4a88a76" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-f671932" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-14b51e3" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-891e2fa" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-fa940e1" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-6f7aef7" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-7b99b63" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-078db63" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"

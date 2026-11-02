@@ -1,0 +1,25 @@
+# Recurring compliance deadlines (MAIR-295): scheduled n8n workflows read this file from the
+# repository and open a Jira ticket for every deadline past its date. Update `last_done` when the
+# task is done (in the PR that records it).
+version: 1
+deadlines:
+  - id: access-review
+    task: review of the people with access (compliance/<org>/access.yaml, SSH keys, Argo CD, Keycloak admins)
+    every: "3 months"
+    last_done: null
+  - id: restore-test
+    task: restore test of the latest backup on a throwaway instance (charts/backup/README.md)
+    every: "3 months"
+    last_done: null
+  - id: dpia-review
+    task: review of the DPIA (data protection impact assessment) with the mairie's DPO
+    every: "1 year"
+    last_done: null
+  - id: breach-exercise
+    task: personal data breach exercise (detection, notification within 72 h)
+    every: "1 year"
+    last_done: null
+  - id: confidentiality-commitments
+    task: renewal of the confidentiality commitments of the people with access
+    every: "1 year"
+    last_done: null

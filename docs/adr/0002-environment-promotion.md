@@ -159,7 +159,14 @@ Alternatives rejected:
   today on a `secrets.yaml` sealed before the Keycloak or admin keys existed.
 - `verify.sh` checks Secret keys on the SealedSecrets (ciphertext length) and
   probes Redis with an unauthenticated `PING` from a throwaway pod, instead of
-  reading Secrets and exec-ing into the Redis pod.
+  reading Secrets and exec-ing into the Redis pod. Its two checks that need a
+  plaintext value (`ADMIN_PASSWORD` is an argon2id hash, MAIR-414; the Redis
+  and Postgres role passwords are URL-safe, MAIR-531) only run when the
+  context may read Secrets (`kubectl auth can-i get secrets`), i.e. by hand;
+  on the runner they are skipped, and what they guard against still fails
+  the run through the Liquibase Job (step 7) or crash-looping APIs (steps
+  1-2). `tests/scripts/mair_346_verify_no_secret_read_test.sh` pins that the
+  script reads no Secret with such a context.
 - `pods create` still lets a caller mount any Secret of the namespace in a pod
   of its own: Ansible is expected to restrict the runner's ServiceAccount to
   the probe pods `verify.sh` creates (see the script header) with an
@@ -202,3 +209,55 @@ its branch, which must already contain it):
 6. Repository settings: Actions → "Require approval for all external
    contributors" for fork pull requests; keep the `promote-prod` required
    reviewers.
+
+## Amendment (MAIR-444, 2026-10-02): image tags in git
+
+argocd-image-updater used to write the tags into the Applications' Helm
+parameters, outside git, and did not track `database` /
+`liquibase-migrations`. It now writes back to git, for every tracked image
+including those two:
+
+- **dev**: a pull request on `main` editing
+  `clusters/mairie360/instances/dev/values.yaml`, titled
+  `chore(deps): update <app> images`.
+  `.github/workflows/image-updater-automerge.yaml` enables auto-merge on
+  `image-updater-*` branches that touch nothing else, so it squash-merges
+  once the required checks pass; dev auto-syncs from `main`.
+- **staging**: direct commits on the `staging` branch, into
+  `clusters/mairie360/instances/staging/images.yaml`, a file the AppSet reads
+  after `values.yaml` and that `main` never edits. staging auto-syncs
+  (ansible `deploiment_auto_sync_envs`).
+
+So `staging` is no longer always an ancestor of `main`. `Promote` to staging
+fast-forwards when it can; otherwise it **merges** the promoted commit into
+`staging`, but only when the commits that are only on staging touch nothing but
+`images.yaml` files and the promoted commit leaves them untouched. Anything
+else is refused, as before. Prod still only fast-forwards to a commit of
+`staging`; it carries staging's `images.yaml` in its history, but the prod
+Application never reads another environment's directory.
+
+Consequences: what is deployed on dev and staging is in git; a rollback of
+staging also rolls its image tags back; the checks of `cicd.yaml` run on
+pushes to `staging` too, so a tag that does not exist on GHCR is reported.
+The tags pinned in staging's `values.yaml` only seed a fresh instance.
+
+## Amendment (MAIR-745, 2026-11-02): the environment branches are kept
+
+On 2026-10-23 the `staging` and `prod` branches were deleted, both at
+`3c006cc` (the MAIR-612 prod release). Ansible (`deploiment_env_revisions`),
+`Promote`, this ADR and the image-updater's staging write-back all still rely
+on them, so the staging and prod Applications had no revision to follow and
+every promotion was refused. The decision of this ADR stands (one branch per
+environment; MAIR-492 keeps "versions per environment on `main`" as a later
+target, which would supersede this ADR explicitly):
+
+- both branches were recreated at `3c006cc`, the commit Argo CD last
+  deployed on staging and prod, so recreating them changed nothing on either
+  environment;
+- the "environment branches protection" ruleset refuses their deletion and
+  any non-fast-forward push. A `rollback: true` Promote therefore needs a
+  ruleset bypass for the run, as the Consequences above already warned;
+- `.github/workflows/environment-branches.yaml` runs
+  `scripts/check-env-branches.sh` on every branch deletion, every day and on
+  demand, and fails when either branch is missing, for the cases the ruleset
+  does not cover (ruleset disabled or edited).

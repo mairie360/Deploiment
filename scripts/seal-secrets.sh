@@ -33,6 +33,11 @@
 #                   stores course attachments there). When unset, the values
 #                   already present on the cluster are kept; with neither, the
 #                   keys are sealed empty and elearning-api will not start.
+#   BACKUP_SCW_SECRET_KEY  Scaleway Key Manager API key of the sealed backups
+#                   (MAIR-500, backup.sealing): create keys, generate and decrypt
+#                   data keys. COMPLIANCE_SCW_SECRET_KEY: the one compliance-api
+#                   uses to destroy a user's key at erasure. Kept from the
+#                   cluster when unset.
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  backup bucket key pair (MAIR-119),
 #                   see below. When unset, the pair already on the cluster is
 #                   kept; with neither, <env>-backup-secret is not sealed.
@@ -60,12 +65,22 @@
 #   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
 #                   to re-seal one regenerated in the admin console; otherwise
 #                   the value on the cluster is kept, or generated once.
+#   CORE_API_CLIENT_SECRET  same for the core-api client (MAIR-554). When
+#                   generated for a realm that already exists, run
+#                   scripts/keycloak-core-api-client.sh once synced.
 #   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
 #                   stored in <env>-cockpit-secret for the OpenTelemetry
 #                   Collector (MAIR-131, charts/observability). When unset, the
 #                   value already on the cluster is kept; with neither, that
 #                   Secret is not sealed (only needed with
 #                   global.observability.enabled).
+#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET / COMPLIANCE_RESEND_API_KEY /
+#   COMPLIANCE_S3_ACCESS_KEY_ID / COMPLIANCE_S3_SECRET_ACCESS_KEY  erasure
+#                   credentials of the compliance service (MAIR-498), stored in
+#                   <env>-compliance-secret, mounted in compliance-api only.
+#                   Each one unset keeps the value on the cluster; with none at
+#                   all, that Secret is not sealed (only needed with
+#                   global.compliance.enabled, every key is optional).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
@@ -81,7 +96,7 @@
 # and the realm (hence bff-user's client secret) is imported once — rotating
 # the sealed values would change nothing live and only desynchronise them.
 # Rotate those in Keycloak itself (admin console / ALTER ROLE), then re-seal
-# with BFF_USER_CLIENT_SECRET set. --rotate-roles ne régénère que les
+# with BFF_USER_CLIENT_SECRET / CORE_API_CLIENT_SECRET set. --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -89,7 +104,15 @@
 #
 # Generated values are hex: the APIs build `postgres://user:password@host`
 # without percent-encoding the password, so a base64 value containing `/`
-# breaks the URL ("invalid port number", "Name or service not known").
+# breaks the URL ("invalid port number", "Name or service not known"). Same
+# for the Redis ACL passwords, put raw in REDIS_URL by the chart ("Redis URL
+# did not parse"). A Redis or Postgres role password kept from the cluster
+# that is not URL-safe (generated base64 before Deploiment#50) is therefore
+# regenerated, even without --rotate (MAIR-531). The Liquibase Job applies the
+# Postgres ones on the next sync; for the Redis ones, restart Redis then the
+# APIs once the new secrets.yaml is synced:
+#   kubectl -n mairie360-<env> rollout restart deploy/<env>-redis
+#   kubectl -n mairie360-<env> rollout restart deploy -l app.kubernetes.io/component=api
 #
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
@@ -105,6 +128,9 @@
 # =============================================================================
 set -euo pipefail
 
+# shellcheck source=scripts/lib/secret-values.sh
+. "$(dirname "$0")/lib/secret-values.sh"
+
 CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
 ORG="${2:?}"
 ENV="${3:?}"
@@ -116,18 +142,25 @@ OUT="clusters/${ORG}/instances/${ENV}/secrets.yaml"
 CONTROLLER_NS="kube-system"
 CONTROLLER_NAME="sealed-secrets-controller"
 
-# Redis ACL roles: one account per API declared in global.apis.instances
-# (charts/mairie360-stack/values.yaml). The BFFs have none since MAIR-414.
-# KEEP IN SYNC with that file if the list of APIs changes.
-REDIS_ROLES="core-api project-api calendar-api message-api elearning-api"
+# Redis ACL roles: one account per API and per BFF declared in
+# global.apis.instances / global.bffs.instances
+# (charts/mairie360-stack/values.yaml). The BFF accounts (MAIR-531) are
+# provisioned ahead of their use (MAIR-499).
+# KEEP IN SYNC with that file if the list of APIs or BFFs changes.
+# compliance-api (MAIR-498) only gets its account with
+# global.compliance.enabled, but its password is sealed everywhere so the
+# switch needs no re-seal.
+REDIS_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api
+  user-bff project-bff calendar-bff message-bff dashboard-bff settings-bff elearning-bff"
 
 # Postgres roles (MAIR-114): one per API that owns a schema, matching
 # global.database.roles in charts/mairie360-stack/values.yaml. Deliberately
 # a SHORTER list than REDIS_ROLES: dashboard-bff/settings-bff have no
 # database of their own, so no role is created for them by
 # Devops/Database's Liquibase changelog. Keep in sync with that values.yaml
-# key.
-DB_ROLES="core-api project-api calendar-api message-api elearning-api"
+# key. compliance-api (MAIR-498): same as REDIS_ROLES, sealed ahead of
+# global.compliance.enabled.
+DB_ROLES="core-api project-api calendar-api message-api elearning-api compliance-api"
 
 for bin in kubectl kubeseal openssl; do
   command -v "$bin" >/dev/null || { echo "manquant : $bin"; exit 1; }
@@ -239,6 +272,14 @@ else
   KCBFFSECRET="$(prev "${RELEASE}-keycloak-secret" BFF_USER_CLIENT_SECRET)"
   [ -n "$KCBFFSECRET" ] || { KCBFFSECRET="$(gen)"; echo "  BFF_USER_CLIENT_SECRET  : generated"; }
 fi
+# MAIR-554: secret of the core-api client, same lifecycle as bff-user's.
+KCCORESECRET="${CORE_API_CLIENT_SECRET:-}"
+if [ -n "$KCCORESECRET" ]; then
+  echo "  CORE_API_CLIENT_SECRET  : from CORE_API_CLIENT_SECRET"
+else
+  KCCORESECRET="$(prev "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET)"
+  [ -n "$KCCORESECRET" ] || { KCCORESECRET="$(gen)"; echo "  CORE_API_CLIENT_SECRET  : generated (run scripts/keycloak-core-api-client.sh on a realm already imported)"; }
+fi
 
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
@@ -247,6 +288,10 @@ for role in $REDIS_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-redis" "$key")"
+  fi
+  # MAIR-531: the chart puts this password raw in the API's REDIS_URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   redis_args+=(--from-literal="${key}=${val}")
@@ -263,6 +308,10 @@ for role in $DB_ROLES; do
     val=""
   else
     val="$(prev "${RELEASE}-database-secret" "$key")"
+  fi
+  # MAIR-531: the API puts this password raw in its postgres:// URL.
+  if [ -n "$val" ] && ! url_safe "$val"; then
+    val=""; echo "  ${key} : not URL-safe (pre-#50 base64), regenerated"
   fi
   [ -n "$val" ] || { val="$(gen)"; echo "  ${key} : généré"; }
   db_args+=(--from-literal="${key}=${val}")
@@ -321,6 +370,26 @@ else
   fi
 fi
 
+# MAIR-498: erasure credentials of the compliance service, issued elsewhere
+# (Keycloak admin console, Resend, Object Storage): never generated, kept from
+# the cluster when not supplied.
+COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
+compliance_args=()
+for key in $COMPLIANCE_KEYS; do
+  case "$key" in
+    KEYCLOAK_ADMIN_CLIENT_SECRET) var=COMPLIANCE_KEYCLOAK_CLIENT_SECRET ;;
+    *) var="COMPLIANCE_${key}" ;;
+  esac
+  val="${!var:-}"
+  if [ -n "$val" ]; then
+    echo "  compliance ${key} : from ${var}"
+  else
+    val="$(prev "${RELEASE}-compliance-secret" "$key")"
+    [ -z "$val" ] || echo "  compliance ${key} : kept from cluster"
+  fi
+  [ -z "$val" ] || compliance_args+=(--from-literal="${key}=${val}")
+done
+
 GHCR_USER="${GHCR_USER:-}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 
@@ -366,6 +435,7 @@ kubectl create secret generic "${RELEASE}-keycloak-secret" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KCADMINPWD" \
   --from-literal=KEYCLOAK_DB_PASSWORD="$KCDBPWD" \
   --from-literal=BFF_USER_CLIENT_SECRET="$KCBFFSECRET" \
+  --from-literal=CORE_API_CLIENT_SECRET="$KCCORESECRET" \
   --dry-run=client -o yaml | seal > "$TMP/keycloak.yaml"
 
 if [ -n "$GHCR_TOKEN" ]; then
@@ -375,12 +445,23 @@ if [ -n "$GHCR_TOKEN" ]; then
     --dry-run=client -o yaml | seal > "$TMP/ghcr.yaml"
 fi
 
+# MAIR-500: API key of Scaleway Key Manager for the sealed backups
+# (backup.sealing), never generated; kept from the cluster when not supplied.
+BACKUP_SCW_SECRET_KEY="${BACKUP_SCW_SECRET_KEY:-}"
+if [ -z "$BACKUP_SCW_SECRET_KEY" ]; then
+  BACKUP_SCW_SECRET_KEY="$(prev "${RELEASE}-backup-secret" SCW_SECRET_KEY)"
+  [ -z "$BACKUP_SCW_SECRET_KEY" ] || echo "  backup SCW_SECRET_KEY : kept from cluster"
+fi
+backup_args=()
+[ -z "$BACKUP_SCW_SECRET_KEY" ] || backup_args+=(--from-literal=SCW_SECRET_KEY="$BACKUP_SCW_SECRET_KEY")
+
 if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   kubectl create secret generic "${RELEASE}-backup-secret" \
     --namespace "$NS" \
     --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
     --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
     --from-literal=RESTIC_PASSWORD="$RESTICPASS" \
+    "${backup_args[@]}" \
     --dry-run=client -o yaml | seal > "$TMP/backup.yaml"
 else
   echo "  backup-secret : skipped (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not provided)"
@@ -393,6 +474,14 @@ if [ -n "$COCKPITTOKEN" ]; then
     --dry-run=client -o yaml | seal > "$TMP/cockpit.yaml"
 else
   echo "  cockpit-secret : skipped (COCKPIT_TOKEN not provided)"
+fi
+
+if [ "${#compliance_args[@]}" -gt 0 ]; then
+  kubectl create secret generic "${RELEASE}-compliance-secret" \
+    --namespace "$NS" "${compliance_args[@]}" \
+    --dry-run=client -o yaml | seal > "$TMP/compliance.yaml"
+else
+  echo "  compliance-secret : skipped (no COMPLIANCE_* credential provided)"
 fi
 
 mkdir -p "$(dirname "$OUT")"
@@ -421,6 +510,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
   echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "# Set the erasure credentials of the compliance service (MAIR-498):"
+  echo "#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET=... COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do

@@ -128,9 +128,7 @@ step "Ingress stack: Traefik $TRAEFIK_CHART, cert-manager $CERT_MANAGER_VERSION,
 # ingress test exercises what the machines run. Only the Service type
 # differs: Kind has no ServiceLB, and externalTrafficPolicy (kept from the
 # values) needs NodePort at least.
-for addon in traefik cert-manager; do
-  helm dependency build "$ROOT/bootstrap/addons/$addon" >/dev/null
-done
+"$ROOT/scripts/addon-deps.sh" "$ROOT/bootstrap/addons/traefik" "$ROOT/bootstrap/addons/cert-manager"
 helm --kube-context "$CTX" upgrade --install traefik "$ROOT/bootstrap/addons/traefik" \
   -n traefik --create-namespace --set traefik.service.spec.type=NodePort \
   --wait --timeout 5m

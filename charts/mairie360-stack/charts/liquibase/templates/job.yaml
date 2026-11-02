@@ -79,7 +79,12 @@ spec:
             - name: LIQUIBASE_SEARCH_PATH
               value: "/migrations"
             {{- $g := .Values.global | default dict }}
-            {{- range $role := ($g.database | default dict).roles | default list }}
+            {{- $complianceOn := ($g.compliance | default dict).enabled }}
+            {{- $roles := ($g.database | default dict).roles | default list }}
+            {{- if $complianceOn }}
+            {{- $roles = append $roles "compliance-api" }}
+            {{- end }}
+            {{- range $role := $roles }}
             - name: {{ include "liquibase.rolePasswordKey" $role }}
               valueFrom:
                 secretKeyRef:
@@ -127,9 +132,19 @@ spec:
                 *) echo "ADMIN_PASSWORD is not an argon2id hash: re-run scripts/seal-secrets.sh (MAIR-414)" >&2; exit 1 ;;
               esac
               {{- end }}
+              {{- if not $complianceOn }}
+              # MAIR-498: the Database changelog (v3.0.1+) creates the
+              # compliance_api role on every instance. Until the compliance
+              # service is enabled here, its password is random and thrown
+              # away at each run: the role exists but nobody can log in.
+              COMPLIANCE_API_PASSWORD="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+              {{- end }}
               exec liquibase --changelog-file={{ .Values.changelogFile }} update
-                {{- range $role := ($g.database | default dict).roles | default list }} \
+                {{- range $role := $roles }} \
                 -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}"
+                {{- end }}
+                {{- if not $complianceOn }} \
+                -Dcompliance_api_password="$COMPLIANCE_API_PASSWORD"
                 {{- end }} \
                 -Dadmin_email="$ADMIN_EMAIL" \
                 -Dadmin_password="$ADMIN_PASSWORD"

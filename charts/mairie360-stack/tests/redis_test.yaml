@@ -26,7 +26,7 @@ tests:
           path: data["entrypoint.sh"]
           pattern: "user default off"
 
-  - it: injects one dedicated ACL password per API, never the shared account, none for the BFFs (MAIR-414)
+  - it: injects one dedicated ACL password per API (required) and per BFF (optional, MAIR-531)
     templates: [charts/redis/templates/deployment.yaml]
     asserts:
       - contains:
@@ -35,12 +35,31 @@ tests:
             name: CORE_API_REDIS_PASSWORD
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-redis, key: core-api-password }
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: USER_BFF_REDIS_PASSWORD
             valueFrom:
-              secretKeyRef: { name: RELEASE-NAME-redis, key: user-bff-password }
+              secretKeyRef: { name: RELEASE-NAME-redis, key: user-bff-password, optional: true }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ELEARNING_BFF_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: elearning-bff-password, optional: true }
+
+  - it: "MAIR-531: a BFF account is on only with a password, off (never passwordless) otherwise"
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'if \[ -n "\$\{USER_BFF_REDIS_PASSWORD:-\}" \]; then\s+echo "user user-bff on >\$USER_BFF_REDIS_PASSWORD ~user-bff:\* resetchannels -@all [^"]*"\s+else\s+echo "user user-bff off resetpass '
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'nopass'
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'if \[ -n "\$\{[A-Z_]+_API_REDIS_PASSWORD'
 
   - it: les probes s'authentifient avec le compte admin, pas le compte default
     templates: [charts/redis/templates/deployment.yaml]
@@ -68,12 +87,31 @@ tests:
             valueFrom:
               secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-api-password }
 
-  - it: "MAIR-414: the BFFs get no Redis nor database credentials"
+  - it: "MAIR-414: the BFFs get no database credentials"
     templates: [charts/BFFs/templates/deployment.yaml]
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: '^(REDIS_|DB_)'
+          pattern: '^DB_'
+
+  - it: "MAIR-531: each BFF gets its own Redis account, optional password, URL built like the APIs"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    documentIndex: 0 # first document = "calendar-bff" (alphabetical range)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: REDIS_USERNAME, value: "calendar-bff" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-redis, key: calendar-bff-password, optional: true }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_URL
+            value: "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@RELEASE-NAME-redis:6379"
 
   - it: les fronts n'ont plus d'identifiants Redis
     templates: [charts/Fronts/templates/deployment.yaml]
@@ -87,7 +125,7 @@ tests:
           content:
             name: REDIS_PASSWORD
 
-  - it: "la NetworkPolicy redis n'autorise que les APIs (MAIR-414: plus les BFFs)"
+  - it: "the redis NetworkPolicy only admits the APIs and the BFFs, never the fronts (MAIR-531)"
     templates: [charts/redis/templates/network-policy.yaml]
     asserts:
       - equal:
@@ -96,6 +134,9 @@ tests:
             - podSelector:
                 matchLabels:
                   app.kubernetes.io/component: api
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: bff
 
   - it: message-api publishes and subscribes on its own channels only (MAIR-394)
     templates: [charts/redis/templates/configmap.yaml]

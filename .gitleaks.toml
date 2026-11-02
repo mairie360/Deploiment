@@ -1,0 +1,23 @@
+# Gitleaks configuration (MAIR-677).
+#
+# This repository is public: CI blocks any push or pull request whose new
+# commits add a secret (job `secret-scan` in .github/workflows/cicd.yaml).
+#
+# The only exception is the ciphertext of SealedSecrets in
+# clusters/<org>/instances/<env>/secrets.yaml. Those values are encrypted with
+# the instance's sealed-secrets controller key and are meant to be committed,
+# but they look like generic API keys. Only lines of the form
+# `KEY: Ag<base64 of 700+ chars>` in those files are allowed: a sealed value
+# carries an RSA-4096 wrapped session key, so it is never shorter (720 to 952
+# chars in this repo). A plain Secret (`stringData:` / `data:`) pasted into the
+# same file, even an `Ag...` token, is still reported.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "SealedSecret ciphertext written by scripts/seal-secrets.sh"
+condition = "AND"
+paths = ['''(^|/)clusters/[^/]+/instances/[^/]+/secrets\.yaml$''']
+regexTarget = "line"
+regexes = ['''^\s+[A-Za-z0-9_.-]+:\s+Ag[A-Za-z0-9+/]{700,}={0,2}\s*$''']

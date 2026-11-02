@@ -2,7 +2,8 @@ name: Helm CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    # staging: argocd-image-updater commits its image tags there (MAIR-444).
+    branches: [ main, develop, staging ]
   pull_request:
   # Called by promote.yaml to re-run every check on the exact commit that is
   # about to reach staging or prod.
@@ -14,6 +15,28 @@ on:
         default: ""
 
 jobs:
+  # Blocks any new commit that adds a secret (MAIR-677: a GHCR PAT stayed
+  # readable in this public repo's history). Rules: .gitleaks.toml, which only
+  # lets SealedSecret ciphertext through.
+  # Skipped when promote.yaml calls this workflow: a promotion only
+  # fast-forwards to a commit already on main, which this job scanned on push,
+  # and the shared action scans the caller's GITHUB_SHA, not `inputs.ref`.
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    if: ${{ inputs.ref == '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Gitleaks on the new commits
+        uses: mairie360/CICD/actions/security/gitleaks@v5.2.2
+
   # ================================
   # 🧱 JOB 1 : Validation & Qualité
   # ================================
@@ -29,7 +52,7 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v5
         with:
-          version: v4.3.0
+          version: v4.3.1
 
       - name: Helm dependency build
         run: helm dependency build ./charts/mairie360-stack
@@ -81,7 +104,7 @@ jobs:
           for chart in bootstrap/addons/*/; do
             name=$(basename "$chart")
             echo "Rendering $chart"
-            helm dependency build "$chart"
+            ./scripts/addon-deps.sh "$chart"
             helm lint "$chart"
             helm template "$name" "$chart" --include-crds \
               | kubeconform -strict -summary -schema-location default \
@@ -89,23 +112,16 @@ jobs:
           done
 
       - name: Bootstrap AppSets follow each machine's revision
+        run: ./scripts/check-bootstrap-revisions.sh
+
+      # GDPR decisions of each mairie (compliance/<org>/, MAIR-294) against the
+      # rendered configuration: retention periods, backup retention, external
+      # hosts and egress rules of subprocessors, complete register. A mismatch
+      # fails; decisions not validated by the mairie yet are warnings.
+      - name: Check the GDPR decisions against the configuration
         run: |
-          FAILED=0
-          for f in bootstrap/appsets/*.yaml; do
-            grep -q 'mairie360.fr/role: instance' "$f" || continue
-            if ! grep -q "targetRevision: '{{ .values.revision }}'" "$f" \
-               || grep -qE '^\s*(chart:|targetRevision: *main)' "$f"; then
-              echo "::error file=$f::instance AppSets read bootstrap/ at '{{ .values.revision }}' (mairie360.fr/revision), never a chart repository or 'main'"
-              FAILED=1
-            fi
-          done
-          # MAIR-157: cert-manager's configuration is shared by every group.
-          if grep -nE 'mairie360-eip|([0-9]{1,3}\.){3}[0-9]{1,3}' \
-               bootstrap/appsets/cert-manager-appset.yaml bootstrap/addons/cert-manager/values.yaml; then
-            echo "::error::cert-manager's AppSet and values must name no domain and no IP (MAIR-157)"
-            FAILED=1
-          fi
-          exit "$FAILED"
+          python3 -m unittest discover -s tests/compliance -v
+          ./scripts/check-compliance.py
 
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and
@@ -126,6 +142,9 @@ jobs:
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2 --verify=false
           helm unittest ./charts/mairie360-stack
+
+      - name: Script tests
+        run: for t in tests/scripts/*_test.sh; do echo "== $t"; "$t" || exit 1; done
 
   # # ================================
   # # ⚙️ JOB 2 : Tests Fonctionnels (Matrix)

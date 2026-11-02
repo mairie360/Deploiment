@@ -59,12 +59,12 @@ tests:
       - template: templates/keycloak-ingress.yaml
         equal: { path: "spec.rules[0].host", value: sso.ville.fr }
 
-  - it: "MAIR-414: auth.<domain> only routes the realms and their resources, never /admin"
+  # MAIR-610 narrowed the routed paths from all of /realms/ to the browser
+  # paths of the instance realm: the exact list is in mair_610_keycloak_surface_test.yaml.
+  - it: "MAIR-414: auth.<domain> never routes /admin"
     templates: [templates/keycloak-ingress.yaml]
     asserts:
-      - lengthEqual: { path: "spec.rules[0].http.paths", count: 2 }
-      - equal: { path: "spec.rules[0].http.paths[0].path", value: "/realms/" }
-      - equal: { path: "spec.rules[0].http.paths[1].path", value: "/resources/" }
+      - notMatchRegex: { path: "spec.rules[0].http.paths[*].path", pattern: "^/admin" }
       - equal: { path: "spec.rules[0].http.paths[0].backend.service.name", value: RELEASE-NAME-keycloak }
 
   - it: "MAIR-414: the admin console is served on the port-forward address"
@@ -297,6 +297,7 @@ tests:
       - charts/keycloak/templates/deployment.yaml
       - charts/keycloak/templates/db-statefulset.yaml
       - charts/keycloak/templates/network-policy.yaml
+      - templates/keycloak-network-policy.yaml
       - charts/keycloak/templates/realm-configmap.yaml
     asserts:
       - hasDocuments: { count: 0 }
@@ -319,6 +320,7 @@ tests:
       keycloak.env.KEYCLOAK_ADMIN_PASSWORD: "test-admin"
       keycloak.env.KEYCLOAK_DB_PASSWORD: "test-db"
       keycloak.env.BFF_USER_CLIENT_SECRET: "test-client"
+      keycloak.env.CORE_API_CLIENT_SECRET: "test-core"
     templates: [charts/keycloak/templates/secret.yaml]
     asserts:
       - hasDocuments: { count: 1 }
@@ -326,6 +328,7 @@ tests:
       - equal: { path: stringData.KEYCLOAK_ADMIN_PASSWORD, value: test-admin }
       - equal: { path: stringData.KEYCLOAK_DB_PASSWORD, value: test-db }
       - equal: { path: stringData.BFF_USER_CLIENT_SECRET, value: test-client }
+      - equal: { path: stringData.CORE_API_CLIENT_SECRET, value: test-core }
 
   - it: refuses to create the Secret without every value (create=true)
     set:
@@ -344,12 +347,13 @@ tests:
       - failedTemplate:
           errorPattern: keycloak.image.tag is required
 
-  - it: the helm test pod checks the public issuer from a bff-labelled pod
+  # MAIR-610: a bff-labelled pod no longer reaches Keycloak.
+  - it: the helm test pod checks the public issuer from the keycloak-test label the NetworkPolicy admits
     templates: [charts/keycloak/templates/tests/test-realm.yaml]
     asserts:
       - equal:
           path: metadata.labels["app.kubernetes.io/component"]
-          value: bff
+          value: keycloak-test
       - contains:
           path: spec.containers[0].env
           content: { name: EXPECTED_ISSUER, value: "https://auth.dev.mairie360-eip.fr/realms/mairie360" }

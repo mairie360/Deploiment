@@ -11,6 +11,11 @@ metadata:
   namespace: argocd
 spec:
   goTemplate: true
+  # MAIR-710: deleting this ApplicationSet, or a cluster leaving its
+  # generator, removes the Application only, never the add-on on the instance
+  # (CRDs included: deleting the SealedSecret CRD would delete every Secret).
+  syncPolicy:
+    preserveResourcesOnDeletion: true
   generators:
     - clusters:
         # Instance clusters only (label set by ansible, role
