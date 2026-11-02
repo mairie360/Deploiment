@@ -762,7 +762,16 @@ and maintaining a parallel Kind topology is what produced the earlier
   additionally needs the `staging_verified` box (run `scripts/verify.sh` on
   staging first: GitHub runners cannot reach the instance API servers) and the
   approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
-  the branch back to an older commit. **MAIR-444:** argocd-image-updater
+  the branch back to an older commit. **Never delete `staging` or `prod`
+  (MAIR-745):** both were deleted on 2026-10-23, which left their Applications
+  without a revision and made `Promote` refuse everything; they were recreated
+  at `3c006cc` (what Argo CD last deployed) on 2026-11-02. The "environment
+  branches protection" ruleset refuses their deletion and force-pushes (so a
+  `rollback: true` needs a ruleset bypass), and
+  `.github/workflows/environment-branches.yaml` runs
+  `scripts/check-env-branches.sh` on every branch deletion and daily, failing
+  when one is missing (`tests/scripts/mair_745_env_branches_test.sh`).
+  **MAIR-444:** argocd-image-updater
   commits staging's tags straight onto `staging`
   (`clusters/mairie360/instances/staging/images.yaml`, never edited on `main`),
   so `Promote` to staging merges instead of fast-forwarding when `staging` is

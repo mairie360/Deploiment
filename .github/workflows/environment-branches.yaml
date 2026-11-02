@@ -1,0 +1,31 @@
+name: Environment branches
+
+# MAIR-745: staging and prod follow the `staging` and `prod` branches
+# (ADR 0002). Both were deleted on 2026-10-23 and nothing reported it. This
+# check runs on every branch deletion, every day and on demand, and fails when
+# one of them is missing. The "environment branches protection" ruleset
+# already refuses their deletion and force-pushes; this catches the cases it
+# does not (ruleset disabled or edited, branch renamed).
+
+on:
+  delete:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: staging and prod branches exist
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the environment branches
+        run: ./scripts/check-env-branches.sh
