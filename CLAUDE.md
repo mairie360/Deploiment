@@ -277,6 +277,30 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   Redis ACL passwords always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
+- **Session tokens: core-api alone signs (MAIR-680, audit A1).** Until then
+  one HS256 `JWT_SECRET` reached the 5 APIs and 7 BFFs, so any compromised pod
+  could forge an administrator token. Now core-api signs with an Ed25519 key
+  (`JWT_PRIVATE_KEY`, EdDSA) and every API and BFF (compliance-api included)
+  verifies with `global.jwt.publicKey`, injected in clear as
+  `JWT_PUBLIC_KEY` (PEM, several `PUBLIC KEY` blocks during a rotation;
+  `""` = not injected). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
+  (`<release>-jwt-signing-secret`, sealed) to the instance named `core-api`
+  and to nothing else; `templates/jwt-session-keys.yaml` fails the render
+  when signing is on without a public key, or when `publicKey` is not PEM or
+  holds a `PRIVATE KEY`. `scripts/seal-secrets.sh` generates the pair once
+  per instance (`openssl genpkey -algorithm ed25519`), seals the private key,
+  never replaces it (not even with `--rotate`, and a failed read of the
+  Secret stops it), and prints the public key to paste into the instance's
+  `values.yaml` (it is plain config, reviewed in the diff; the ansible role
+  shows that output). `tests/mair_680_jwt_session_keys_test.yaml`,
+  `tests/scripts/mair_680_seal_signing_key_test.sh`, `scripts/verify.sh`
+  step 5b (no workload but core-api reads `JWT_PRIVATE_KEY`).
+  **Rollout order per instance:** seal + paste `publicKey` (harmless: services
+  keep accepting HS256 while `JWT_SECRET` is set) → every API/BFF image
+  verifies EdDSA (API_lib / bffs-lib MAIR-680) → `signing.enabled: true` →
+  after `JWT_TIMEOUT`, drop `JWT_SECRET` (follow-up branch
+  `mair-680-drop-jwt-secret`). Turning signing on before every image
+  verifies EdDSA logs every user out of the older services.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
@@ -877,6 +901,13 @@ and maintaining a parallel Kind topology is what produced the earlier
   `scripts/verify.sh` step 4 flags them on the cluster.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
+- **The session signing key is never rotated by `seal-secrets.sh` (MAIR-680).**
+  A new private key signs tokens nobody verifies. To rotate: delete
+  `<release>-jwt-signing-secret` on the cluster (pods keep the key they
+  started with), re-run the script, commit the new `secrets.yaml` together
+  with a `global.jwt.publicKey` listing **both** blocks, then drop the old
+  block after `JWT_TIMEOUT`. core-api refuses to start when its private key
+  matches no block of `JWT_PUBLIC_KEY`.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
   too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
   derives its master key from that one password, and nothing here runs the

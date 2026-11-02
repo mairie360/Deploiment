@@ -102,6 +102,25 @@ else
   ok "aucune valeur de secret en clair"
 fi
 
+step 5b "MAIR-680: core-api alone gets the session signing key (JWT_PRIVATE_KEY)"
+# Every Deployment / StatefulSet / CronJob container (and init container)
+# that reads JWT_PRIVATE_KEY, as "<kind>/<name>"; only <env>-core-api may.
+SIGNERS="$($K get deploy,statefulset -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{range .spec.template.spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.template.spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null | sort -u)"
+OTHERS="$(printf '%s\n' "$SIGNERS" | grep -v "^Deployment/${RELEASE}-core-api\$" | grep . || true)"
+if [ -n "$OTHERS" ]; then
+  ko "JWT_PRIVATE_KEY reaches other workloads than core-api: $(echo $OTHERS)"
+else
+  ok "no workload but core-api reads JWT_PRIVATE_KEY"
+fi
+if $K get deploy,statefulset,cronjob,configmap -o yaml 2>/dev/null | grep -q 'BEGIN PRIVATE KEY'; then
+  ko "a PEM private key is in clear in a manifest or ConfigMap (global.jwt.publicKey?)"
+else
+  ok "no PEM private key in clear in the manifests"
+fi
+if [ -n "$SIGNERS" ] && ! $K get deploy "${RELEASE}-core-api" -o yaml 2>/dev/null | grep -q 'name: JWT_PUBLIC_KEY'; then
+  ko "core-api signs but has no JWT_PUBLIC_KEY (global.jwt.publicKey)"
+fi
+
 step 6 "Redis exige un mot de passe"
 POD=$($K get pod -l app=redis -o name 2>/dev/null | head -1)
 if [ -n "$POD" ]; then

@@ -145,6 +145,7 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
     secretKeyRef:
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
+{{- include "apis.jwtKeysEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
 {{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
@@ -312,5 +313,28 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
   valueFrom:
     secretKeyRef: { name: {{ $secret }}, key: SCW_SECRET_KEY, optional: true }
 {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-680 (audit A1): session token keys. Every API (compliance-api included)
+gets the public key(s) of global.jwt.publicKey as JWT_PUBLIC_KEY (plain PEM,
+not a secret) and verifies EdDSA tokens with them. core-api, and no other
+instance whatever its name in a values file, gets JWT_PRIVATE_KEY from the
+sealed signing Secret once global.jwt.signing.enabled: it alone can sign.
+templates/jwt-session-keys.yaml (umbrella) guards both values.
+*/}}
+{{- define "apis.jwtKeysEnv" -}}
+{{- $jwt := ((.root.Values.global).jwt) | default dict }}
+{{- with ($jwt.publicKey | default "" | trim) }}
+- name: JWT_PUBLIC_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- if and (eq .name "core-api") (($jwt.signing).enabled) }}
+- name: JWT_PRIVATE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ ($jwt.signing).secretName | default (printf "%s-jwt-signing-secret" .root.Release.Name) }}
+      key: JWT_PRIVATE_KEY
 {{- end }}
 {{- end -}}

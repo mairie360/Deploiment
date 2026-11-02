@@ -83,6 +83,18 @@
 #                   global.compliance.enabled, every key is optional).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
 #
+# MAIR-680 (audit A1): the Ed25519 key pair core-api signs the session tokens
+# with. The private key (PEM, `openssl genpkey -algorithm ed25519`) is sealed
+# alone in <env>-jwt-signing-secret (key JWT_PRIVATE_KEY), which only core-api
+# reads (global.jwt.signing.enabled). It is generated once, when the cluster
+# has none, and NEVER replaced afterwards, not even by --rotate: a new key
+# signs tokens nobody verifies until its public half is published to every
+# service. A failed read of that Secret stops the script instead of
+# generating a new key. The public half (`openssl pkey -pubout`) is not a
+# secret: it is printed at the end, to paste as global.jwt.publicKey in the
+# instance's values.yaml (plain config every API and BFF gets as
+# JWT_PUBLIC_KEY), unless that file already carries it.
+#
 # Par défaut, un secret déjà présent est CONSERVÉ (relancer ne casse pas une
 # base existante). --rotate régénère tout, SAUF ADMIN_PASSWORD (MAIR-170):
 # the Liquibase Job only sets it while the admin account still carries its
@@ -405,6 +417,29 @@ if [ -z "$AWS_ACCESS_KEY_ID" ] && [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
   [ -z "$AWS_ACCESS_KEY_ID" ] || echo "  AWS_*            : kept from cluster"
 fi
 
+# MAIR-680: session signing key of core-api. Unlike prev(), a kubectl error
+# is fatal here: reading "absent" by mistake would replace the key.
+JWTPRIV="$(kubectl --context "$CTX" -n "$NS" get secret "${RELEASE}-jwt-signing-secret" \
+  --ignore-not-found -o jsonpath='{.data.JWT_PRIVATE_KEY}')" || {
+  echo "cannot read ${RELEASE}-jwt-signing-secret on ${CTX}: stopping before a new signing key replaces it" >&2
+  exit 1
+}
+if [ -n "$JWTPRIV" ]; then
+  JWTPRIV="$(printf '%s' "$JWTPRIV" | base64 -d)"
+  echo "  JWT_PRIVATE_KEY  : kept from cluster (never rotated)"
+else
+  JWTPRIV="$(openssl genpkey -algorithm ed25519)"
+  echo "  JWT_PRIVATE_KEY  : generated (Ed25519)"
+fi
+JWTPUB="$(printf '%s\n' "$JWTPRIV" | openssl pkey -pubout)" || {
+  echo "${RELEASE}-jwt-signing-secret holds no usable private key: fix or delete it by hand" >&2
+  exit 1
+}
+case "$JWTPUB" in
+  *"-----BEGIN PUBLIC KEY-----"*) ;;
+  *) echo "could not derive the public session key" >&2; exit 1 ;;
+esac
+
 seal() {
   kubeseal --context "$CTX" \
     --controller-namespace "$CONTROLLER_NS" \
@@ -421,6 +456,11 @@ kubectl create secret generic "${RELEASE}-app-secrets" \
   --from-literal=S3_ACCESS_KEY="$S3AK" \
   --from-literal=S3_SECRET_KEY="$S3SK" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
+
+kubectl create secret generic "${RELEASE}-jwt-signing-secret" \
+  --namespace "$NS" \
+  --from-literal=JWT_PRIVATE_KEY="$JWTPRIV" \
+  --dry-run=client -o yaml | seal > "$TMP/jwt-signing.yaml"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
   --namespace "$NS" "${db_args[@]}" \
@@ -522,6 +562,20 @@ mkdir -p "$(dirname "$OUT")"
 
 echo
 echo "Écrit : $OUT"
+# MAIR-680: the public half, compared on its base64 line (one line for Ed25519).
+VALUES="clusters/${ORG}/instances/${ENV}/values.yaml"
+if grep -qF -- "$(printf '%s\n' "$JWTPUB" | sed -n 2p)" "$VALUES" 2>/dev/null; then
+  echo "Session public key (JWT_PUBLIC_KEY): already in $VALUES"
+else
+  echo
+  echo "Session public key (JWT_PUBLIC_KEY, MAIR-680): NOT in $VALUES yet. Set it"
+  echo "(keep any other PUBLIC KEY block still in use during a rotation):"
+  echo
+  echo "global:"
+  echo "  jwt:"
+  echo "    publicKey: |"
+  printf '%s\n' "$JWTPUB" | sed 's/^/      /'
+fi
 echo "Sauvegardez la clé de scellement de cette machine (irrécupérable si perdue) :"
 echo "  kubectl --context $CTX -n $CONTROLLER_NS get secret \\"
 echo "    -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > sealing-key-${CTX}.yaml"
