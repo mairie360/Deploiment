@@ -41,12 +41,16 @@ if git merge-base --is-ancestor "$SHA" "$CURRENT"; then echo "none false"; exit 
 if git merge-base --is-ancestor "$CURRENT" "$SHA"; then echo "fast-forward true"; exit 0; fi
 
 BASE=$(git merge-base "$SHA" "$CURRENT")
-OTHER=$(git diff --name-only "$BASE" "$CURRENT" | grep -vE "$IMAGES_RE" || true)
+# Every file touched by a commit that is only on the target, not just the
+# final diff: a change made then reverted on staging is refused too. Merge
+# commits (former promotions) only bring main in, skip them.
+touched() { git log --no-merges --format= --name-only "$1" | sed '/^$/d' | sort -u; }
+OTHER=$(touched "$BASE..$CURRENT" | grep -vE "$IMAGES_RE" || true)
 if [ "$TARGET" != "staging" ] || [ -n "$OTHER" ]; then
   [ -z "$OTHER" ] || echo "::error::Changed only on $TARGET: $(echo $OTHER)" >&2
   err "'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward."
 fi
-if git diff --name-only "$BASE" "$SHA" | grep -qE "$IMAGES_RE"; then
+if touched "$BASE..$SHA" | grep -qE "$IMAGES_RE"; then
   err "$SHA edits a staging images.yaml on main: only argocd-image-updater writes it, on staging."
 fi
 echo "merge true"

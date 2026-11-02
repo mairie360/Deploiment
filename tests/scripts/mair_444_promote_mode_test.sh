@@ -52,6 +52,13 @@ git checkout -q -b drift "$S_IMG2"
 S_DRIFT=$(commit clusters/mairie360/instances/staging/values.yaml "hotfix on staging")
 expect "fail"              "staging ahead by another file"     staging "$M3" "$S_DRIFT"
 
+# A change made then reverted on staging is still a staging-only change.
+git checkout -q -b reverted "$S_IMG2"
+commit clusters/mairie360/instances/staging/values.yaml "edit on staging" >/dev/null
+git revert --no-edit HEAD >/dev/null
+S_REVERTED=$(git rev-parse HEAD)
+expect "fail"              "staging edit reverted later"       staging "$M3" "$S_REVERTED"
+
 # main must never edit the staging images.yaml.
 git checkout -q main
 M4=$(commit clusters/mairie360/instances/staging/images.yaml "edited on main")
