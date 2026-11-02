@@ -175,37 +175,69 @@ if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
   else
     ko "keycloak Deployment not available (kubectl logs deploy/${RELEASE}-keycloak)"
   fi
+  # MAIR-610: keycloak-test is the in-namespace label the Keycloak
+  # NetworkPolicy admits for checks (besides the Keycloak-client APIs).
   if $K run kc-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
-       --labels="app.kubernetes.io/component=bff" --timeout=60s \
+       --labels="app.kubernetes.io/component=keycloak-test" --timeout=60s \
        -- curl -sf -m 10 "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
        2>/dev/null | grep -q '"issuer":"https://'; then
     ok "realm ${KEYCLOAK_REALM} imported, issuer on https"
   else
-    ko "realm ${KEYCLOAK_REALM} not served from a bff pod (import failed, or NetworkPolicy)"
+    ko "realm ${KEYCLOAK_REALM} not served to a keycloak-test pod (import failed, or NetworkPolicy)"
+  fi
+
+  step 12b "MAIR-610: a BFF pod does not reach Keycloak (only the ingress and the Keycloak-client APIs do)"
+  if $K run kc-probe-bff --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
+       --labels="app.kubernetes.io/component=bff" --timeout=60s \
+       -- curl -s -m 5 -o /dev/null "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/" >/dev/null 2>&1; then
+    ko "a bff-labelled pod reaches Keycloak: NetworkPolicy not narrowed (MAIR-610)"
+  else
+    ok "bff-labelled pod refused"
   fi
 else
   ok "keycloak not enabled for this instance"
 fi
 
 if [ -n "$DOMAIN" ]; then
-  step 13 "Certificat TLS vérifié sur https://login.${DOMAIN} et https://auth.${DOMAIN}"
+  step 13 "Trusted TLS certificate on https://login.${DOMAIN} and https://auth.${DOMAIN}"
   for host in "login.${DOMAIN}" "auth.${DOMAIN}"; do
     ISSUER=$(echo | openssl s_client -connect "${host}:443" \
                -servername "${host}" 2>/dev/null \
              | openssl x509 -noout -issuer 2>/dev/null || true)
     case "$ISSUER" in
-      *"Let's Encrypt"*) ok "${host} : émis par Let's Encrypt" ;;
-      *STAGING*|*"(STAGING)"*) ko "${host} : certificat Let's Encrypt STAGING (non vérifié par les navigateurs)" ;;
-      *) ko "${host} : certificat inattendu : ${ISSUER:-aucun}" ;;
+      *"Let's Encrypt"*) ok "${host}: issued by Let's Encrypt" ;;
+      *STAGING*|*"(STAGING)"*) ko "${host}: Let's Encrypt STAGING certificate (not trusted by browsers)" ;;
+      *) ko "${host}: unexpected certificate: ${ISSUER:-none}" ;;
     esac
   done
 
-  step 13b "MAIR-414: auth.${DOMAIN} serves the realm, not the admin console"
+  step 13b "MAIR-414/MAIR-610: auth.${DOMAIN} serves the sign-in pages and the account console, nothing else"
   if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
-    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://auth.${DOMAIN}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" || true)
-    [ "$CODE" = 200 ] && ok "realm discovery document public ($CODE)" || ko "realm discovery document: code $CODE"
-    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "https://auth.${DOMAIN}/admin/master/console/" || true)
-    [ "$CODE" = 404 ] && ok "admin console not routed ($CODE)" || ko "admin console reachable from the Internet: code $CODE"
+    AUTH="https://auth.${DOMAIN}"
+    REALM_URL="${AUTH}/realms/${KEYCLOAK_REALM}"
+    # Routed: Login's sign-in page (client core-api, MAIR-153) and the
+    # account console (2FA enrolment MAIR-572, settings-front link MAIR-357).
+    LOGIN_CALLBACK="https%3A%2F%2Flogin.${DOMAIN}%2Fapi%2Fauth%2Fkeycloak%2Fcallback"
+    SIGN_IN="${REALM_URL}/protocol/openid-connect/auth?client_id=core-api&response_type=code&scope=openid&redirect_uri=${LOGIN_CALLBACK}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$SIGN_IN" || true)
+    [ "$CODE" = 200 ] && ok "realm sign-in page served ($CODE)" || ko "realm sign-in page: code $CODE"
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${REALM_URL}/account/" || true)
+    case "$CODE" in 200|302|303) ok "account console served ($CODE)" ;; *) ko "account console: code $CODE" ;; esac
+    # Not routed: 404 from the ingress controller itself (Keycloak would
+    # answer 200 / 401 on every one of them).
+    for path in \
+      "/realms/master/protocol/openid-connect/auth?client_id=security-admin-console" \
+      "/realms/master/.well-known/openid-configuration" \
+      "/realms/master/account/" \
+      "/realms/${KEYCLOAK_REALM}/protocol/openid-connect/userinfo" \
+      "/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
+      "/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs" \
+      "/admin/master/console/" \
+      "/metrics" \
+      "/health/ready"; do
+      CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${AUTH}${path}" || true)
+      [ "$CODE" = 404 ] && ok "${path%%\?*} not routed ($CODE)" || ko "${path%%\?*} reachable from the Internet: code $CODE"
+    done
   else
     ok "keycloak not enabled for this instance"
   fi
@@ -214,13 +246,13 @@ if [ -n "$DOMAIN" ]; then
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
   case "$CODE" in 301|302|308) ok "redirection $CODE" ;; *) ko "code $CODE" ;; esac
 
-  step 15 "Seuls les fronts et Keycloak sont exposés (6443 doit être sur le VPN, pas public)"
+  step 15 "Only the fronts and Keycloak are exposed (6443 must be on the VPN, not public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
   for p in 3000 4000 5432 6379 6443 8080 9000; do
     if timeout 3 bash -c "</dev/tcp/${IP}/${p}" 2>/dev/null; then
-      ko "port ${p} ouvert sur Internet"
+      ko "port ${p} open to the Internet"
     else
-      ok "port ${p} fermé"
+      ok "port ${p} closed"
     fi
   done
 fi

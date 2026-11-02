@@ -16,8 +16,10 @@
 #                           not here.
 #   <release>-keycloak-secret  see `secret` below (SealedSecret on instances).
 #
-# The public Ingress (auth.<domain>) is rendered by the umbrella chart
-# (templates/keycloak-ingress.yaml): the umbrella owns everything exposed.
+# The public Ingress (auth.<domain>) and Keycloak's own NetworkPolicy are
+# rendered by the umbrella chart (templates/keycloak-ingress.yaml,
+# templates/keycloak-network-policy.yaml): the umbrella owns everything
+# exposed and knows which APIs call Keycloak (MAIR-610).
 # The public hostname and realm name come from `global.keycloak`, so the BFFs
 # chart can point at the same issuer URL.
 
@@ -38,8 +40,9 @@ admin:
   username: "admin"
 
 # Address of the admin console (KC_HOSTNAME_ADMIN, MAIR-414). The public
-# Ingress only routes /realms/ and /resources/ (umbrella
-# `keycloak.ingress.paths`), so the console is reached through a tunnel:
+# Ingress only routes the browser paths of the instance realm and /resources/
+# (umbrella `keycloak.ingress.paths`, MAIR-610), so the console is reached
+# through a tunnel:
 #   kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080
 # then http://localhost:8080/admin/. "" = the public hostname (only useful if
 # /admin is routed again).

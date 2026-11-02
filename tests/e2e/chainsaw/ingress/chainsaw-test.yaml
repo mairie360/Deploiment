@@ -114,3 +114,62 @@ spec:
               '
             check:
               ($error): ~
+
+    - name: "MAIR-610: auth.<domain> routes only the browser paths of the instance realm"
+      try:
+        - script:
+            timeout: 5m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-browser -- sh -c '
+                FAILED=0
+                AUTH=https://auth.e2e.invalid
+                REALM=$AUTH/realms/mairie360
+                # Traefik answers an unrouted path itself, with this body;
+                # Keycloak never does, so a Keycloak 404 cannot pass as "not routed".
+                closed() { # <label> <url>
+                  out=$(curl -sk -m 10 -w " %{http_code}" "$2")
+                  case "$out" in
+                    "404 page not found"*" 404") echo "ok    $1 is not routed" ;;
+                    *) echo "FAIL  $1 answers through the ingress: $(echo "$out" | tail -c 120)"; FAILED=1 ;;
+                  esac
+                }
+                served() { # <label> <url>: a page or a redirect from Keycloak
+                  code=$(curl -sk -m 10 -o /dev/null -w "%{http_code}" "$2")
+                  case "$code" in
+                    200|302|303) echo "ok    $1 ($code)" ;;
+                    *) echo "FAIL  $1: got $code"; FAILED=1 ;;
+                  esac
+                }
+
+                # Keycloak (real image) may still be importing the realm.
+                for i in $(seq 1 60); do
+                  case "$(curl -sk -m 5 -o /dev/null -w "%{http_code}" "$REALM/account/")" in 200|302|303) break ;; esac
+                  sleep 5
+                done
+
+                closed "the master realm sign-in" "$AUTH/realms/master/protocol/openid-connect/auth?client_id=security-admin-console"
+                closed "the master realm discovery" "$AUTH/realms/master/.well-known/openid-configuration"
+                closed "the master account console" "$AUTH/realms/master/account/"
+                closed "userinfo" "$REALM/protocol/openid-connect/userinfo"
+                closed "the realm discovery document" "$REALM/.well-known/openid-configuration"
+                closed "the realm JWKS" "$REALM/protocol/openid-connect/certs"
+                closed "token introspection" "$REALM/protocol/openid-connect/token/introspect"
+                closed "a lookalike realm" "$AUTH/realms/mairie360-other/account/"
+                closed "the admin console" "$AUTH/admin/master/console/"
+                closed "the Admin REST API" "$AUTH/admin/realms/mairie360/users"
+                closed "/metrics" "$AUTH/metrics"
+                closed "/health" "$AUTH/health/ready"
+
+                CHALLENGE=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+                served "the realm sign-in page" \
+                  "$REALM/protocol/openid-connect/auth?client_id=core-api&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Flogin.e2e.invalid%2Fapi%2Fauth%2Fkeycloak%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256"
+                served "the account console" "$REALM/account/"
+                served "the account console link of settings-front" "$REALM/account"
+                exit $FAILED
+              '
+            check:
+              ($error): ~

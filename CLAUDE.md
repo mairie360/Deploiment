@@ -437,8 +437,8 @@ subchart renders, all named `<release>-keycloak*`:
   a BFF calling the cluster Service sees the same issuer as the browser.
   Health probes hit the management port (9000, `KC_HEALTH_ENABLED`), which
   is never exposed. **The admin console is not exposed either (MAIR-414)**:
-  the Ingress routes only `keycloak.ingress.paths` (`/realms/`,
-  `/resources/`), and `KC_HOSTNAME_ADMIN` (`keycloak.adminUrl`,
+  the Ingress routes only `keycloak.ingress.paths` (see **Public surface**
+  below), and `KC_HOSTNAME_ADMIN` (`keycloak.adminUrl`,
   `http://localhost:8080`) serves it through
   `kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080`. Image pinned (`quay.io/keycloak/keycloak:26.x`): an
   upgrade migrates Keycloak's schema and cannot be rolled back.
@@ -475,21 +475,64 @@ subchart renders, all named `<release>-keycloak*`:
   re-seal the client secret with `BFF_USER_CLIENT_SECRET=…` /
   `CORE_API_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
   `<release>-app-secrets` (optional), same Resend key as core-api.
-- **Network**: `keycloak` accepts the ingress-controller namespace, `bff`
-  and `api` pods on 8080; `keycloak-db` accepts `keycloak` on 5432 and
-  nothing else (not the APIs, migration or backup). Fronts never reach it
-  server-side, the browser goes through the Ingress.
-- **Tests**: `tests/keycloak_test.yaml` and `tests/keycloak_core_api_test.yaml` (`helm unittest`), the subchart's
-  `helm test` pod (issuer of the discovery document from a `bff`-labelled
-  pod) and, in e2e, the real Keycloak image: the chainsaw `data-access`
-  test gets a `client_credentials` token for `bff-user` with the secret
-  from the Secret (proves the placeholder substitution), checks that
-  `core-api`'s token reads the Admin API and `bff-user`'s gets 403
-  (MAIR-554), and
-  `network-policies` covers the new hops.
+- **Public surface (MAIR-610).** `auth.<domain>` routes only what a browser
+  needs in the instance realm `global.keycloak.realm` (`R`), from
+  `keycloak.ingress.paths` (umbrella `values.yaml`, each `path` through
+  `tpl`): Exact `/realms/R/protocol/openid-connect/{auth,token,logout,login-status-iframe.html}`,
+  Prefix `/realms/R/protocol/openid-connect/{logout/,login-status-iframe.html/,3p-cookies/}`,
+  Prefix `/realms/R/login-actions/`, Exact `/realms/R/account` + Prefix
+  `/realms/R/account/` (account console, MAIR-572 / MAIR-357) and Prefix
+  `/resources/`. Everything else is a 404 from the ingress: the `master`
+  realm (Keycloak's super-admin sign-in), any other realm, `/admin`,
+  `userinfo`, the discovery document, `certs`, introspection, and the
+  management endpoints (`/metrics`, `/health`, port 9000 anyway). Nothing
+  server-side needs them publicly: core-api (code exchange, JWKS, Admin API)
+  and compliance-api use the in-cluster Service. `token` stays public only
+  for the account console (public client, PKCE in the browser).
+  `"mairie360.keycloakIngressPaths"` (`templates/_helpers.tpl`) fails the
+  render on a Prefix path without a trailing `/` (Traefik matches Prefix as
+  a plain string prefix, so `/realms/R/account` would also route
+  `/realms/R/accountX`) and on any path reaching another realm, `/admin`,
+  `/metrics`, `/health` or `userinfo`, or a prefix above them (`/realms/`,
+  `/realms/R/`, `.../openid-connect/`). Same Ingress for nginx and traefik.
+- **Network (MAIR-610)**: `templates/keycloak-network-policy.yaml` (umbrella,
+  same name as the subchart's former policy so Argo CD replaces it in place)
+  admits on 8080 the ingress-controller namespace, the APIs of
+  `APIs.keycloakClientInstances` (`core-api`) and, with
+  `global.compliance.enabled`, `compliance-api` (Keycloak admin client of
+  the erasure), selected by `app.kubernetes.io/name` + `component: api`,
+  plus the `helm test` pod (`component: keycloak-test`). **No BFF, no other
+  API, no front**: none calls Keycloak server-side (BFF_user only builds the
+  public sign-out URL). An API that starts calling Keycloak in-cluster must
+  be added to `APIs.keycloakClientInstances`, or it times out.
+  `keycloak-db` accepts `keycloak` and `backup` on 5432 and nothing else
+  (charts/keycloak).
+- **Tests**: `tests/keycloak_test.yaml`, `tests/keycloak_core_api_test.yaml`
+  and `tests/mair_610_keycloak_surface_test.yaml` (exact routed paths for
+  nginx and traefik, render guards, NetworkPolicy peers) (`helm unittest`),
+  the subchart's `helm test` pod (issuer of the discovery document from a
+  `keycloak-test` pod) and, in e2e, the real Keycloak image: the chainsaw
+  `data-access` test (from a pod labelled as core-api) gets a
+  `client_credentials` token for `bff-user` with the secret from the Secret
+  (proves the placeholder substitution), checks that `core-api`'s token
+  reads the Admin API and `bff-user`'s gets 403 (MAIR-554);
+  `network-policies` checks bff / api / project-api denied and core-api
+  allowed to Keycloak; `ingress` checks through Traefik that the master
+  realm, `userinfo`, discovery, `certs`, `/admin`, `/metrics`, `/health` and
+  a lookalike realm get Traefik's own 404 while the sign-in page and the
+  account console answer (MAIR-610).
 - `scripts/verify.sh` step 4 expects the Secret (and its
-  `CORE_API_CLIENT_SECRET` key, MAIR-554), step 13b that `/admin` is not routed (MAIR-414), step 12 checks the realm is
-  served, step 13 the `auth.` certificate, step 15 that 8080/9000 are closed.
+  `CORE_API_CLIENT_SECRET` key, MAIR-554), step 12 checks the realm is
+  served (from a `keycloak-test` pod), step 12b that a `bff` pod is refused,
+  step 13 the `auth.` certificate, step 13b that the sign-in page and the
+  account console answer while the master realm, `userinfo`, discovery,
+  `certs`, `/admin`, `/metrics` and `/health` are 404 (MAIR-414, MAIR-610),
+  step 15 that 8080/9000 are closed.
+- **Left for MAIR-609 / MAIR-611.** The realm administration console behind
+  a Traefik ForwardAuth to core-api, an `Admin` composite role for it, then
+  closing the account console (and with it the public `token`,
+  `login-status-iframe.html` and `3p-cookies` paths) once 2FA enrolment
+  moves into the platform.
 - **Core API is wired (MAIR-554).** The APIs of `APIs.keycloakClientInstances`
   (`core-api`) get `KEYCLOAK_REALM_URL` (in-cluster
   `http://<release>-keycloak:8080/realms/<realm>`), `KEYCLOAK_ISSUER`
@@ -523,8 +566,8 @@ subchart renders, all named `<release>-keycloak*`:
   WebAuthn security key / passkey (ALTERNATIVE). Keycloak 26's built-in
   `browser` flow keeps WebAuthn DISABLED, hence the custom flow; importing it
   does not remove the built-in flows. Agents enrol from the account console
-  (`https://auth.<domain>/realms/<realm>/account`, already routed by
-  `/realms/`); nobody is forced to (no default `CONFIGURE_TOTP` action), and
+  (`https://auth.<domain>/realms/<realm>/account`, routed explicitly since
+  MAIR-610); nobody is forced to (no default `CONFIGURE_TOTP` action), and
   there is no SMS. `realm.otpPolicy` pins TOTP / HmacSHA1 / 6 digits / 30 s
   (what every authenticator app supports), codes are single-use. A realm
   imported before MAIR-572 gets the policy and the flow from
@@ -550,7 +593,7 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
               backup CronJob ─────────────────► keycloak-db   (MAIR-231)
               retention CronJob ──────────────► postgres      (MAIR-236)
 ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
-                bffs / apis ─► keycloak
+  core-api [+ compliance-api] ─► keycloak         (MAIR-610, by app.kubernetes.io/name)
                         apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
 ```
 
@@ -643,7 +686,8 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
 - `chainsaw/stack`: migration Job done, every Service has ready endpoints,
   no pod stuck or restarted.
 - `chainsaw/network-policies`: probe pods carrying each
-  `app.kubernetes.io/component` try every hop (`check-flows.sh`). A denied
+  `app.kubernetes.io/component` (plus `probe-core-api` / `probe-project-api`
+  with an `app.kubernetes.io/name`, MAIR-610) try every hop (`check-flows.sh`). A denied
   flow must *time out* (Cilium drops silently); a fast failure is reported
   as an error, so a broken Service can't pass as "deny".
 - `chainsaw/ingress` (MAIR-260): `run.sh` installs Traefik (versions read

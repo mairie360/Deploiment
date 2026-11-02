@@ -309,10 +309,45 @@ keycloak:
     # default 4k proxy buffer answers 502 "upstream sent too big header".
     annotations:
       nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
-    # Prefixes routed to Keycloak on auth.<domain> (MAIR-414). Everything
-    # else, the admin console (/admin) first, answers 404 from the ingress.
+    # Paths routed to Keycloak on auth.<domain> (MAIR-414, MAIR-610): only
+    # what a browser needs in the instance realm. Everything else answers 404
+    # from the ingress: the master realm (super-admin sign-in), any other
+    # realm, the admin console (/admin), and the realm's OIDC endpoints that
+    # only servers call (userinfo, discovery, certs, introspection...). Core
+    # (sign-in code exchange, JWKS) and compliance-api use the in-cluster
+    # Service instead (KEYCLOAK_REALM_URL / KEYCLOAK_TOKEN_URL).
+    # An entry is a string (Prefix) or {path, pathType: Exact|Prefix}; `path`
+    # goes through `tpl`. The render refuses a Prefix path without a trailing
+    # "/" (Traefik matches Prefix as a plain string prefix) and any path
+    # reaching another realm, /admin, /metrics, /health or `userinfo`
+    # ("mairie360.keycloakIngressPaths" in templates/_helpers.tpl).
     paths:
-      - /realms/
+      # Sign-in page of Login (MAIR-153) and of the account console.
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/auth'
+        pathType: Exact
+      # Code exchange of the account console, a public client running in the
+      # browser (PKCE). Login's own exchange is done by core-api in-cluster.
+      # Closes with the account console (MAIR-611).
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/token'
+        pathType: Exact
+      # Single sign-out (BFF_user, MAIR-143) and its confirmation page.
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/logout'
+        pathType: Exact
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/logout/'
+      # Session and third-party-cookie checks of keycloak-js (account console).
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/login-status-iframe.html'
+        pathType: Exact
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/login-status-iframe.html/'
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/3p-cookies/'
+      # Login form posts, required actions (OTP / WebAuthn enrolment), e-mail
+      # action links (password reset).
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/login-actions/'
+      # Account console (2FA enrolment MAIR-572, settings-front link MAIR-357)
+      # and its REST API. Public until MAIR-611 closes it.
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/account'
+        pathType: Exact
+      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/account/'
+      # Themes, scripts and translations of the pages above.
       - /resources/
 
 # Collector settings; switched on by global.observability.enabled above.

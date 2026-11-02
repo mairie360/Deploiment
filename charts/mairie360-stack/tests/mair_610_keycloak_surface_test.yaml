@@ -1,0 +1,211 @@
+# MAIR-610: auth.<domain> used to route all of /realms/ and the keycloak
+# NetworkPolicy admitted every bff and api pod. Now the Ingress only routes
+# what the browser needs in the instance realm, and only the ingress
+# controller plus the APIs that are a Keycloak client reach Keycloak.
+suite: "MAIR-610 Keycloak public surface"
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  # --- Ingress: routed paths, both controllers ---------------------------------
+
+  - it: "MAIR-610: nginx routes exactly the browser paths of the instance realm"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { global.ingressController: nginx }
+    asserts: &routed
+      - equal:
+          path: spec.rules[0].http.paths
+          value:
+            - { path: /realms/mairie360/protocol/openid-connect/auth, pathType: Exact, backend: &kc { service: { name: RELEASE-NAME-keycloak, port: { number: 8080 } } } }
+            - { path: /realms/mairie360/protocol/openid-connect/token, pathType: Exact, backend: *kc }
+            - { path: /realms/mairie360/protocol/openid-connect/logout, pathType: Exact, backend: *kc }
+            - { path: /realms/mairie360/protocol/openid-connect/logout/, pathType: Prefix, backend: *kc }
+            - { path: /realms/mairie360/protocol/openid-connect/login-status-iframe.html, pathType: Exact, backend: *kc }
+            - { path: /realms/mairie360/protocol/openid-connect/login-status-iframe.html/, pathType: Prefix, backend: *kc }
+            - { path: /realms/mairie360/protocol/openid-connect/3p-cookies/, pathType: Prefix, backend: *kc }
+            - { path: /realms/mairie360/login-actions/, pathType: Prefix, backend: *kc }
+            - { path: /realms/mairie360/account, pathType: Exact, backend: *kc }
+            - { path: /realms/mairie360/account/, pathType: Prefix, backend: *kc }
+            - { path: /resources/, pathType: Prefix, backend: *kc }
+
+  - it: "MAIR-610: traefik routes exactly the same paths"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { global.ingressController: traefik }
+    asserts: *routed
+
+  - it: "MAIR-610: every Prefix path ends with / so Traefik's string prefix cannot over-match"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { global.ingressController: traefik }
+    asserts:
+      # Each Prefix entry, by index, ends with "/".
+      - matchRegex: { path: 'spec.rules[0].http.paths[3].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[5].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[6].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[7].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[9].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[10].path', pattern: '/$' }
+
+  - it: "MAIR-610: the master realm, userinfo, discovery, certs, /admin, /metrics and /health are not routed"
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: '^/realms/master(/|$)' }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: 'userinfo' }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: 'well-known' }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: 'openid-connect/certs' }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: '^/(admin|metrics|health)' }
+      # No prefix above userinfo: /, /realms/, the realm, protocol/, openid-connect/.
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: '^/(realms/(mairie360/(protocol/(openid-connect/)?)?)?)?$' }
+
+  - it: "MAIR-610: the account console stays public (2FA enrolment MAIR-572, settings link MAIR-357)"
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /realms/mairie360/account
+            pathType: Exact
+            backend: { service: { name: RELEASE-NAME-keycloak, port: { number: 8080 } } }
+      - contains:
+          path: spec.rules[0].http.paths
+          content:
+            path: /realms/mairie360/account/
+            pathType: Prefix
+            backend: { service: { name: RELEASE-NAME-keycloak, port: { number: 8080 } } }
+
+  - it: "MAIR-610: the paths follow global.keycloak.realm"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { global.keycloak.realm: ville }
+    asserts:
+      - equal: { path: 'spec.rules[0].http.paths[0].path', value: /realms/ville/protocol/openid-connect/auth }
+      - equal: { path: 'spec.rules[0].http.paths[9].path', value: /realms/ville/account/ }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: '/realms/mairie360' }
+
+  - it: "MAIR-610: the render refuses to route the whole of /realms/ again"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/", "/resources/"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'is outside the instance realm|stays closed' }
+
+  - it: "MAIR-610: the render refuses the master realm"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: [{ path: /realms/master/account, pathType: Exact }] }
+    asserts:
+      - failedTemplate: { errorPattern: 'outside the instance realm' }
+
+  - it: "MAIR-610: the render refuses a prefix that covers userinfo"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/mairie360/protocol/"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'userinfo, which stays closed' }
+
+  - it: "MAIR-610: the render refuses userinfo itself"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: [{ path: /realms/mairie360/protocol/openid-connect/userinfo, pathType: Exact }] }
+    asserts:
+      - failedTemplate: { errorPattern: 'stays closed' }
+
+  - it: "MAIR-610: the render refuses /admin and the management endpoints"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/admin/"] }
+    asserts:
+      - failedTemplate: { errorPattern: '/admin, which stays closed' }
+
+  - it: "MAIR-610: the render refuses a Prefix path without a trailing slash"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/mairie360/account"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'must end with /' }
+
+  # --- NetworkPolicy -------------------------------------------------------------
+
+  - it: "MAIR-610: Keycloak admits the ingress controller, core-api and the helm test pod, nothing else"
+    templates: [templates/keycloak-network-policy.yaml]
+    set: { global.ingressController: nginx }
+    asserts:
+      - hasDocuments: { count: 1 }
+      # Same name as before MAIR-610: Argo CD replaces the old bff/api rule in place.
+      - equal: { path: metadata.name, value: RELEASE-NAME-keycloak-allow-from-ingress-and-apps }
+      - equal: { path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "-2" }
+      - equal:
+          path: spec.podSelector.matchLabels
+          value: { app.kubernetes.io/component: keycloak }
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+                - podSelector:
+                    matchLabels: { app.kubernetes.io/name: core-api, app.kubernetes.io/component: api }
+                - podSelector:
+                    matchLabels: { app.kubernetes.io/component: keycloak-test }
+              ports: [{ protocol: TCP, port: 8080 }]
+
+  - it: "MAIR-610: no BFF, no API by component alone, no front"
+    templates: [templates/keycloak-network-policy.yaml]
+    asserts:
+      - notMatchRegex:
+          path: 'spec.ingress[0].from[*].podSelector.matchLabels["app.kubernetes.io/component"]'
+          pattern: '^(bff|frontend)$'
+      - notContains:
+          path: spec.ingress[0].from
+          content: { podSelector: { matchLabels: { app.kubernetes.io/component: api } } }
+      - notContains:
+          path: spec.ingress[0].from
+          content: { podSelector: { matchLabels: { app.kubernetes.io/component: bff } } }
+
+  - it: "MAIR-610: compliance-api is admitted only when global.compliance is enabled"
+    templates: [templates/keycloak-network-policy.yaml]
+    set:
+      global.compliance.enabled: true
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels: { app.kubernetes.io/name: compliance-api, app.kubernetes.io/component: api }
+      - lengthEqual: { path: 'spec.ingress[0].from', count: 4 }
+
+  - it: "MAIR-610: compliance-api is not admitted while the compliance service is off"
+    templates: [templates/keycloak-network-policy.yaml]
+    asserts:
+      - lengthEqual: { path: 'spec.ingress[0].from', count: 3 }
+      - notMatchRegex:
+          path: 'spec.ingress[0].from[*].podSelector.matchLabels["app.kubernetes.io/name"]'
+          pattern: compliance-api
+
+  - it: "MAIR-610: the peers follow APIs.keycloakClientInstances"
+    templates: [templates/keycloak-network-policy.yaml]
+    set:
+      APIs.keycloakClientInstances: []
+    asserts:
+      - lengthEqual: { path: 'spec.ingress[0].from', count: 2 }
+      - notMatchRegex:
+          path: 'spec.ingress[0].from[*].podSelector.matchLabels["app.kubernetes.io/name"]'
+          pattern: core-api
+
+  - it: "MAIR-610: the selected labels are the ones core-api's pods carry"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.labels
+          content: { app.kubernetes.io/name: core-api, app.kubernetes.io/component: api }
+
+  - it: "MAIR-610: the helm test pod carries the admitted keycloak-test label, not bff"
+    templates: [charts/keycloak/templates/tests/test-realm.yaml]
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: keycloak-test
+
+  - it: "MAIR-610: no Keycloak policy without networkPolicy.enabled or keycloak.enabled"
+    templates: [templates/keycloak-network-policy.yaml]
+    set: { global.networkPolicy.enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: "MAIR-610: no Keycloak policy when Keycloak is off"
+    templates: [templates/keycloak-network-policy.yaml]
+    set: { keycloak.enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }

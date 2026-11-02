@@ -1,8 +1,9 @@
 {{- if .Values.enabled }}
 {{- /*
 `helm test`: the realm was imported and Keycloak advertises the public
-issuer. Labelled as a BFF, the only in-namespace component (with the APIs)
-the NetworkPolicy lets through to Keycloak.
+issuer. Its own component, `keycloak-test`, is the one in-namespace label the
+Keycloak NetworkPolicy admits besides the Keycloak-client APIs (MAIR-610,
+umbrella templates/keycloak-network-policy.yaml): a BFF label is refused.
 */ -}}
 apiVersion: v1
 kind: Pod
@@ -11,7 +12,7 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ include "keycloak.name" . }}-test
     app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/component: bff
+    app.kubernetes.io/component: keycloak-test
     helm.sh/chart: {{ include "keycloak.chart" . }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
