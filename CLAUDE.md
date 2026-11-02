@@ -798,9 +798,9 @@ and maintaining a parallel Kind topology is what produced the earlier
   staging values; that kubeconfig has no Secret read, so verify.sh skips its
   two plaintext checks there) and the approval of the `promote-prod` GitHub
   environment. It replaced the former `staging_verified` checkbox. Staging's
-  instance Application is synced by hand: sync it in Argo CD before promoting
-  to prod, or verify.sh checks the previous commit (not checked by the
-  workflow yet). `rollback: true` force-moves the branch back to an older
+  instance Application auto-syncs (MAIR-444) on Argo CD's next refresh:
+  check it is Synced at the promoted commit before promoting to prod, or
+  verify.sh checks the previous commit (not checked by the workflow yet). `rollback: true` force-moves the branch back to an older
   commit, without verification. **Never delete `staging` or `prod`
   (MAIR-745):** both were deleted on 2026-10-23, which left their Applications
   without a revision and made `Promote` refuse everything; they were recreated

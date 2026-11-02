@@ -137,10 +137,11 @@ Alternatives rejected:
 ### Not covered / follow-up
 
 - **The workflow does not check that staging actually runs the promoted
-  commit.** Staging's instance Application is synced by hand
-  (`deploiment_auto_sync_envs`), so right after a promotion to staging
-  `verify.sh` may vouch for the previous commit. Until then, sync staging in
-  Argo CD before promoting to prod. Checking that the live staging
+  commit.** Staging's instance Application syncs by itself since MAIR-444
+  (ansible `deploiment_auto_sync_envs`), but only on Argo CD's next refresh,
+  so right after a promotion to staging `verify.sh` may vouch for the
+  previous commit. Until then, check that staging is Synced at the promoted
+  commit in Argo CD before promoting to prod. Checking that the live staging
   Applications are Synced and Healthy at the promoted SHA is handled in a
   later epic on verifying prod promotions.
 
@@ -196,7 +197,7 @@ its branch, which must already contain it):
 1. Merge the Deploiment change. No cluster carries `mairie360.fr/revision`
    yet, so every bootstrap Application reads `main`; the rendered objects are
    unchanged.
-2. Promote it to staging (then sync staging), before the self-hosted runner
+2. Promote it to staging (staging syncs by itself), before the self-hosted runner
    exists. Promoting it to prod needs `verify-staging`, so that run waits for
    step 3; until then `prod` lacks `bootstrap/addons/`.
 3. Run the ansible side: runner registration, staging kubeconfig and RBAC,
