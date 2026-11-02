@@ -16,6 +16,19 @@ spec:
         # gRPC mode and its --applications-api flag are gone).
         config:
           log.level: info
+          # Git write-back (MAIR-444): dev bumps arrive as PRs on main, staging
+          # bumps as commits on the staging branch. The first line is the PR
+          # title and the squash commit: a Conventional `chore` releases
+          # nothing. .github/workflows/image-updater-automerge.yaml merges the
+          # dev PRs once CI passes.
+          git.user: argocd-image-updater
+          git.email: noreply@argoproj.io
+          git.commit-message-template: |
+            chore(deps): update {{ .AppName }} images
+
+            {{ range .AppChanges -}}
+            - {{ .Image }}: {{ .OldTag }} -> {{ .NewTag }}
+            {{ end -}}
           # Read access to GHCR, to list tags and their build dates
           # (newest-build strategy). argocd/ghcr-secret is written by ansible
           # (role k8s_argocd, from GHCR_USER / GHCR_TOKEN), never committed.
