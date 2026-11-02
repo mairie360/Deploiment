@@ -494,7 +494,10 @@ subchart renders, all named `<release>-keycloak*`:
   a plain string prefix, so `/realms/R/account` would also route
   `/realms/R/accountX`) and on any path reaching another realm, `/admin`,
   `/metrics`, `/health` or `userinfo`, or a prefix above them (`/realms/`,
-  `/realms/R/`, `.../openid-connect/`). Same Ingress for nginx and traefik.
+  `/realms/R/`, `.../openid-connect/`); inside the realm it also accepts only
+  the browser routes above with their exact pathType (`$realmRoutes`), so a
+  Prefix `.../token/` (introspection), `certs` or the discovery document fail
+  too. Same Ingress for nginx and traefik.
 - **Network (MAIR-610)**: `templates/keycloak-network-policy.yaml` (umbrella,
   same name as the subchart's former policy so Argo CD replaces it in place)
   admits on 8080 the ingress-controller namespace, the APIs of
@@ -526,7 +529,8 @@ subchart renders, all named `<release>-keycloak*`:
   served (from a `keycloak-test` pod), step 12b that a `bff` pod is refused,
   step 13 the `auth.` certificate, step 13b that the sign-in page and the
   account console answer while the master realm, `userinfo`, discovery,
-  `certs`, `/admin`, `/metrics` and `/health` are 404 (MAIR-414, MAIR-610),
+  `certs`, `/admin`, `/metrics` and `/health` are the ingress controller's own
+  404, not Keycloak's (MAIR-414, MAIR-610),
   step 15 that 8080/9000 are closed.
 - **Left for MAIR-609 / MAIR-611.** The realm administration console behind
   a Traefik ForwardAuth to core-api, an `Admin` composite role for it, then

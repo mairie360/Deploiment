@@ -70,12 +70,27 @@ The render fails on a path that would expose what MAIR-610 closed:
   super-admin sign-in), the admin console and REST API (/admin), the
   management endpoints (/metrics, /health: port 9000, never routed anyway) and
   the realm's `userinfo` endpoint, nor any Prefix path above one of them
-  ("/", "/realms/", "/realms/<realm>/", ".../openid-connect/").
+  ("/", "/realms/", "/realms/<realm>/", ".../openid-connect/");
+- any path inside the realm that is not one of the browser routes below, with
+  that exact pathType: a Prefix `.../token/` would route `token/introspect`,
+  an Exact `.../certs` the JWKS, and so on. Opening another realm path means
+  adding it to $realmRoutes here, on purpose, with its test.
 */}}
 {{- define "mairie360.keycloakIngressPaths" -}}
 {{- $realm := include "mairie360.keycloakRealm" . -}}
 {{- $realmPrefix := printf "/realms/%s/" $realm -}}
 {{- $closed := list "/admin" "/metrics" "/health" "/realms/master" (printf "%sprotocol/openid-connect/userinfo" $realmPrefix) -}}
+{{- $realmRoutes := dict
+  "protocol/openid-connect/auth" "Exact"
+  "protocol/openid-connect/token" "Exact"
+  "protocol/openid-connect/logout" "Exact"
+  "protocol/openid-connect/logout/" "Prefix"
+  "protocol/openid-connect/login-status-iframe.html" "Exact"
+  "protocol/openid-connect/login-status-iframe.html/" "Prefix"
+  "protocol/openid-connect/3p-cookies/" "Prefix"
+  "login-actions/" "Prefix"
+  "account" "Exact"
+  "account/" "Prefix" -}}
 {{- $paths := list -}}
 {{- range (required "keycloak.ingress.paths must list what auth.<domain> exposes" ((.Values.keycloak).ingress).paths) -}}
 {{- $entry := . -}}
@@ -99,6 +114,12 @@ The render fails on a path that would expose what MAIR-610 closed:
 {{- range $closed -}}
 {{- if or (hasPrefix . $path) (and (eq $type "Prefix") (hasPrefix $path .)) -}}
 {{- fail (printf "keycloak.ingress.paths: %q would route %s, which stays closed to the Internet (MAIR-414, MAIR-610)" $path .) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasPrefix $realmPrefix $path -}}
+{{- $route := trimPrefix $realmPrefix $path -}}
+{{- if ne (get $realmRoutes $route) $type -}}
+{{- fail (printf "keycloak.ingress.paths: %s %q is not one of the realm's browser routes (auth, token, logout, login-status-iframe.html, 3p-cookies/, login-actions/, account): token/introspect, certs and the other server-side endpoints stay closed (MAIR-610)" $type $path) -}}
 {{- end -}}
 {{- end -}}
 {{- $paths = append $paths (dict "path" $path "pathType" $type) -}}

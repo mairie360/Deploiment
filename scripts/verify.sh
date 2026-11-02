@@ -220,11 +220,13 @@ if [ -n "$DOMAIN" ]; then
     LOGIN_CALLBACK="https%3A%2F%2Flogin.${DOMAIN}%2Fapi%2Fauth%2Fkeycloak%2Fcallback"
     SIGN_IN="${REALM_URL}/protocol/openid-connect/auth?client_id=core-api&response_type=code&scope=openid&redirect_uri=${LOGIN_CALLBACK}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
     CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$SIGN_IN" || true)
-    [ "$CODE" = 200 ] && ok "realm sign-in page served ($CODE)" || ko "realm sign-in page: code $CODE"
+    case "$CODE" in 200|302|303) ok "realm sign-in page served ($CODE)" ;; *) ko "realm sign-in page: code $CODE" ;; esac
     CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${REALM_URL}/account/" || true)
     case "$CODE" in 200|302|303) ok "account console served ($CODE)" ;; *) ko "account console: code $CODE" ;; esac
-    # Not routed: 404 from the ingress controller itself (Keycloak would
-    # answer 200 / 401 on every one of them).
+    # Not routed: the 404 must come from the ingress controller itself, not
+    # from Keycloak (which answers 404 too on /metrics or /health when they
+    # reach port 8080). Traefik's body is "404 page not found", ingress-nginx's
+    # carries "<center>nginx</center>"; Keycloak's is neither.
     for path in \
       "/realms/master/protocol/openid-connect/auth?client_id=security-admin-console" \
       "/realms/master/.well-known/openid-configuration" \
@@ -235,8 +237,12 @@ if [ -n "$DOMAIN" ]; then
       "/admin/master/console/" \
       "/metrics" \
       "/health/ready"; do
-      CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${AUTH}${path}" || true)
-      [ "$CODE" = 404 ] && ok "${path%%\?*} not routed ($CODE)" || ko "${path%%\?*} reachable from the Internet: code $CODE"
+      OUT=$(curl -s -m 10 -w ' %{http_code}' "${AUTH}${path}" || true)
+      case "$OUT" in
+        "404 page not found"*" 404"|*"<center>nginx</center>"*" 404") ok "${path%%\?*} not routed (ingress 404)" ;;
+        *" 404") ko "${path%%\?*} reaches Keycloak (404 from Keycloak, not the ingress)" ;;
+        *) ko "${path%%\?*} reachable from the Internet: code ${OUT##* }" ;;
+      esac
     done
   else
     ok "keycloak not enabled for this instance"

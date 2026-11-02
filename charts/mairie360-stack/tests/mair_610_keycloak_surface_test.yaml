@@ -115,6 +115,36 @@ tests:
     asserts:
       - failedTemplate: { errorPattern: 'must end with /' }
 
+  - it: "MAIR-610: the render refuses a token/ prefix (would route token/introspect)"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/mairie360/protocol/openid-connect/token/"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'not one of the realm.s browser routes' }
+
+  - it: "MAIR-610: the render refuses token/introspect itself"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: [{ path: /realms/mairie360/protocol/openid-connect/token/introspect, pathType: Exact }] }
+    asserts:
+      - failedTemplate: { errorPattern: 'not one of the realm.s browser routes' }
+
+  - it: "MAIR-610: the render refuses the certs endpoint (JWKS)"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: [{ path: /realms/mairie360/protocol/openid-connect/certs, pathType: Exact }] }
+    asserts:
+      - failedTemplate: { errorPattern: 'not one of the realm.s browser routes' }
+
+  - it: "MAIR-610: the render refuses the discovery document"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/mairie360/.well-known/"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'not one of the realm.s browser routes' }
+
+  - it: "MAIR-610: a Prefix below an Exact-only route is refused (auth/)"
+    templates: [templates/keycloak-ingress.yaml]
+    set: { keycloak.ingress.paths: ["/realms/mairie360/protocol/openid-connect/auth/"] }
+    asserts:
+      - failedTemplate: { errorPattern: 'not one of the realm.s browser routes' }
+
   # --- NetworkPolicy -------------------------------------------------------------
 
   - it: "MAIR-610: Keycloak admits the ingress controller, core-api and the helm test pod, nothing else"
