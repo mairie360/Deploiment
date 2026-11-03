@@ -52,6 +52,22 @@ expect fail "ingress-nginx read outside bootstrap/" "$(mutate path appsets/ingre
 expect fail "an IP in cert-manager's values (MAIR-157)" "$(mutate ip addons/cert-manager/values.yaml \
   "s + '\n# dns01 resolver 51.15.0.1\n'")"
 
+expect fail "a front hostname in cert-manager's values (MAIR-157)" "$(mutate host addons/cert-manager/values.yaml \
+  "s + '\n  extraArgs: [--dns01-recursive-nameservers=login.example.org:53]\n'")"
+
+expect fail "an IPv6 address in cert-manager's AppSet (MAIR-157)" "$(mutate ipv6 appsets/cert-manager-appset.yaml \
+  "s + '\n# resolver 2001:db8::53\n'")"
+
+expect fail "an instance selector written with matchExpressions, pinned to main" "$(mutate expr appsets/cert-manager-appset.yaml \
+  "s.replace('          matchLabels:\n            mairie360.fr/role: instance\n', '          matchExpressions:\n            - key: mairie360.fr/role\n              operator: In\n              values: [instance]\n').replace(\"targetRevision: '{{ .values.revision }}'\", 'targetRevision: main')")"
+
+# An instance AppSet named *.yml is checked too.
+dir="$TMP/yml"; cp -r "$ROOT/bootstrap" "$dir"
+sed "s/targetRevision: '{{ .values.revision }}'/targetRevision: main/" \
+  "$dir/appsets/sealed-secrets-appset.yaml" > "$dir/appsets/sealed-secrets-appset.yml"
+rm "$dir/appsets/sealed-secrets-appset.yaml"
+expect fail "an instance AppSet named *.yml, pinned to main" "$dir"
+
 # The revision expression itself, evaluated with Helm's Go template + sprig
 # engine (Argo CD's goTemplate has the same `default`, `index`): the
 # annotation when present, `main` when the cluster has no annotation at all or
