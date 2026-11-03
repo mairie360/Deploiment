@@ -36,6 +36,16 @@ global:
       - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
       - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
   domain: "dev.mairie360-eip.fr"
+  # Session tokens signed by core-api alone (MAIR-680, audit A1). TODO
+  # (after scripts/seal-secrets.sh, or ansible playbooks/secrets.yml, sealed
+  # <release>-jwt-signing-secret on this machine): paste the PUBLIC KEY block
+  # it printed as publicKey, then turn signing on once every API and BFF image
+  # of dev verifies EdDSA. Empty = the services keep verifying the HS256
+  # tokens of JWT_SECRET only; the chart refuses signing without a public key.
+  jwt:
+    publicKey: ""
+    signing:
+      enabled: false
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
   # Must match the Argo CD cluster label mairie360.fr/ingress set by ansible

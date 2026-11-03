@@ -28,7 +28,8 @@
 #     ""           endpoints             get
 #     apps         deployments           get list watch
 #     batch        jobs                  get list
-#     batch        cronjobs              get
+#     batch        cronjobs              get list
+#     apps         statefulsets          list
 #     bitnami.com  sealedsecrets         get
 #   namespace kube-system
 #     apps         daemonsets            get list watch   resourceNames: cilium
@@ -37,8 +38,8 @@
 # `pods create` would let a pod mount any Secret of the namespace: ansible is
 # expected to pair it with an admission policy that only admits the probe
 # pods this script creates, i.e. name `verify-probe-*`, one container of
-# image curlimages/curl:8.10.1, no volumes, no env, no service account token
-# (see probe() below).
+# image curlimages/curl:8.10.1, no volumes, no env, no service account token,
+# no command, lifecycle hook nor probe (see probe() below).
 #
 # Network: steps 13-15 reach the instance's PUBLIC hostnames (443, 80 and a
 # port scan) from wherever the script runs; everything else goes through the
@@ -172,6 +173,34 @@ if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
   ko "plaintext JWT_SECRET found"
 else
   ok "no plaintext secret value"
+fi
+
+step 5b "MAIR-680: core-api alone gets the session signing key (JWT_PRIVATE_KEY)"
+# Every Deployment / StatefulSet / CronJob container (and init container)
+# that reads JWT_PRIVATE_KEY, as "<kind>/<name>"; only <env>-core-api may.
+# A CronJob's pod template sits under spec.jobTemplate.spec.template.
+# A refused or failed read is a FAIL, never an empty list read as "no signer".
+if SIGNERS="$($K get deploy,statefulset,cronjob -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{$t := .spec.template}}{{with .spec.jobTemplate}}{{$t = .spec.template}}{{end}}{{with $t}}{{range .spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}{{end}}')"; then
+  SIGNERS="$(printf '%s\n' "$SIGNERS" | sort -u)"
+  OTHERS="$(printf '%s\n' "$SIGNERS" | grep -v "^Deployment/${RELEASE}-core-api\$" | grep . || true)"
+  if [ -n "$OTHERS" ]; then
+    ko "JWT_PRIVATE_KEY reaches other workloads than core-api: $(echo $OTHERS)"
+  else
+    ok "no workload but core-api reads JWT_PRIVATE_KEY"
+  fi
+else
+  ko "cannot list the Deployments, StatefulSets and CronJobs (RBAC of this context?)"
+  SIGNERS=""
+fi
+if ! MANIFESTS="$($K get deploy,statefulset,cronjob -o yaml)"; then
+  ko "cannot read the workload manifests (RBAC of this context?)"
+elif printf '%s' "$MANIFESTS" | grep -q 'BEGIN PRIVATE KEY'; then
+  ko "a PEM private key is in clear in a workload manifest (global.jwt.publicKey?)"
+else
+  ok "no PEM private key in clear in the workload manifests"
+fi
+if [ -n "$SIGNERS" ] && ! $K get deploy "${RELEASE}-core-api" -o yaml 2>/dev/null | grep -q 'name: JWT_PUBLIC_KEY'; then
+  ko "core-api signs but has no JWT_PUBLIC_KEY (global.jwt.publicKey)"
 fi
 
 step 6 "Redis requires authentication"
