@@ -3,8 +3,10 @@
 # pair for the session tokens. The private key is sealed alone in
 # <env>-jwt-signing-secret (core-api only), generated when the cluster has
 # none and never replaced afterwards (not even by --rotate, not on a failed
-# read); the public half is printed for global.jwt.publicKey, never the
-# private key.
+# read, not while a sealed key waits for its sync), except by
+# --rotate-signing-key; the public half is printed for global.jwt.publicKey,
+# never the private key, and the private key never goes through kubectl's
+# command line.
 # kubectl and kubeseal are stubbed: `get secret` answers from $FAKE_CLUSTER
 # (one file per Secret key), `create secret` prints its literals base64-encoded
 # and kubeseal passes them through, so secrets.yaml shows what would be sealed.
@@ -24,6 +26,7 @@ printf 'global:\n  domain: "env.example"\n' > "$WORK/root/clusters/org/instances
 cat > "$WORK/bin/kubectl" <<'EOF'
 #!/usr/bin/env bash
 # get secret NAME [--ignore-not-found] -o jsonpath={.data.KEY}
+printf '%s\n' "$*" >> "$FAKE_CLUSTER.argv"
 if [ "${KUBECTL_FAIL:-}" = 1 ]; then echo "connection refused" >&2; exit 1; fi
 args=("$@"); name=""; key=""; ignore=0; create=0; literals=()
 for ((i = 0; i < ${#args[@]}; i++)); do
@@ -35,6 +38,7 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     --ignore-not-found) ignore=1 ;;
     jsonpath=*) key="${a#jsonpath=\{.data.}"; key="${key%\}}" ;;
     --from-literal=*) literals+=("${a#--from-literal=}") ;;
+    --from-file=*) f="${a#--from-file=}"; literals+=("${f%%=*}=$(cat "${f#*=}")") ;;
   esac
 done
 if [ "$create" = 1 ]; then
@@ -87,6 +91,22 @@ else
   ok "JWT_PRIVATE_KEY is only in the signing Secret"
 fi
 
+if grep -q 'PRIVATE KEY' "$WORK/cluster.argv"; then
+  fail "the private key is passed on kubectl's command line"
+else
+  ok "the private key never appears in kubectl's arguments"
+fi
+
+echo "== a second run before the sync keeps the pending sealed key"
+before="$(cat "$WORK/root/clusters/org/instances/env/secrets.yaml")"
+if run; then fail "seal-secrets.sh replaced a sealed key the cluster has not received"; else ok "seal-secrets.sh stops"; fi
+if grep -q 'has not received it yet' "$WORK/out"; then ok "says the pending secrets.yaml must be synced first"; else fail "no explanation: $(cat "$WORK/out")"; fi
+if [ "$(cat "$WORK/root/clusters/org/instances/env/secrets.yaml")" = "$before" ]; then
+  ok "secrets.yaml is left untouched"
+else
+  fail "the pending secrets.yaml was rewritten"
+fi
+
 echo "== re-run and --rotate: the key on the cluster is kept"
 mkdir -p "$WORK/cluster/env-jwt-signing-secret"
 printf '%s\n' "$key1" > "$WORK/cluster/env-jwt-signing-secret/JWT_PRIVATE_KEY"
@@ -94,6 +114,24 @@ for mode in "" --rotate; do
   if run $mode; then ok "seal-secrets.sh ${mode:-(no flag)} succeeds"; else fail "seal-secrets.sh $mode failed: $(cat "$WORK/out")"; fi
   if [ "$(sealed_private_key)" = "$key1" ]; then ok "${mode:-re-run}: same private key sealed again"; else fail "${mode:-re-run}: the signing key was replaced"; fi
 done
+
+echo "== --rotate-signing-key replaces the key and prints the two-step rollout"
+if run --rotate-signing-key; then ok "seal-secrets.sh --rotate-signing-key succeeds"; else fail "--rotate-signing-key failed: $(cat "$WORK/out")"; fi
+key2="$(sealed_private_key)"
+if [ -n "$key2" ] && [ "$key2" != "$key1" ] && printf '%s\n' "$key2" | openssl pkey -noout -text 2>/dev/null | grep -q ED25519; then
+  ok "a new Ed25519 key is sealed"
+else
+  fail "--rotate-signing-key did not seal a new Ed25519 key"
+fi
+pub2="$(printf '%s\n' "$key2" | openssl pkey -pubout 2>/dev/null)"
+if grep -qF -- "$(printf '%s\n' "$pub2" | sed -n 2p)" "$WORK/out" && grep -q 'Commit ONLY' "$WORK/out" && grep -q 'rollout restart' "$WORK/out"; then
+  ok "prints the new public key and the publish-first order"
+else
+  fail "rollout steps or new public key missing: $(cat "$WORK/out")"
+fi
+if grep -q 'PRIVATE KEY' "$WORK/out"; then fail "the private key leaks to the output"; else ok "the private key is never printed"; fi
+# Back to the key the cluster holds for the next checks.
+run
 
 echo "== the public key already in values.yaml is not asked again"
 { echo "  jwt:"; echo "    publicKey: |"; printf '%s\n' "$pub1" | sed 's/^/      /'; } >> "$WORK/root/clusters/org/instances/env/values.yaml"
