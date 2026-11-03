@@ -1,0 +1,51 @@
+{{- /*
+MAIR-680 (audit A1): session tokens signed by core-api alone.
+
+Render guards on global.jwt (the APIs and BFFs charts inject the keys):
+  - publicKey, when set, holds only `PUBLIC KEY` PEM blocks: a private key
+    pasted here would reach every API and BFF in clear;
+  - each block is a complete Ed25519 public key (SPKI prefix MCowBQYDK2VwAyEA,
+    32-byte key, END marker, each on its own line: PEM decoders need the
+    line breaks, so a YAML folded `>` value is refused too): a truncated
+    block or another key type would be
+    injected into every service as a key no token verifies against;
+  - signing.enabled needs publicKey: core-api (API_lib) refuses to start with
+    a JWT_PRIVATE_KEY no key of JWT_PUBLIC_KEY matches, and the other services
+    could not verify the tokens it signs.
+
+The signing Secret itself is a SealedSecret of secrets.yaml
+(scripts/seal-secrets.sh). Only the throwaway local cluster
+(secrets.create=true) gets it from secrets.jwtPrivateKey.
+*/ -}}
+{{- $jwt := .Values.global.jwt | default dict }}
+{{- $public := $jwt.publicKey | default "" | trim }}
+{{- $signing := ($jwt.signing | default dict) }}
+{{- if $public }}
+{{- if contains "PRIVATE KEY" $public }}
+{{- fail "global.jwt.publicKey holds a PRIVATE KEY: it is injected in clear into every API and BFF. Put the public half there (openssl pkey -pubout), the private key only in the sealed signing Secret (MAIR-680)" }}
+{{- end }}
+{{- if not (regexMatch "^-----BEGIN PUBLIC KEY-----" $public) }}
+{{- fail "global.jwt.publicKey must be PEM `-----BEGIN PUBLIC KEY-----` block(s), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
+{{- end }}
+{{- if not (regexMatch "^(-----BEGIN PUBLIC KEY-----\\r?\\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\\r?\\n-----END PUBLIC KEY-----\\s*)+$" $public) }}
+{{- fail "global.jwt.publicKey must hold complete Ed25519 `PUBLIC KEY` blocks (BEGIN line, one MCowBQYDK2VwAyEA… line, END line), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
+{{- end }}
+{{- end }}
+{{- if $signing.enabled }}
+{{- if not $public }}
+{{- fail "global.jwt.signing.enabled needs global.jwt.publicKey: every API and BFF must be able to verify what core-api signs (MAIR-680). Paste the public key printed by scripts/seal-secrets.sh" }}
+{{- end }}
+{{- if .Values.secrets.create }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ printf "%s-jwt-signing-secret" .Release.Name }}
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+type: Opaque
+stringData:
+  JWT_PRIVATE_KEY: {{ required "secrets.jwtPrivateKey is required with secrets.create=true and global.jwt.signing.enabled" .Values.secrets.jwtPrivateKey | quote }}
+{{- end }}
+{{- end }}
