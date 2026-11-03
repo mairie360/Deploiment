@@ -198,6 +198,14 @@ tests:
       - failedTemplate:
           errorPattern: "complete Ed25519"
 
+  - it: "MAIR-680: a folded block (markers and body on one line) fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY----- MCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4= -----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
   - it: "MAIR-680: a truncated Ed25519 block fails the render"
     set:
       global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmnts\n-----END PUBLIC KEY-----\n"

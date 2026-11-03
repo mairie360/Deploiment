@@ -7,7 +7,9 @@ Render guards on global.jwt (the APIs and BFFs charts inject the keys):
   - publicKey, when set, holds only `PUBLIC KEY` PEM blocks: a private key
     pasted here would reach every API and BFF in clear;
   - each block is a complete Ed25519 public key (SPKI prefix MCowBQYDK2VwAyEA,
-    32-byte key, END marker): a truncated block or another key type would be
+    32-byte key, END marker, each on its own line: PEM decoders need the
+    line breaks, so a YAML folded `>` value is refused too): a truncated
+    block or another key type would be
     injected into every service as a key no token verifies against;
   - signing.enabled needs publicKey: core-api (API_lib) refuses to start with
     a JWT_PRIVATE_KEY no key of JWT_PUBLIC_KEY matches, and the other services
@@ -38,7 +40,7 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- if not (regexMatch "^-----BEGIN PUBLIC KEY-----" $public) }}
 {{- fail "global.jwt.publicKey must be PEM `-----BEGIN PUBLIC KEY-----` block(s), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
 {{- end }}
-{{- if not (regexMatch "^(-----BEGIN PUBLIC KEY-----\\s+MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\\s+-----END PUBLIC KEY-----\\s*)+$" $public) }}
+{{- if not (regexMatch "^(-----BEGIN PUBLIC KEY-----\\r?\\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\\r?\\n-----END PUBLIC KEY-----\\s*)+$" $public) }}
 {{- fail "global.jwt.publicKey must hold complete Ed25519 `PUBLIC KEY` blocks (BEGIN line, one MCowBQYDK2VwAyEA… line, END line), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
 {{- end }}
 {{- end }}
