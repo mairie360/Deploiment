@@ -70,6 +70,15 @@ signs with the public key(s) of global.jwt.publicKey (bffs-lib
   value: {{ . | quote }}
 {{- end }}
 {{- /*
+MAIR-680 (audit A1): every BFF verifies the EdDSA session tokens core-api
+signs with the public key(s) of global.jwt.publicKey (bffs-lib
+`requireSession`). A BFF never gets JWT_PRIVATE_KEY: it cannot sign.
+*/}}
+{{- with ((($.root.Values.global).jwt).publicKey | default "" | trim) }}
+- name: JWT_PUBLIC_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- /*
 MAIR-531: each BFF gets its own Redis ACL account (charts/redis, prefix
 `<bff>:*`), wired ahead of the bffs-lib Redis client (MAIR-499); no BFF reads
 it yet. Same shape as the APIs: REDIS_URL is expanded from the variables above
