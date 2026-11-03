@@ -105,7 +105,8 @@ fi
 step 5b "MAIR-680: core-api alone gets the session signing key (JWT_PRIVATE_KEY)"
 # Every Deployment / StatefulSet / CronJob container (and init container)
 # that reads JWT_PRIVATE_KEY, as "<kind>/<name>"; only <env>-core-api may.
-SIGNERS="$($K get deploy,statefulset -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{range .spec.template.spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.template.spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null | sort -u)"
+# A CronJob's pod template sits under spec.jobTemplate.spec.template.
+SIGNERS="$($K get deploy,statefulset,cronjob -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{$t := .spec.template}}{{with .spec.jobTemplate}}{{$t = .spec.template}}{{end}}{{with $t}}{{range .spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null | sort -u)"
 OTHERS="$(printf '%s\n' "$SIGNERS" | grep -v "^Deployment/${RELEASE}-core-api\$" | grep . || true)"
 if [ -n "$OTHERS" ]; then
   ko "JWT_PRIVATE_KEY reaches other workloads than core-api: $(echo $OTHERS)"

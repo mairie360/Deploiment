@@ -330,7 +330,7 @@ templates/jwt-session-keys.yaml (umbrella) guards both values.
 - name: JWT_PRIVATE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ ($jwt.signing).secretName | default (printf "%s-jwt-signing-secret" .root.Release.Name) }}
+      name: {{ printf "%s-jwt-signing-secret" .root.Release.Name }}
       key: JWT_PRIVATE_KEY
 {{- end }}
 {{- end -}}

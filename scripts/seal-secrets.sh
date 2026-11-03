@@ -2,7 +2,7 @@
 # =============================================================================
 # Génère les SealedSecret d'une instance.
 #
-#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate | --rotate-roles]
+#   ./scripts/seal-secrets.sh <contexte-kube> <org> <env> [--rotate | --rotate-roles | --rotate-signing-key]
 #
 # Normally run by ansible (playbooks/secrets.yml, role k8s_instance_secrets),
 # on the group's Argo CD machine: it is the only one that reaches the instance
@@ -90,7 +90,14 @@
 # has none, and NEVER replaced afterwards, not even by --rotate: a new key
 # signs tokens nobody verifies until its public half is published to every
 # service. A failed read of that Secret stops the script instead of
-# generating a new key. The public half (`openssl pkey -pubout`) is not a
+# generating a new key, and so does a secrets.yaml that already seals one the
+# cluster has not received yet (a second run before the sync would otherwise
+# replace a key whose public half may already be in values.yaml).
+# --rotate-signing-key is the only way to replace it: it generates a new key
+# without reading the cluster (no SealedSecret to delete, so the controller
+# cannot bring the old Secret back) and keeps every other secret. Roll it out
+# in two steps, printed at the end: publish both public keys first, then the
+# new secrets.yaml. The public half (`openssl pkey -pubout`) is not a
 # secret: it is printed at the end, to paste as global.jwt.publicKey in the
 # instance's values.yaml (plain config every API and BFF gets as
 # JWT_PUBLIC_KEY), unless that file already carries it.
@@ -143,7 +150,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/secret-values.sh
 . "$(dirname "$0")/lib/secret-values.sh"
 
-CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles]}"
+CTX="${1:?usage: $0 <contexte-kube> <org> <env> [--rotate | --rotate-roles | --rotate-signing-key]}"
 ORG="${2:?}"
 ENV="${3:?}"
 ROTATE="${4:-}"
@@ -417,17 +424,30 @@ fi
 
 # MAIR-680: session signing key of core-api. Unlike prev(), a kubectl error
 # is fatal here: reading "absent" by mistake would replace the key.
-JWTPRIV="$(kubectl --context "$CTX" -n "$NS" get secret "${RELEASE}-jwt-signing-secret" \
-  --ignore-not-found -o jsonpath='{.data.JWT_PRIVATE_KEY}')" || {
-  echo "cannot read ${RELEASE}-jwt-signing-secret on ${CTX}: stopping before a new signing key replaces it" >&2
-  exit 1
-}
+JWTPRIV=""
+if [ "$ROTATE" != "--rotate-signing-key" ]; then
+  JWTPRIV="$(kubectl --context "$CTX" -n "$NS" get secret "${RELEASE}-jwt-signing-secret" \
+    --ignore-not-found -o jsonpath='{.data.JWT_PRIVATE_KEY}')" || {
+    echo "cannot read ${RELEASE}-jwt-signing-secret on ${CTX}: stopping before a new signing key replaces it" >&2
+    exit 1
+  }
+  if [ -z "$JWTPRIV" ] && grep -qE "name: ${RELEASE}-jwt-signing-secret[[:space:]]*\$" "$OUT" 2>/dev/null; then
+    echo "$OUT already seals ${RELEASE}-jwt-signing-secret but ${CTX} has not received it yet:" >&2
+    echo "commit and sync that secrets.yaml first (a new key would not match the public key it goes with)." >&2
+    echo "If that sealed key is lost on purpose, run with --rotate-signing-key." >&2
+    exit 1
+  fi
+fi
 if [ -n "$JWTPRIV" ]; then
   JWTPRIV="$(printf '%s' "$JWTPRIV" | base64 -d)"
   echo "  JWT_PRIVATE_KEY  : kept from cluster (never rotated)"
 else
   JWTPRIV="$(openssl genpkey -algorithm ed25519)"
-  echo "  JWT_PRIVATE_KEY  : generated (Ed25519)"
+  if [ "$ROTATE" = "--rotate-signing-key" ]; then
+    echo "  JWT_PRIVATE_KEY  : NEW key generated (--rotate-signing-key)"
+  else
+    echo "  JWT_PRIVATE_KEY  : generated (Ed25519)"
+  fi
 fi
 JWTPUB="$(printf '%s\n' "$JWTPRIV" | openssl pkey -pubout)" || {
   echo "${RELEASE}-jwt-signing-secret holds no usable private key: fix or delete it by hand" >&2
@@ -454,10 +474,14 @@ kubectl create secret generic "${RELEASE}-app-secrets" \
   --from-literal=S3_SECRET_KEY="$S3SK" \
   --dry-run=client -o yaml | seal > "$TMP/app.yaml"
 
+# From a mode-600 file, not --from-literal: the signing key never appears in
+# kubectl's command line (readable by any local user in /proc).
+( umask 077; printf '%s\n' "$JWTPRIV" > "$TMP/jwt-private-key.pem" )
 kubectl create secret generic "${RELEASE}-jwt-signing-secret" \
   --namespace "$NS" \
-  --from-literal=JWT_PRIVATE_KEY="$JWTPRIV" \
+  --from-file=JWT_PRIVATE_KEY="$TMP/jwt-private-key.pem" \
   --dry-run=client -o yaml | seal > "$TMP/jwt-signing.yaml"
+rm -f "$TMP/jwt-private-key.pem"
 
 kubectl create secret generic "${RELEASE}-database-secret" \
   --namespace "$NS" "${db_args[@]}" \
@@ -534,6 +558,8 @@ mkdir -p "$(dirname "$OUT")"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Faire tourner tous les secrets :"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate"
+  echo "# Replace the session signing key (MAIR-680, two-step rollout printed by the script):"
+  echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate-signing-key"
   echo "# Rotate only the API Postgres role passwords (applied by the next Liquibase sync):"
   echo "#   ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV} --rotate-roles"
   echo "# Change the Resend API key (SMTP_PASSWORD of core-api):"
@@ -561,7 +587,18 @@ echo
 echo "Écrit : $OUT"
 # MAIR-680: the public half, compared on its base64 line (one line for Ed25519).
 VALUES="clusters/${ORG}/instances/${ENV}/values.yaml"
-if grep -qF -- "$(printf '%s\n' "$JWTPUB" | sed -n 2p)" "$VALUES" 2>/dev/null; then
+if [ "$ROTATE" = "--rotate-signing-key" ]; then
+  echo
+  echo "Session signing key REPLACED (MAIR-680). Roll it out in this order, or users get 401s:"
+  echo "  1. Commit ONLY $VALUES first, with global.jwt.publicKey listing the"
+  echo "     current block AND this new one; sync, then wait until every API and BFF has"
+  echo "     restarted with it (kubectl -n $NS rollout status deploy)."
+  echo "  2. Then commit $OUT and sync; restart core-api"
+  echo "     (kubectl -n $NS rollout restart deploy/${RELEASE}-core-api): it signs with the new key."
+  echo "  3. After JWT_TIMEOUT, drop the old block from global.jwt.publicKey."
+  echo "New public key:"
+  printf '%s\n' "$JWTPUB" | sed 's/^/      /'
+elif grep -qF -- "$(printf '%s\n' "$JWTPUB" | sed -n 2p)" "$VALUES" 2>/dev/null; then
   echo "Session public key (JWT_PUBLIC_KEY): already in $VALUES"
 else
   echo

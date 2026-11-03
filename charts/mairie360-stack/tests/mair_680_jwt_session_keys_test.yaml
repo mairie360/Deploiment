@@ -92,21 +92,6 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
 
-  - it: "MAIR-680: signing.secretName renames the signing Secret core-api reads"
-    set:
-      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
-      global.jwt.signing.enabled: true
-      global.jwt.signing.secretName: other-signing
-    templates: [charts/APIs/templates/deployment.yaml]
-    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWT_PRIVATE_KEY
-            valueFrom:
-              secretKeyRef: { name: other-signing, key: JWT_PRIVATE_KEY }
-
   - it: "MAIR-680: with signing on, no BFF gets JWT_PRIVATE_KEY"
     set:
       global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
@@ -204,6 +189,38 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "must be PEM"
+
+  - it: "MAIR-680: a PUBLIC KEY block without body or END marker fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: a truncated Ed25519 block fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmnts\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: a non-Ed25519 public key (EC P-256) fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQ8dpo4X0GJ3T7jlMmmfLsG6ObIaR\nv0Ah0zSuzBiKZ4ZqGGr7uIfBxaz3vtwCfkuoAmmFy+R8xUwq+Hs4+9TN7w==\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: two complete Ed25519 blocks (rotation) render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/KSQpOSkcSoT/6RwUcX2vADZ3lUwmDlZRY+4M4J9J4I=\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: "MAIR-680: no signing Secret is created in clear on a real instance"
     set:

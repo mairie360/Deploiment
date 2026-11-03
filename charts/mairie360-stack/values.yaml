@@ -162,9 +162,10 @@ global:
       # tokens. Turn on only once EVERY API and BFF of the instance runs an
       # image that verifies EdDSA (API_lib / bffs-lib MAIR-680): an older one
       # refuses every session signed after the switch. Requires publicKey.
+      # The private key is read from <release>-jwt-signing-secret (key
+      # JWT_PRIVATE_KEY), the name scripts/seal-secrets.sh seals: no override,
+      # so the chart and the provisioning cannot disagree.
       enabled: false
-      # Secret holding JWT_PRIVATE_KEY (PEM). Default <release>-jwt-signing-secret.
-      secretName: ""
 
   database:
     # Nom du Secret Postgres (clés POSTGRES_USER / POSTGRES_PASSWORD /

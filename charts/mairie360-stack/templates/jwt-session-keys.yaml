@@ -6,6 +6,9 @@ Render guards on global.jwt (the APIs and BFFs charts inject the keys):
     any service verifies a session;
   - publicKey, when set, holds only `PUBLIC KEY` PEM blocks: a private key
     pasted here would reach every API and BFF in clear;
+  - each block is a complete Ed25519 public key (SPKI prefix MCowBQYDK2VwAyEA,
+    32-byte key, END marker): a truncated block or another key type would be
+    injected into every service as a key no token verifies against;
   - signing.enabled needs publicKey: core-api (API_lib) refuses to start with
     a JWT_PRIVATE_KEY no key of JWT_PUBLIC_KEY matches, and the other services
     could not verify the tokens it signs.
@@ -35,6 +38,9 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- if not (regexMatch "^-----BEGIN PUBLIC KEY-----" $public) }}
 {{- fail "global.jwt.publicKey must be PEM `-----BEGIN PUBLIC KEY-----` block(s), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
 {{- end }}
+{{- if not (regexMatch "^(-----BEGIN PUBLIC KEY-----\\s+MCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\\s+-----END PUBLIC KEY-----\\s*)+$" $public) }}
+{{- fail "global.jwt.publicKey must hold complete Ed25519 `PUBLIC KEY` blocks (BEGIN line, one MCowBQYDK2VwAyEA… line, END line), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
+{{- end }}
 {{- end }}
 {{- if $signing.enabled }}
 {{- $services := 0 }}
@@ -52,7 +58,7 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ $signing.secretName | default (printf "%s-jwt-signing-secret" .Release.Name) }}
+  name: {{ printf "%s-jwt-signing-secret" .Release.Name }}
   labels:
     {{- include "mairie360.labels" . | nindent 4 }}
   annotations:

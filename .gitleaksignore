@@ -1,0 +1,10 @@
+# Gitleaks findings accepted after review (one fingerprint per line:
+# <commit>:<file>:<rule>:<line>). The secret-scan job reads this file from the
+# base of the pull request, so an entry only takes effect once merged on main
+# (MAIR-677). Never list a real secret here: rotate it instead.
+#
+# MAIR-680: placeholder PEM blocks ("not-a-key", "test-only", no key material)
+# of the first version of the session key chart tests; removed by 7fcee50.
+dab27da5158ef461dcbf7c6b4517254ae4017e09:charts/mairie360-stack/tests/mair_680_jwt_session_keys_test.yaml:private-key:192
+dab27da5158ef461dcbf7c6b4517254ae4017e09:charts/mairie360-stack/tests/mair_680_jwt_session_keys_test.yaml:private-key:222
+dab27da5158ef461dcbf7c6b4517254ae4017e09:charts/mairie360-stack/tests/mair_680_jwt_session_keys_test.yaml:private-key:234

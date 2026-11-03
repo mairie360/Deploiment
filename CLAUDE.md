@@ -285,8 +285,8 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   enabled, since `JWT_SECRET` is gone). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
   (`<release>-jwt-signing-secret`, sealed) to the instance named `core-api`
   and to nothing else; `templates/jwt-session-keys.yaml` fails the render
-  when signing is on without a public key, or when `publicKey` is not PEM or
-  holds a `PRIVATE KEY`. **`JWT_SECRET` is removed** from every service and
+  when signing is on without a public key, or when `publicKey` is not made of
+  complete Ed25519 `PUBLIC KEY` blocks or holds a `PRIVATE KEY`. **`JWT_SECRET` is removed** from every service and
   from what `seal-secrets.sh` seals (an older `secrets.yaml` still carries
   the key, unused, until its next re-seal). `scripts/seal-secrets.sh` generates the pair once
   per instance (`openssl genpkey -algorithm ed25519`), seals the private key,
@@ -901,13 +901,23 @@ and maintaining a parallel Kind topology is what produced the earlier
   `scripts/verify.sh` step 4 flags them on the cluster.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
-- **The session signing key is never rotated by `seal-secrets.sh` (MAIR-680).**
-  A new private key signs tokens nobody verifies. To rotate: delete
-  `<release>-jwt-signing-secret` on the cluster (pods keep the key they
-  started with), re-run the script, commit the new `secrets.yaml` together
-  with a `global.jwt.publicKey` listing **both** blocks, then drop the old
-  block after `JWT_TIMEOUT`. core-api refuses to start when its private key
-  matches no block of `JWT_PUBLIC_KEY`.
+- **The session signing key is only replaced by `--rotate-signing-key`
+  (MAIR-680).** A plain run or `--rotate` keeps it, and a run while the
+  committed `secrets.yaml` seals a key the cluster has not received yet stops
+  (a second key would not match the public key already pasted). Do not delete
+  `<release>-jwt-signing-secret` to rotate: its SealedSecret is still in git
+  and the controller brings the old Secret back. `--rotate-signing-key`
+  generates the new key without reading the cluster, then the rollout is two
+  commits, in this order (one commit does not order the restarts, and a
+  core-api signing before the verifiers know the key logs users out):
+  1. `values.yaml` only, `global.jwt.publicKey` listing the current **and**
+     the new block; sync, wait for every API and BFF rollout;
+  2. the new `secrets.yaml`; sync, `kubectl rollout restart` core-api (env
+     from `secretKeyRef` is read at start only);
+  3. after `JWT_TIMEOUT`, drop the old block.
+  core-api refuses to start when its private key matches no block of
+  `JWT_PUBLIC_KEY`. The chart has no override of the Secret name: it is
+  always `<release>-jwt-signing-secret`, the one the script seals.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
   too**, same as `POSTGRES_PASSWORD`/ACL passwords — but restic
   derives its master key from that one password, and nothing here runs the
