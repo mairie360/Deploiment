@@ -102,7 +102,10 @@ spec:
               value: {{ printf "https://%s" (include "keycloak.hostname" .) | quote }}
             # MAIR-414: the admin console lives on another address than the
             # public one, which the Ingress does not route (/admin).
-            {{- with .Values.adminUrl }}
+            # MAIR-610: unless the umbrella opens the realm console on the
+            # public host behind core-api's ForwardAuth (Traefik only).
+            {{- $publicConsole := and (((.Values.global).keycloak).consoleAccess).enabled (eq ((.Values.global).ingressController | default "nginx") "traefik") }}
+            {{- with (ternary "" .Values.adminUrl $publicConsole) }}
             - name: KC_HOSTNAME_ADMIN
               value: {{ . | quote }}
             {{- end }}

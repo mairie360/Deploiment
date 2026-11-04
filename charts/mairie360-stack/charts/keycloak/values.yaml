@@ -44,8 +44,11 @@ admin:
 # (umbrella `keycloak.ingress.paths`, MAIR-610), so the console is reached
 # through a tunnel:
 #   kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080
-# then http://localhost:8080/admin/. "" = the public hostname (only useful if
-# /admin is routed again).
+# then http://localhost:8080/admin/. "" = the public hostname.
+# Ignored when the umbrella opens the realm console publicly
+# (`keycloak.consoleAccess`, Traefik only, MAIR-610): the console then lives on
+# the public hostname, so no KC_HOSTNAME_ADMIN is set, and the master realm is
+# administered with kcadm in the pod (scripts/keycloak-*.sh).
 adminUrl: "http://localhost:8080"
 
 # Secret <release>-keycloak-secret:
@@ -76,7 +79,15 @@ realm:
   # `roles` (v1.0.0/03__init_roles.sql), so an account keeps the same role
   # names on both sides once MAIR-141 migrates users.
   roles:
-    - { name: "Admin", description: "System administrator" }
+    # MAIR-610: a town hall Admin administers the users of the realm from
+    # Keycloak's console (opened through core-api's temporary link, umbrella
+    # `keycloak.consoleAccess`). `clientComposites` maps a client to the
+    # roles of it the realm role includes; nothing on the realm settings,
+    # clients or flows (no manage-realm / manage-clients).
+    - name: "Admin"
+      description: "System administrator"
+      clientComposites:
+        realm-management: ["manage-users", "view-users", "query-users", "query-groups", "view-events"]
     - { name: "Maire", description: "Mayor" }
     - { name: "Responsable", description: "Head of department" }
     - { name: "User", description: "Standard user" }

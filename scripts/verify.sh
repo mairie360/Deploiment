@@ -332,6 +332,8 @@ if [ -n "$DOMAIN" ]; then
       "/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
       "/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs" \
       "/admin/master/console/" \
+      "/admin/realms/master" \
+      "/admin/realms/${KEYCLOAK_REALM}x/users" \
       "/metrics" \
       "/health/ready"; do
       OUT=$(curl -s -m 10 -w ' %{http_code}' "${AUTH}${path}" || true)
@@ -341,6 +343,27 @@ if [ -n "$DOMAIN" ]; then
         *) ko "${path%%\?*} reachable from the Internet: code ${OUT##* }" ;;
       esac
     done
+
+    # MAIR-609/MAIR-610: the realm's console, when the instance publishes it
+    # (global.keycloak.consoleAccess, Traefik), sits behind core-api's
+    # ForwardAuth: without the cookie of a temporary link, core-api answers
+    # 401 and Keycloak is never reached. Not published: the ingress's 404.
+    # A bogus link is refused by core-api itself.
+    step 13c "MAIR-609/MAIR-610: the realm's admin console needs core-api's temporary access"
+    for path in "/admin/${KEYCLOAK_REALM}/console/" "/admin/realms/${KEYCLOAK_REALM}/users"; do
+      OUT=$(curl -s -m 10 -w ' %{http_code}' "${AUTH}${path}" || true)
+      case "$OUT" in
+        "404 page not found"*" 404"|*"<center>nginx</center>"*" 404") ok "${path}: console not published on this instance (ingress 404)" ;;
+        *" 401") ok "${path}: refused without the console cookie (401)" ;;
+        *) ko "${path}: code ${OUT##* } without the console cookie, expected 401 or the ingress 404" ;;
+      esac
+    done
+    OUT=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "${AUTH}/admin-access?token=not-a-link" || true)
+    case "$OUT" in
+      401) ok "/admin-access refuses a bogus link (401)" ;;
+      404) ok "/admin-access not published on this instance (404)" ;;
+      *) ko "/admin-access?token=not-a-link: code ${OUT}, expected 401" ;;
+    esac
   else
     ok "keycloak not enabled for this instance"
   fi

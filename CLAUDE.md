@@ -499,7 +499,9 @@ subchart renders, all named `<release>-keycloak*`:
   the Ingress routes only `keycloak.ingress.paths` (see **Public surface**
   below), and `KC_HOSTNAME_ADMIN` (`keycloak.adminUrl`,
   `http://localhost:8080`) serves it through
-  `kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080`. Image pinned (`quay.io/keycloak/keycloak:26.x`): an
+  `kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080`,
+  unless the instance publishes the realm's console behind core-api
+  (**Realm console**, MAIR-610, below). Image pinned (`quay.io/keycloak/keycloak:26.x`): an
   upgrade migrates Keycloak's schema and cannot be rolled back.
 - **`<release>-keycloak-db`**: its own PostgreSQL StatefulSet (stock
   `postgres:17-alpine`, uid 70) + headless and client Services. Deliberately
@@ -589,13 +591,44 @@ subchart renders, all named `<release>-keycloak*`:
   step 13 the `auth.` certificate, step 13b that the sign-in page and the
   account console answer while the master realm, `userinfo`, discovery,
   `certs`, `/admin`, `/metrics` and `/health` are the ingress controller's own
-  404, not Keycloak's (MAIR-414, MAIR-610),
+  404, not Keycloak's (MAIR-414, MAIR-610), step 13c that the realm console
+  answers 401 without core-api's cookie (or the ingress 404 when not
+  published) and `/admin-access` refuses a bogus link (MAIR-609),
   step 15 that 8080/9000 are closed.
-- **Left for MAIR-609 / MAIR-611.** The realm administration console behind
-  a Traefik ForwardAuth to core-api, an `Admin` composite role for it, then
-  closing the account console (and with it the public `token`,
-  `login-status-iframe.html` and `3p-cookies` paths) once 2FA enrolment
-  moves into the platform.
+- **Realm console (MAIR-609 / MAIR-610), `global.keycloak.consoleAccess.enabled`
+  (off by default, on for dev; Traefik only).** `templates/keycloak-console.yaml`
+  publishes the console of the instance realm on `auth.<domain>` behind a
+  Traefik ForwardAuth Middleware (`<fullname>-keycloak-console-auth`) that
+  asks core-api `GET /internal/keycloak-console/verify` with the `Cookie`
+  header only: Ingress `<fullname>-keycloak-console` routes Prefix
+  `/admin/R/console/`, Exact `/admin/realms/R`, Prefix `/admin/realms/R/`,
+  Exact `/admin/realms` and `/admin/serverinfo` (to confirm against the
+  console's calls on dev), and Ingress `<fullname>-keycloak-console-access`
+  routes Exact `/admin-access` to core-api (no ForwardAuth: core-api checks
+  the signed single-use link itself, then sets the HttpOnly
+  `__Secure-mairie360-kc-console` cookie, Path=/admin, 30 min). The journey:
+  an Admin asks BFF_user `POST /admin/keycloak/console-access` → link valid
+  120 s → `/admin-access` → cookie → `/admin/R/console/` → Keycloak's own
+  sign-in in the realm. Both Ingresses reuse `<fullname>-keycloak-tls`
+  without the cluster-issuer annotation (one Certificate per Secret).
+  `<release>-core-api-allow-from-ingress` admits the ingress namespace on
+  core-api's 3000. On, Keycloak gets no `KC_HOSTNAME_ADMIN` (the console
+  lives on the public host): the **master realm's console is then out of
+  reach, administer it with `kcadm` in the pod** (`scripts/keycloak-*.sh`).
+  nginx instances render none of it and keep `adminUrl` (fail closed). The
+  realm role `Admin` is a composite of `realm-management` `manage-users`,
+  `view-users`, `query-users`, `query-groups`, `view-events`
+  (`keycloak.realm.roles[].clientComposites`), nothing realm-wide; a realm
+  imported before MAIR-610 gets it from
+  `scripts/keycloak-admin-role.sh <context> <env>` (idempotent, additive,
+  reads the synced realm ConfigMap). Needs a core-api image with MAIR-609
+  (an older one answers 404 on both routes: closed). Tests:
+  `tests/mair_610_keycloak_console_test.yaml`,
+  `tests/scripts/mair_610_keycloak_admin_role_test.sh`, `scripts/verify.sh`
+  step 13c.
+- **Left for MAIR-611.** Closing the account console (and with it the public
+  `token`, `login-status-iframe.html` and `3p-cookies` paths) once 2FA
+  enrolment moves into the platform.
 - **Core API is wired (MAIR-554).** The APIs of `APIs.keycloakClientInstances`
   (`core-api`) get `KEYCLOAK_REALM_URL` (in-cluster
   `http://<release>-keycloak:8080/realms/<realm>`), `KEYCLOAK_ISSUER`
@@ -657,6 +690,7 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
               retention CronJob ──────────────► postgres      (MAIR-236)
 ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
   core-api [+ compliance-api] ─► keycloak         (MAIR-610, by app.kubernetes.io/name)
+ingress-controller ─► core-api :3000             (MAIR-610, /admin-access + ForwardAuth, consoleAccess only)
                         apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
 ```
 
@@ -913,7 +947,8 @@ and maintaining a parallel Kind topology is what produced the earlier
   skips the import): change it in the admin console, or delete the realm and
   restart the pod. Same for the bootstrap admin password: sealed value read
   on the first start only. Its admin console is only reachable through a
-  port-forward (MAIR-414, see the Keycloak section).
+  port-forward (MAIR-414, see the Keycloak section), or, for the instance
+  realm, behind core-api's temporary access (MAIR-610).
 - **`maxSurge: 0` with `replicaCount: 1` means downtime on every deploy** (old
   pod killed before the new one is ready). Deliberate on a small VM; it is not a
   rolling update.

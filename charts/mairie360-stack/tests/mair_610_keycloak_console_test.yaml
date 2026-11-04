@@ -1,0 +1,158 @@
+# MAIR-609 / MAIR-610: the realm's admin console is published on auth.<domain>
+# behind a Traefik ForwardAuth to core-api (temporary access issued by Core),
+# never on an nginx instance, never for the master realm or another realm,
+# and the realm role Admin is a composite of the realm-management user roles
+# only.
+suite: "MAIR-610 Keycloak console behind core-api"
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+release:
+  name: dev
+  namespace: mairie360-dev
+tests:
+  # --- ForwardAuth --------------------------------------------------------------
+
+  - it: "MAIR-610: the ForwardAuth asks core-api's verify endpoint with the Cookie header only"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: kind, value: Middleware }
+    asserts:
+      - equal:
+          path: spec.forwardAuth
+          value:
+            address: http://dev-core-api.mairie360-dev.svc.cluster.local:3000/internal/keycloak-console/verify
+            authRequestHeaders: [Cookie]
+            trustForwardHeader: false
+      - equal: { path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "-1" }
+
+  # --- Console Ingress ----------------------------------------------------------
+
+  - it: "MAIR-610: the console Ingress routes only the instance realm's console and Admin API"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: metadata.name, value: dev-mairie360-stack-keycloak-console }
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths
+          value:
+            - { path: /admin/mairie360/console/, pathType: Prefix, backend: &kc { service: { name: dev-keycloak, port: { number: 8080 } } } }
+            - { path: /admin/realms/mairie360, pathType: Exact, backend: *kc }
+            - { path: /admin/realms/mairie360/, pathType: Prefix, backend: *kc }
+            - { path: /admin/realms, pathType: Exact, backend: *kc }
+            - { path: /admin/serverinfo, pathType: Exact, backend: *kc }
+      - equal: { path: 'spec.rules[0].host', value: auth.dev.mairie360-eip.fr }
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: 'master' }
+      # Every Prefix path ends with "/": /admin/realms/mairie360x stays closed.
+      - matchRegex: { path: 'spec.rules[0].http.paths[0].path', pattern: '/$' }
+      - matchRegex: { path: 'spec.rules[0].http.paths[2].path', pattern: '/$' }
+
+  - it: "MAIR-610: every console path goes through the ForwardAuth first, then the body limit"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: metadata.name, value: dev-mairie360-stack-keycloak-console }
+    asserts:
+      - equal:
+          path: 'metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]'
+          value: mairie360-dev-dev-mairie360-stack-keycloak-console-auth@kubernetescrd,mairie360-dev-dev-mairie360-stack-body-size@kubernetescrd
+      - equal: { path: 'metadata.annotations["traefik.ingress.kubernetes.io/router.entrypoints"]', value: websecure }
+
+  - it: "MAIR-610: the extra Ingresses reuse Keycloak's certificate instead of requesting a second one"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: kind, value: Ingress, matchMany: true }
+    asserts:
+      - notExists: { path: 'metadata.annotations["cert-manager.io/cluster-issuer"]' }
+      - equal: { path: 'spec.tls[0].secretName', value: dev-mairie360-stack-keycloak-tls }
+
+  # --- Access link --------------------------------------------------------------
+
+  - it: "MAIR-609: /admin-access goes to core-api, without the ForwardAuth (core-api checks the link)"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: metadata.name, value: dev-mairie360-stack-keycloak-console-access }
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths
+          value:
+            - { path: /admin-access, pathType: Exact, backend: { service: { name: dev-core-api, port: { number: 3000 } } } }
+      - notMatchRegex:
+          path: 'metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]'
+          pattern: console-auth
+
+  - it: "MAIR-610: the public Keycloak Ingress still routes nothing under /admin"
+    templates: [templates/keycloak-ingress.yaml]
+    asserts:
+      - notMatchRegex: { path: 'spec.rules[0].http.paths[*].path', pattern: '^/admin' }
+
+  # --- Network ------------------------------------------------------------------
+
+  - it: "MAIR-610: only the ingress controller's namespace gets a new way to core-api, on 3000"
+    templates: [templates/keycloak-console.yaml]
+    documentSelector: { path: kind, value: NetworkPolicy }
+    asserts:
+      - equal:
+          path: spec
+          value:
+            podSelector: { matchLabels: { app.kubernetes.io/name: core-api, app.kubernetes.io/component: api } }
+            policyTypes: [Ingress]
+            ingress:
+              - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: traefik } } }]
+                ports: [{ protocol: TCP, port: 3000 }]
+
+  # --- Fail closed ----------------------------------------------------------------
+
+  - it: "MAIR-610: an nginx instance renders no console route (no ForwardAuth there)"
+    templates: [templates/keycloak-console.yaml]
+    set: { global.ingressController: nginx }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: "MAIR-610: off by default, nothing is published"
+    templates: [templates/keycloak-console.yaml]
+    set: { global.keycloak.consoleAccess.enabled: false }
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: "MAIR-610: the console needs core-api, which issues and checks the access"
+    templates: [templates/keycloak-console.yaml]
+    set: { APIs.instances.core-api.enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "consoleAccess.enabled needs the core-api instance"
+
+  # --- Admin hostname ---------------------------------------------------------------
+
+  - it: "MAIR-610: with the public console, Keycloak serves its console on the public host"
+    templates: [charts/keycloak/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME_ADMIN, value: "http://localhost:8080" }
+          any: true
+
+  - it: "MAIR-610: without it (or on nginx) the console stays on the port-forward address"
+    templates: [charts/keycloak/templates/deployment.yaml]
+    set: { global.ingressController: nginx }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME_ADMIN, value: "http://localhost:8080" }
+
+  - it: "MAIR-610: disabled on a Traefik instance, the console stays on the port-forward address"
+    templates: [charts/keycloak/templates/deployment.yaml]
+    set: { global.keycloak.consoleAccess.enabled: false }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: KC_HOSTNAME_ADMIN, value: "http://localhost:8080" }
+
+  # --- Admin role ---------------------------------------------------------------------
+
+  - it: "MAIR-610: the realm role Admin includes the realm-management user roles and nothing realm-wide"
+    templates: [charts/keycloak/templates/realm-configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: 'data["mairie360-realm.json"]'
+          pattern: '"name": "Admin",\s*"description": "System administrator",\s*"composite": true,\s*"composites": \{ "client": \{"realm-management":\["manage-users","view-users","query-users","query-groups","view-events"\]\} \}'
+      - notMatchRegex:
+          path: 'data["mairie360-realm.json"]'
+          pattern: '"composites": \{ "client": \{[^}]*(manage-realm|manage-clients|realm-admin|manage-authorization)'
+      # The other roles stay plain.
+      - matchRegex:
+          path: 'data["mairie360-realm.json"]'
+          pattern: '"name": "Maire",\s*"description": "Mayor"\s*\}'

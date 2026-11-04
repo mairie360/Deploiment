@@ -53,6 +53,12 @@ global:
   # docs/adr/0001-replace-ingress-nginx.md. The IngressClass, annotations
   # and NetworkPolicy namespace follow from it.
   ingressController: "traefik"
+  # MAIR-610: the realm's admin console on auth.<domain>, behind core-api's
+  # temporary access (templates/keycloak-console.yaml). Dev first: staging
+  # and prod once the console journey is checked here.
+  keycloak:
+    consoleAccess:
+      enabled: true
   networkPolicy:
     enabled: true
     # Passer à true une fois les destinations externes connues et déclarées

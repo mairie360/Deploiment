@@ -67,8 +67,10 @@ tests:
       - notMatchRegex: { path: "spec.rules[0].http.paths[*].path", pattern: "^/admin" }
       - equal: { path: "spec.rules[0].http.paths[0].backend.service.name", value: RELEASE-NAME-keycloak }
 
+  # Without the public console of MAIR-610 (tests/mair_610_keycloak_console_test.yaml).
   - it: "MAIR-414: the admin console is served on the port-forward address"
     templates: [charts/keycloak/templates/deployment.yaml]
+    set: { global.keycloak.consoleAccess.enabled: false }
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
