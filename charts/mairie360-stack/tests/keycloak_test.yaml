@@ -287,7 +287,8 @@ tests:
           pattern: '^auth\.'
 
   - it: renders no Keycloak Ingress without ingress.enabled
-    set: { ingress.enabled: false }
+    # The public console (MAIR-610) refuses a render without the Ingress.
+    set: { ingress.enabled: false, global.keycloak.consoleAccess.enabled: false }
     templates: [templates/keycloak-ingress.yaml]
     asserts:
       - hasDocuments: { count: 0 }

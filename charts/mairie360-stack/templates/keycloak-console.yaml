@@ -33,7 +33,14 @@ these Ingresses reuse its TLS Secret, a second Certificate for the same
 Secret would fight over it.
 */ -}}
 {{- $console := ((.Values.global.keycloak).consoleAccess | default dict) -}}
-{{- if and $console.enabled .Values.ingress.enabled .Values.keycloak.enabled (eq (include "mairie360.ingressController" .) "traefik") }}
+{{- $traefik := eq (include "mairie360.ingressController" .) "traefik" -}}
+{{- /* charts/keycloak drops KC_HOSTNAME_ADMIN on that switch alone (it cannot
+see ingress.enabled): without the Ingress the console would be reachable
+nowhere, so refuse the combination. */ -}}
+{{- if and $console.enabled $traefik .Values.keycloak.enabled (not .Values.ingress.enabled) -}}
+{{- fail "global.keycloak.consoleAccess.enabled needs ingress.enabled: the console is published on the Keycloak Ingress host (MAIR-610)" -}}
+{{- end -}}
+{{- if and $console.enabled .Values.ingress.enabled .Values.keycloak.enabled $traefik }}
 {{- $core := index (.Values.APIs.instances | default dict) "core-api" | default dict -}}
 {{- if not $core.enabled -}}
 {{- fail "global.keycloak.consoleAccess.enabled needs the core-api instance: it issues and checks the console access (MAIR-609)" -}}

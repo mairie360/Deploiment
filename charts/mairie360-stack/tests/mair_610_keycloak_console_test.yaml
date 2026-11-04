@@ -115,6 +115,13 @@ tests:
       - failedTemplate:
           errorPattern: "consoleAccess.enabled needs the core-api instance"
 
+  - it: "MAIR-610: the console needs the Ingress (Keycloak drops its port-forward admin address)"
+    templates: [templates/keycloak-console.yaml]
+    set: { ingress.enabled: false }
+    asserts:
+      - failedTemplate:
+          errorPattern: "consoleAccess.enabled needs ingress.enabled"
+
   # --- Admin hostname ---------------------------------------------------------------
 
   - it: "MAIR-610: with the public console, Keycloak serves its console on the public host"

@@ -268,6 +268,7 @@ tests:
 
   - it: renders no ACME solver policy without an Ingress
     templates: [templates/acme-solver-network-policy.yaml]
-    set: { ingress.enabled: false }
+    # The public console (MAIR-610) refuses a render without the Ingress.
+    set: { ingress.enabled: false, global.keycloak.consoleAccess.enabled: false }
     asserts:
       - hasDocuments: { count: 0 }

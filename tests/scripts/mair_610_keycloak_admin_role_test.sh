@@ -4,9 +4,10 @@
 # the rendered realm ConfigMap: `Admin` includes the realm-management user
 # roles (manage-users, view-users, query-users, query-groups, view-events) and
 # nothing else, a missing role is created first, the admin password only goes
-# through kubectl exec's stdin, and a ConfigMap without composites stops it.
+# through kubectl exec's stdin and KC_CLI_PASSWORD (never kcadm's arguments in
+# the pod), and a ConfigMap without composites stops it.
 # kubectl is stubbed: `get secret` / `get configmap` answer from fixtures,
-# `exec` logs the kcadm arguments (one line per call) and the stdin it got.
+# `exec` runs the in-pod script with a fake kcadm.sh that logs its arguments.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -23,26 +24,40 @@ helm template r "$REPO/charts/mairie360-stack" -f "$REPO/clusters/mairie360/inst
 
 cat > "$WORK/bin/kubectl" <<'EOF'
 #!/usr/bin/env bash
+# exec: runs the script the real one sends to the pod (sh -c SCRIPT USER ARGS),
+# with the fake kcadm.sh below in place of /opt/keycloak/bin/kcadm.sh.
 args=("$@")
 case " $* " in
   *" get secret "*) printf 'admin-pass' | base64 -w0; exit 0 ;;
   *" get configmap "*) cat "$REALM_CM"; exit 0 ;;
 esac
 for ((i = 0; i < ${#args[@]}; i++)); do [ "${args[$i]}" = "--" ] && break; done
-kc=("${args[@]:$((i + 5))}")   # after: -- sh -c SCRIPT USER
-printf '%s\n' "${kc[*]}" >> "$WORK_LOG.argv"
-cat >> "$WORK_LOG.stdin"; echo >> "$WORK_LOG.stdin"
-case "${kc[*]}" in
+script="${args[$((i + 3))]//\/opt\/keycloak\/bin\/kcadm.sh/$FAKE_KCADM}"
+exec sh -c "$script" "${args[@]:$((i + 4))}"
+EOF
+# kcadm.sh in the pod: logs its arguments (without --config FILE), refuses a
+# login without KC_CLI_PASSWORD, and logs what it reads with -f -.
+cat > "$WORK/bin/kcadm.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = config ]; then
+  printf '%s\n' "$*" >> "$WORK_LOG.login"
+  [ "${KC_CLI_PASSWORD:-}" = admin-pass ] || exit 1
+  exit 0
+fi
+a=("$@"); line="${a[*]:0:${#a[@]}-2}"
+printf '%s\n' "$line" >> "$WORK_LOG.argv"
+case " $* " in *" -f - "*) cat >> "$WORK_LOG.stdin"; echo >> "$WORK_LOG.stdin" ;; esac
+case "$line" in
   "get roles/Admin "*) [ "${ROLE_EXISTS:-1}" = 1 ] || exit 1; echo '{"name":"Admin"}' ;;
   get-roles*) echo '[{"name":"view-users"},{"name":"manage-users"}]' ;;
 esac
 exit 0
 EOF
-chmod +x "$WORK/bin/kubectl"
+chmod +x "$WORK/bin/kubectl" "$WORK/bin/kcadm.sh"
 
 run() {
-  rm -f "$WORK/log.argv" "$WORK/log.stdin"
-  PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/log" REALM_CM="${CM:-$WORK/realm.json}" \
+  rm -f "$WORK/log.argv" "$WORK/log.stdin" "$WORK/log.login"
+  PATH="$WORK/bin:$PATH" WORK_LOG="$WORK/log" REALM_CM="${CM:-$WORK/realm.json}" FAKE_KCADM="$WORK/bin/kcadm.sh" \
     "$REPO/scripts/keycloak-admin-role.sh" ctx dev > "$WORK/out" 2>&1
 }
 
@@ -54,8 +69,10 @@ grep -qx 'add-roles -r mairie360 --rname Admin --cclientid realm-management --ro
 grep -q 'manage-realm\|manage-clients\|realm-admin' "$WORK/log.argv" && fail "a realm-wide role is added" || ok "no realm-wide role (manage-realm, manage-clients, realm-admin)"
 [ "$(grep -c '^add-roles' "$WORK/log.argv")" = 1 ] && ok "only Admin is composite" || fail "add-roles called for another role"
 grep -q '^create roles' "$WORK/log.argv" && fail "creates an existing role" || ok "an existing role is not recreated"
-grep -q 'admin-pass' "$WORK/log.argv" && fail "password on a command line" || ok "password never on a command line"
-grep -q 'admin-pass' "$WORK/log.stdin" && ok "password goes through stdin" || fail "password not on stdin"
+grep -q 'admin-pass' "$WORK/log.argv" "$WORK/log.login" && fail "password on a kcadm command line" || ok "password never on a kcadm command line, in the pod either"
+grep -q -- '--password' "$WORK/log.login" && fail "kcadm login with --password" || ok "kcadm logs in with KC_CLI_PASSWORD"
+grep -q '^config credentials --config .* --server http://localhost:8080 --realm master --user admin$' "$WORK/log.login" \
+  && ok "master admin session on the pod's local port" || { fail "login call"; cat "$WORK/log.login"; }
 grep -q 'role Admin includes realm-management: manage-users, view-users' "$WORK/out" && ok "prints the composites" || fail "no summary"
 
 ROLE_EXISTS=0 run; rc=$?
