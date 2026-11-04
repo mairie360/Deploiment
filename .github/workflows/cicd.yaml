@@ -93,6 +93,30 @@ jobs:
           kubeconform -strict -summary -schema-location default \
             -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
 
+      # MAIR-346: the platform app applies bootstrap/appsets/ from `main` to
+      # every machine at once, so versions and values must stay in the
+      # wrapper charts of bootstrap/addons/, read at each machine's own
+      # revision. Render each one, and refuse an instance AppSet that pins a
+      # revision or points at a Helm repository again.
+      - name: Render the bootstrap wrapper charts
+        # bash -eo pipefail: a failed `helm template` must fail the step, not
+        # leave kubeconform validating zero resources.
+        shell: bash
+        run: |
+          CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          for chart in bootstrap/addons/*/; do
+            name=$(basename "$chart")
+            echo "Rendering $chart"
+            ./scripts/addon-deps.sh "$chart"
+            helm lint "$chart"
+            helm template "$name" "$chart" --include-crds \
+              | kubeconform -strict -summary -schema-location default \
+                  -schema-location "$CRDS" -skip CustomResourceDefinition
+          done
+
+      - name: Bootstrap AppSets follow each machine's revision
+        run: ./scripts/check-bootstrap-revisions.sh
+
       # GDPR decisions of each mairie (compliance/<org>/, MAIR-294) against the
       # rendered configuration: retention periods, backup retention, external
       # hosts and egress rules of subprocessors, complete register. A mismatch

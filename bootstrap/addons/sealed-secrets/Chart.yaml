@@ -1,0 +1,14 @@
+# Wrapper chart: pins the sealed-secrets controller of every INSTANCE machine.
+# Applied by bootstrap/appsets/sealed-secrets-appset.yaml at the machine's own
+# revision (Argo CD cluster annotation mairie360.fr/revision), so a bump here
+# reaches staging/prod only through the Promote workflow
+# (docs/adr/0002-environment-promotion.md).
+apiVersion: v2
+name: bootstrap-sealed-secrets
+description: sealed-secrets controller as installed on every Mairie360 instance machine
+type: application
+version: 0.1.0
+dependencies:
+  - name: sealed-secrets
+    version: 2.17.3
+    repository: https://bitnami.github.io/sealed-secrets

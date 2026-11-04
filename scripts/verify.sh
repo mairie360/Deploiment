@@ -1,162 +1,240 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Recette d'un environnement déployé.
+# Acceptance test of a deployed instance.
 #
-#   ./scripts/verify.sh <contexte-kube> <env> [domaine]
+#   ./scripts/verify.sh <kube-context> <env> [domain]
 #
-# Sort en erreur à la première vérification qui échoue : utilisable tel quel
-# en étape de CI ou en fin de playbook Ansible.
+# Exits non-zero if any check fails: usable as is as a CI step (the Promote
+# workflow runs it against staging before prod moves, MAIR-346) or at the end
+# of an Ansible playbook.
+#
+# Needs: bash, kubectl, curl, openssl, getent, timeout, base64, od, awk.
+#
+# -----------------------------------------------------------------------------
+# Kubernetes permissions (MAIR-346). The Promote workflow runs this script on
+# the Argo CD machine's self-hosted runner with a ServiceAccount that ansible
+# binds to exactly this; keep the list in sync with the script. It
+# deliberately needs no Secret read and no pods/exec: Secret keys are checked
+# on the SealedSecrets (whose ciphertext length gives the plaintext length),
+# the two checks that need a plaintext value are skipped when
+# `kubectl auth can-i get secrets` says no (step 4), and every in-cluster
+# probe is a throwaway curl pod.
+#
+#   namespace mairie360-<env>
+#     ""           pods                  get list watch create delete
+#     ""           pods/attach           create
+#     ""           pods/log              get
+#     ""           services              list
+#     ""           endpoints             get
+#     apps         deployments           get list watch
+#     batch        jobs                  get list
+#     batch        cronjobs              get list
+#     apps         statefulsets          list
+#     bitnami.com  sealedsecrets         get
+#   namespace kube-system
+#     apps         daemonsets            get list watch   resourceNames: cilium
+#     apps         deployments           get list watch   resourceNames: hubble-relay
+#
+# `pods create` would let a pod mount any Secret of the namespace: ansible is
+# expected to pair it with an admission policy that only admits the probe
+# pods this script creates, i.e. name `verify-probe-*`, one container of
+# image curlimages/curl:8.10.1, no volumes, no env, no service account token,
+# no command, lifecycle hook nor probe (see probe() below).
+#
+# Network: steps 13-15 reach the instance's PUBLIC hostnames (443, 80 and a
+# port scan) from wherever the script runs; everything else goes through the
+# Kubernetes API server of <kube-context>.
 # =============================================================================
 set -uo pipefail
 
 # shellcheck source=scripts/lib/secret-values.sh
 . "$(dirname "$0")/lib/secret-values.sh"
 
-CTX="${1:?usage: $0 <contexte-kube> <env> [domaine]}"
+CTX="${1:?usage: $0 <kube-context> <env> [domain]}"
 ENV="${2:?}"
 DOMAIN="${3:-}"
 # Realm provisioned by charts/keycloak (global.keycloak.realm).
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-mairie360}"
-# Une machine = un cluster = un namespace mairie360-<env>.
+# One machine = one cluster = one mairie360-<env> namespace.
 NS="mairie360-${ENV}"
 RELEASE="${ENV}"
 K="kubectl --context ${CTX} -n ${NS}"
+PROBE_IMAGE="curlimages/curl:8.10.1"
 FAILED=0
 
 ok()   { printf '  \033[32mOK\033[0m    %s\n' "$1"; }
-ko()   { printf '  \033[31mECHEC\033[0m %s\n' "$1"; FAILED=1; }
+ko()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILED=1; }
 step() { printf '\n[%s] %s\n' "$1" "$2"; }
 
-step 1 "Tous les pods sont Running ou Completed"
+# probe <name> <labels|""> <curl args...>: runs curl once in a throwaway pod
+# of the instance namespace and prints its output. Always the same shape (see
+# the admission policy note above).
+probe() {
+  local name="verify-probe-$1" labels="$2"; shift 2
+  $K run "$name" --rm -i --restart=Never --image="$PROBE_IMAGE" \
+    ${labels:+--labels="$labels"} --timeout=60s \
+    --overrides='{"apiVersion":"v1","spec":{"automountServiceAccountToken":false}}' \
+    -- "$@"
+}
+
+# sealed_len <sealedsecret> <key>: plaintext length of one key of a
+# SealedSecret, from its ciphertext alone (no Secret read). sealed-secrets'
+# hybrid encryption writes a 2-byte big-endian length L, the L-byte RSA-OAEP
+# session key, then AES-GCM(plaintext) with a 16-byte tag, so
+# plaintext = total - 2 - L - 16. Prints -1 when the key is absent.
+sealed_len() {
+  local ct total hdr
+  ct=$($K get sealedsecret "$1" -o jsonpath="{.spec.encryptedData['$2']}" 2>/dev/null)
+  [ -n "$ct" ] || { echo -1; return; }
+  total=$(printf '%s' "$ct" | base64 -d 2>/dev/null | wc -c)
+  hdr=$(printf '%s' "$ct" | base64 -d 2>/dev/null | head -c 2 | od -An -tu1)
+  # shellcheck disable=SC2086 # two numbers, split on purpose
+  set -- $hdr
+  echo $(( total - 2 - (${1:-0} * 256 + ${2:-0}) - 16 ))
+}
+
+step 1 "Every pod is Running or Completed"
 BAD=$($K get pods --no-headers 2>/dev/null | grep -vE 'Running|Completed' || true)
-[ -z "$BAD" ] && ok "aucun pod en erreur" || { ko "pods anormaux"; echo "$BAD"; }
+[ -z "$BAD" ] && ok "no pod in error" || { ko "unhealthy pods"; echo "$BAD"; }
 
-step 2 "Aucun redémarrage en boucle"
+step 2 "No restart loop"
 LOOP=$($K get pods --no-headers 2>/dev/null | awk '$4 > 5 {print $1, $4}' || true)
-[ -z "$LOOP" ] && ok "aucun CrashLoop" || { ko "redémarrages répétés"; echo "$LOOP"; }
+[ -z "$LOOP" ] && ok "no CrashLoop" || { ko "repeated restarts"; echo "$LOOP"; }
 
-step 3 "Les Services ont des endpoints (sélecteurs corrects)"
+step 3 "Services have endpoints (selectors match)"
 EMPTY=""
 for svc in $($K get svc -o name 2>/dev/null | cut -d/ -f2); do
   case "$svc" in *-hl) continue;; esac
   EP=$($K get endpoints "$svc" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
   [ -z "$EP" ] && EMPTY="$EMPTY $svc"
 done
-[ -z "$EMPTY" ] && ok "tous les Services pointent sur des pods" || ko "Services sans endpoint :$EMPTY"
+[ -z "$EMPTY" ] && ok "every Service points at pods" || ko "Services without endpoints:$EMPTY"
 
-step 4 "Les secrets attendus existent"
+step 4 "The expected Secrets are unsealed and carry their keys"
 for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis" "${RELEASE}-keycloak-secret"; do
-  $K get secret "$s" >/dev/null 2>&1 && ok "$s" || ko "$s absent (scripts/seal-secrets.sh ?)"
+  SYNCED=$($K get sealedsecret "$s" -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)
+  case "$SYNCED" in
+    True) ok "$s unsealed" ;;
+    "")   ko "$s: no SealedSecret, or not processed yet (scripts/seal-secrets.sh?)" ;;
+    *)    ko "$s: SealedSecret not unsealed (sealed with another machine's key?)" ;;
+  esac
 done
 
-if [ -n "$($K get secret "${RELEASE}-app-secrets" -o jsonpath='{.data.SMTP_PASSWORD}' 2>/dev/null)" ]; then
-  ok "SMTP_PASSWORD (Resend API key) is set"
-else
-  ko "SMTP_PASSWORD empty in ${RELEASE}-app-secrets: core-api cannot send e-mails (RESEND_API_KEY=… scripts/seal-secrets.sh)"
-fi
+# key_set <sealedsecret> <key> <consequence when empty>
+key_set() {
+  if [ "$(sealed_len "$1" "$2")" -gt 0 ]; then ok "$2 is set"; else ko "$2 empty in $1: $3"; fi
+}
+key_set "${RELEASE}-app-secrets" SMTP_PASSWORD \
+  "core-api cannot send e-mails (RESEND_API_KEY=… scripts/seal-secrets.sh)"
 for k in S3_ACCESS_KEY S3_SECRET_KEY; do
-  if [ -n "$($K get secret "${RELEASE}-app-secrets" -o jsonpath="{.data.$k}" 2>/dev/null)" ]; then
-    ok "$k is set"
-  else
-    ko "$k empty in ${RELEASE}-app-secrets: elearning-api cannot start (S3_ACCESS_KEY=… S3_SECRET_KEY=… scripts/seal-secrets.sh)"
-  fi
+  key_set "${RELEASE}-app-secrets" "$k" \
+    "elearning-api cannot start (S3_ACCESS_KEY=… S3_SECRET_KEY=… scripts/seal-secrets.sh)"
 done
 
-if [ -n "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_EMAIL}" 2>/dev/null)" ]; then
-  ok "ADMIN_EMAIL is set"
-else
-  ko "ADMIN_EMAIL empty in ${RELEASE}-database-secret: the Liquibase Job refuses to migrate (MAIR-414, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
-fi
-case "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_PASSWORD}" 2>/dev/null | base64 -d 2>/dev/null)" in
-  '$argon2id$'*) ok "ADMIN_PASSWORD is an argon2id hash" ;;
-  *) ko "ADMIN_PASSWORD in ${RELEASE}-database-secret is empty or plaintext: the Liquibase Job refuses to migrate (MAIR-414, re-run scripts/seal-secrets.sh)" ;;
-esac
+key_set "${RELEASE}-database-secret" ADMIN_EMAIL \
+  "the Liquibase Job refuses to migrate (MAIR-414, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
+key_set "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET \
+  "core-api cannot administer the realm (MAIR-554, scripts/seal-secrets.sh then scripts/keycloak-core-api-client.sh)"
 
-if [ -n "$($K get secret "${RELEASE}-keycloak-secret" -o jsonpath='{.data.CORE_API_CLIENT_SECRET}' 2>/dev/null)" ]; then
-  ok "CORE_API_CLIENT_SECRET is set (MAIR-554)"
-else
-  ko "CORE_API_CLIENT_SECRET missing from ${RELEASE}-keycloak-secret: core-api cannot administer the realm (MAIR-554, scripts/seal-secrets.sh then scripts/keycloak-core-api-client.sh)"
-fi
+# Checks on the plaintext values themselves need a Secret read, which the
+# Promote workflow's runner does not have (MAIR-346, see the header). There
+# they are skipped: what they guard against still fails this script, through
+# the Liquibase Job (step 7, ADMIN_PASSWORD) or the APIs crash-looping
+# (steps 1-2, a password that is not URL-safe). Run by hand with an admin
+# context, they are checked.
+if $K auth can-i get secrets >/dev/null 2>&1; then
+  case "$($K get secret "${RELEASE}-database-secret" -o jsonpath="{.data.ADMIN_PASSWORD}" 2>/dev/null | base64 -d 2>/dev/null)" in
+    '$argon2id$'*) ok "ADMIN_PASSWORD is an argon2id hash" ;;
+    *) ko "ADMIN_PASSWORD in ${RELEASE}-database-secret is empty or plaintext: the Liquibase Job refuses to migrate (MAIR-414, re-run scripts/seal-secrets.sh)" ;;
+  esac
 
-# MAIR-531: the APIs put these passwords raw in REDIS_URL / their postgres://
-# URL, a base64 one ("/", "+", "=") fails with "Redis URL did not parse".
-# Keys are read from the live Secrets, so the chart's role lists stay the
-# source of truth.
-for spec in "${RELEASE}-redis:-password" "${RELEASE}-database-secret:_PASSWORD"; do
-  s="${spec%%:*}"; suffix="${spec#*:}"
-  for key in $($K get secret "$s" -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null \
-                 | grep -- "${suffix}\$" | grep -v '^ADMIN_PASSWORD$\|^POSTGRES_PASSWORD$\|^redis-password$'); do
-    val="$($K get secret "$s" -o jsonpath="{.data.${key}}" 2>/dev/null | base64 -d 2>/dev/null)"
-    if url_safe "$val"; then
-      ok "$s/$key is URL-safe"
-    else
-      ko "$s/$key is empty or not URL-safe: its API cannot build its URL (MAIR-531, re-run scripts/seal-secrets.sh then restart Redis and the APIs)"
-    fi
+  # MAIR-531: the APIs put these passwords raw in REDIS_URL / their postgres://
+  # URL, a base64 one ("/", "+", "=") fails with "Redis URL did not parse".
+  # Keys are read from the live Secrets, so the chart's role lists stay the
+  # source of truth.
+  for spec in "${RELEASE}-redis:-password" "${RELEASE}-database-secret:_PASSWORD"; do
+    s="${spec%%:*}"; suffix="${spec#*:}"
+    for key in $($K get secret "$s" -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null \
+                   | grep -- "${suffix}\$" | grep -v '^ADMIN_PASSWORD$\|^POSTGRES_PASSWORD$\|^redis-password$'); do
+      val="$($K get secret "$s" -o jsonpath="{.data.${key}}" 2>/dev/null | base64 -d 2>/dev/null)"
+      if url_safe "$val"; then
+        ok "$s/$key is URL-safe"
+      else
+        ko "$s/$key is empty or not URL-safe: its API cannot build its URL (MAIR-531, re-run scripts/seal-secrets.sh then restart Redis and the APIs)"
+      fi
+    done
   done
-done
-
-step 5 "Aucun secret en clair dans les manifestes déployés"
-if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
-  ko "JWT_SECRET en clair détecté"
 else
-  ok "aucune valeur de secret en clair"
+  ok "no Secret read with this context: ADMIN_PASSWORD format and URL-safe passwords skipped (covered by steps 1, 2 and 7)"
+fi
+
+step 5 "No plaintext secret in the deployed manifests"
+if $K get deploy -o yaml 2>/dev/null | grep -q 'value: .b"secret"'; then
+  ko "plaintext JWT_SECRET found"
+else
+  ok "no plaintext secret value"
 fi
 
 step 5b "MAIR-680: core-api alone gets the session signing key (JWT_PRIVATE_KEY)"
 # Every Deployment / StatefulSet / CronJob container (and init container)
 # that reads JWT_PRIVATE_KEY, as "<kind>/<name>"; only <env>-core-api may.
 # A CronJob's pod template sits under spec.jobTemplate.spec.template.
-SIGNERS="$($K get deploy,statefulset,cronjob -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{$t := .spec.template}}{{with .spec.jobTemplate}}{{$t = .spec.template}}{{end}}{{with $t}}{{range .spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null | sort -u)"
-OTHERS="$(printf '%s\n' "$SIGNERS" | grep -v "^Deployment/${RELEASE}-core-api\$" | grep . || true)"
-if [ -n "$OTHERS" ]; then
-  ko "JWT_PRIVATE_KEY reaches other workloads than core-api: $(echo $OTHERS)"
+# A refused or failed read is a FAIL, never an empty list read as "no signer".
+if SIGNERS="$($K get deploy,statefulset,cronjob -o go-template='{{range .items}}{{$o := printf "%s/%s" .kind .metadata.name}}{{$t := .spec.template}}{{with .spec.jobTemplate}}{{$t = .spec.template}}{{end}}{{with $t}}{{range .spec.containers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{range .spec.initContainers}}{{range .env}}{{if eq .name "JWT_PRIVATE_KEY"}}{{$o}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}{{end}}')"; then
+  SIGNERS="$(printf '%s\n' "$SIGNERS" | sort -u)"
+  OTHERS="$(printf '%s\n' "$SIGNERS" | grep -v "^Deployment/${RELEASE}-core-api\$" | grep . || true)"
+  if [ -n "$OTHERS" ]; then
+    ko "JWT_PRIVATE_KEY reaches other workloads than core-api: $(echo $OTHERS)"
+  else
+    ok "no workload but core-api reads JWT_PRIVATE_KEY"
+  fi
 else
-  ok "no workload but core-api reads JWT_PRIVATE_KEY"
+  ko "cannot list the Deployments, StatefulSets and CronJobs (RBAC of this context?)"
+  SIGNERS=""
 fi
-if $K get deploy,statefulset,cronjob,configmap -o yaml 2>/dev/null | grep -q 'BEGIN PRIVATE KEY'; then
-  ko "a PEM private key is in clear in a manifest or ConfigMap (global.jwt.publicKey?)"
+if ! MANIFESTS="$($K get deploy,statefulset,cronjob -o yaml)"; then
+  ko "cannot read the workload manifests (RBAC of this context?)"
+elif printf '%s' "$MANIFESTS" | grep -q 'BEGIN PRIVATE KEY'; then
+  ko "a PEM private key is in clear in a workload manifest (global.jwt.publicKey?)"
 else
-  ok "no PEM private key in clear in the manifests"
+  ok "no PEM private key in clear in the workload manifests"
 fi
 if [ -n "$SIGNERS" ] && ! $K get deploy "${RELEASE}-core-api" -o yaml 2>/dev/null | grep -q 'name: JWT_PUBLIC_KEY'; then
   ko "core-api signs but has no JWT_PUBLIC_KEY (global.jwt.publicKey)"
 fi
 
-step 6 "Redis exige un mot de passe"
-POD=$($K get pod -l app=redis -o name 2>/dev/null | head -1)
-if [ -n "$POD" ]; then
-  if $K exec "$POD" -c redis -- redis-cli ping 2>&1 | grep -q PONG; then
-    ko "Redis répond SANS mot de passe"
-  else
-    ok "Redis refuse les connexions non authentifiées"
-  fi
-else
-  ko "pod redis introuvable"
-fi
+step 6 "Redis requires authentication"
+# Unauthenticated PING from a bff-labelled pod (admitted on 6379 by the redis
+# NetworkPolicy): the ACL must answer NOAUTH, never PONG. No pods/exec needed.
+REPLY=$(probe redis "app.kubernetes.io/component=bff" \
+          curl -s -m 5 "gopher://${RELEASE}-redis:6379/_PING%0D%0AQUIT%0D%0A" 2>/dev/null || true)
+case "$REPLY" in
+  *PONG*)          ko "Redis answers WITHOUT authentication" ;;
+  *NOAUTH*|*-ERR*) ok "Redis refuses unauthenticated connections" ;;
+  *)               ko "no answer from ${RELEASE}-redis:6379 (pod down, or NetworkPolicy)" ;;
+esac
 
-step 7 "La migration Liquibase a réussi"
+step 7 "The Liquibase migration succeeded"
 if $K get job "${RELEASE}-liquibase" >/dev/null 2>&1; then
   S=$($K get job "${RELEASE}-liquibase" -o jsonpath='{.status.succeeded}')
-  [ "${S:-0}" -ge 1 ] && ok "job terminé" || ko "job non terminé"
+  [ "${S:-0}" -ge 1 ] && ok "job complete" || ko "job not complete"
 else
-  ok "job déjà nettoyé (hook supprimé après succès)"
+  ok "job already cleaned up (hook deleted after success)"
 fi
 
-step 8 "Cloisonnement réseau : une API n'est PAS joignable sans le label bff"
-if $K run np-probe-deny --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
-     --timeout=60s -- curl -s -m 5 "http://${RELEASE}-core-api:3000/health" >/dev/null 2>&1; then
-  ko "un pod quelconque atteint core-api — NetworkPolicy inopérante"
+step 8 "Network isolation: an API is NOT reachable without the bff label"
+if probe deny "" curl -s -m 5 "http://${RELEASE}-core-api:3000/health" >/dev/null 2>&1; then
+  ko "an arbitrary pod reaches core-api: NetworkPolicy not enforced"
 else
-  ok "trafic non autorisé bloqué"
+  ok "unauthorised traffic blocked"
 fi
 
-step 9 "Cloisonnement réseau : un pod étiqueté bff atteint l'API"
-if $K run np-probe-allow --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
-     --labels="app.kubernetes.io/component=bff" --timeout=60s \
-     -- curl -sf -m 5 "http://${RELEASE}-core-api:3000/health" >/dev/null 2>&1; then
-  ok "trafic autorisé accepté"
+step 9 "Network isolation: a bff-labelled pod reaches the API"
+if probe allow "app.kubernetes.io/component=bff" \
+     curl -sf -m 5 "http://${RELEASE}-core-api:3000/health" >/dev/null 2>&1; then
+  ok "authorised traffic accepted"
 else
-  ko "un pod bff n'atteint pas core-api (policy trop stricte ou API KO)"
+  ko "a bff pod cannot reach core-api (policy too strict, or API down)"
 fi
 
 step 10 "Cilium enforces the policies and Hubble records the flows"
@@ -197,9 +275,8 @@ if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
   fi
   # MAIR-610: keycloak-test is the in-namespace label the Keycloak
   # NetworkPolicy admits for checks (besides the Keycloak-client APIs).
-  if $K run kc-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
-       --labels="app.kubernetes.io/component=keycloak-test" --timeout=60s \
-       -- curl -sf -m 10 "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
+  if probe keycloak "app.kubernetes.io/component=keycloak-test" \
+       curl -sf -m 10 "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
        2>/dev/null | grep -q '"issuer":"https://'; then
     ok "realm ${KEYCLOAK_REALM} imported, issuer on https"
   else
@@ -207,9 +284,8 @@ if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
   fi
 
   step 12b "MAIR-610: a BFF pod does not reach Keycloak (only the ingress and the Keycloak-client APIs do)"
-  if $K run kc-probe-bff --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
-       --labels="app.kubernetes.io/component=bff" --timeout=60s \
-       -- curl -s -m 5 -o /dev/null "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/" >/dev/null 2>&1; then
+  if probe keycloak-bff "app.kubernetes.io/component=bff" \
+       curl -s -m 5 -o /dev/null "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/" >/dev/null 2>&1; then
     ko "a bff-labelled pod reaches Keycloak: NetworkPolicy not narrowed (MAIR-610)"
   else
     ok "bff-labelled pod refused"
@@ -224,9 +300,10 @@ if [ -n "$DOMAIN" ]; then
     ISSUER=$(echo | openssl s_client -connect "${host}:443" \
                -servername "${host}" 2>/dev/null \
              | openssl x509 -noout -issuer 2>/dev/null || true)
+    # STAGING first: its issuer ("(STAGING) Let's Encrypt") matches both.
     case "$ISSUER" in
+      *STAGING*) ko "${host}: Let's Encrypt STAGING certificate (not trusted by browsers)" ;;
       *"Let's Encrypt"*) ok "${host}: issued by Let's Encrypt" ;;
-      *STAGING*|*"(STAGING)"*) ko "${host}: Let's Encrypt STAGING certificate (not trusted by browsers)" ;;
       *) ko "${host}: unexpected certificate: ${ISSUER:-none}" ;;
     esac
   done
@@ -268,9 +345,9 @@ if [ -n "$DOMAIN" ]; then
     ok "keycloak not enabled for this instance"
   fi
 
-  step 14 "Le HTTP redirige vers le HTTPS"
+  step 14 "HTTP redirects to HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
-  case "$CODE" in 301|302|308) ok "redirection $CODE" ;; *) ko "code $CODE" ;; esac
+  case "$CODE" in 301|302|308) ok "redirect $CODE" ;; *) ko "code $CODE" ;; esac
 
   step 15 "Only the fronts and Keycloak are exposed (6443 must be on the VPN, not public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
@@ -284,4 +361,4 @@ if [ -n "$DOMAIN" ]; then
 fi
 
 echo
-[ $FAILED -eq 0 ] && { echo "Recette OK"; exit 0; } || { echo "Recette EN ECHEC"; exit 1; }
+[ $FAILED -eq 0 ] && { echo "Acceptance OK"; exit 0; } || { echo "Acceptance FAILED"; exit 1; }
