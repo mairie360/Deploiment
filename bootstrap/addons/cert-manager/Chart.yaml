@@ -14,5 +14,5 @@ dependencies:
     # Supported releases and their Kubernetes range:
     # https://cert-manager.io/docs/releases/ (1.21: Kubernetes 1.33-1.36).
     # Read the upgrade notes of every minor you skip before bumping.
-    version: v1.21.2
+    version: v1.21.3
     repository: https://charts.jetstack.io
