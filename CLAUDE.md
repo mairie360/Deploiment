@@ -38,6 +38,10 @@ for v in clusters/*/instances/*; do for c in nginx traefik; do
         -skip CiliumNetworkPolicy || echo "KO: $v ($c)"
 done; done
 kubeconform -strict -schema-location default -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons
+# Bootstrap wrapper charts (MAIR-346), as CI renders them
+# (scripts/addon-deps.sh adds the upstream repos to a throwaway Helm config first)
+for c in bootstrap/addons/*/; do ./scripts/addon-deps.sh "$c" && helm template "$(basename "$c")" "$c" --include-crds \
+  | kubeconform -strict -summary -schema-location default -schema-location "$CRDS" -skip CustomResourceDefinition; done
 
 # Resolve subchart deps (needed before template/install; Chart.lock + .tgz gitignored)
 helm dependency build ./charts/mairie360-stack
@@ -49,6 +53,10 @@ helm dependency build ./charts/mairie360-stack
 # Every Secret / key the pods reference is sealed in the instance's
 # secrets.yaml (MAIR-414). Blocking in Promote, --warn in CI.
 ./scripts/check-instance-secrets.sh
+
+# Every instance AppSet of bootstrap/appsets/ reads bootstrap/ at its
+# machine's revision, no chart repository, no fixed revision (MAIR-346, CI)
+./scripts/check-bootstrap-revisions.sh
 
 # Values files of an instance, in the instances AppSet's order
 # (clusters/_base/<env>.yaml, values.yaml, [secrets.yaml]): every render goes
@@ -66,7 +74,9 @@ tests/e2e/run.sh
 # By hand, from /opt/Deploiment on that machine:
 KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
 
-# Acceptance test of a deployed instance (KEYCLOAK_REALM=… if not mairie360)
+# Acceptance test of a deployed instance (KEYCLOAK_REALM=… if not mairie360).
+# The Promote workflow runs it on staging before prod (MAIR-346); the RBAC it
+# needs is listed at the top of the script.
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
 
 # Argo CD admin password (on the group's Argo CD machine)
@@ -78,13 +88,24 @@ Machine provisioning is **not** done from this repo — see `mairie360/ansible`.
 
 CI (`.github/workflows/cicd.yaml`, on push to `main`/`develop` and all PRs):
 `helm lint` → render **and `kubeconform`** every instance (nginx and traefik)
-and `bootstrap/` → `scripts/check-image-tags.sh` → `helm unittest`, all
-blocking, plus `scripts/check-instance-secrets.sh --warn` (annotations only). `gitleaks` and `trivy config` are not wired yet. The Kind + Cilium
+and `bootstrap/` → render the `bootstrap/addons/` wrapper charts and check
+that every instance AppSet reads its machine's revision
+(`scripts/check-bootstrap-revisions.sh`, MAIR-346) →
+`scripts/check-image-tags.sh` → `helm unittest`, all blocking, plus
+`scripts/check-instance-secrets.sh --warn` (annotations only).
+The `secret-scan` job runs Gitleaks (mairie360/CICD `actions/security/gitleaks`)
+on the new commits of every push/PR and blocks on any finding (MAIR-677). Rules are
+`.gitleaks.toml`: defaults plus one allowlist, the `KEY: Ag…` SealedSecret ciphertext
+lines of `clusters/*/instances/*/secrets.yaml`; `tests/scripts/mair_677_secret_scan_test.sh`
+pins it. `trivy config` is not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
-(it calls `cicd.yaml` as a reusable workflow on the promoted commit, and
-refuses to move the branch while `scripts/check-instance-secrets.sh` reports
-a Secret or key missing from a target instance's `secrets.yaml`, MAIR-414).
+(it calls `cicd.yaml` as a reusable workflow on the promoted commit, refuses to
+move the branch while `scripts/check-instance-secrets.sh` reports a Secret or
+key missing from a target instance's `secrets.yaml` (MAIR-414), and, for prod,
+runs `scripts/verify.sh` against staging on the self-hosted runner of the
+Argo CD machine, see Gotchas). `.github/actionlint.yaml` declares that
+runner's label.
 
 ## GDPR decisions (`compliance/`, MAIR-294)
 
@@ -138,7 +159,17 @@ describes desired state.
 1. Ansible (`k8s_argocd`) installs Argo CD on the group's Argo CD machine, then
    applies `bootstrap/platform-app.yaml` **once**.
 2. `platform-app` is the root Application (app-of-apps). It syncs
-   `bootstrap/appsets/` recursively.
+   `bootstrap/appsets/` recursively, from `main`: those AppSet manifests hit
+   every machine at once, so they only say **where** and **at which
+   revision**. Versions and values live in the wrapper charts of
+   `bootstrap/addons/<addon>/` (`Chart.yaml` pins the upstream chart,
+   `Chart.lock` committed, `values.yaml` nests the upstream values under the
+   dependency name), which each instance AppSet reads at the machine's own
+   revision: the Argo CD cluster annotation **`mairie360.fr/revision`**
+   written by Ansible from `deploiment_env_revisions`, `main` when absent
+   (MAIR-346, ADR 0002). So a bootstrap version bump follows
+   main → staging → prod like the chart; changing an AppSet manifest itself
+   (selector, sync policy) still reaches every machine at once.
 3. Ansible also renders and applies the **instances ApplicationSet** from
    `roles/k8s_argocd/templates/instances-appset.yaml.j2` — it is not in this
    repo because it depends on `org_id` (which `clusters/<org>/` to scan).
@@ -155,12 +186,12 @@ describes desired state.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
-| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` | instances only |
-| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` v1.21.2 | instances only |
+| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` from `bootstrap/addons/sealed-secrets` (2.17.3) | instances only |
+| `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` from `bootstrap/addons/cert-manager` (v1.21.2) | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
-| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `ingress-nginx` 4.15.1 (last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
-| `traefik-appset.yaml` | AppSet, clusters generator, multi-source | `traefik` chart 41.6.0 (v3.7.13), values `bootstrap/values/traefik.yaml` | instances labelled `mairie360.fr/ingress=traefik` |
-| `image-updater-app.yaml` | Application | `argocd-image-updater` | in-cluster (Argo CD machine) |
+| `ingress-nginx-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/ingress-nginx` (4.15.1, last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
+| `traefik-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/traefik` (chart 41.6.0 = v3.7.13) | instances labelled `mairie360.fr/ingress=traefik` |
+| `image-updater-app.yaml` | Application | `argocd-image-updater` 1.3.1, pinned in the manifest, follows `main` | in-cluster (Argo CD machine) |
 | `projects.yaml` | AppProjects (wave -1) | `mairie360-platform` (the rows above) and `mairie360-instances` (the instances AppSet, ansible) | Argo CD machine |
 
 **AppProjects (MAIR-414).** Nothing but the root `platform` Application stays
@@ -171,6 +202,10 @@ only, and no cluster-scoped kind but `Namespace` and the collector's
 `ClusterRole`/`ClusterRoleBinding`. A new add-on chart repository or
 namespace must be added to `bootstrap/appsets/projects.yaml`, or its
 Application is refused.
+
+The AppSets (all but `image-updater-app.yaml` and `projects.yaml`) read this
+repo at the `mairie360.fr/revision` of their cluster (`goTemplate`, clusters
+generator `values.revision`).
 
 **The `mairie360.fr/role=instance` label** is what makes "instances only" work.
 Ansible sets it during `argocd cluster add`; the clusters generator selects on
@@ -198,7 +233,7 @@ the web entrypoint's redirect pinned at **priority 1**, so the solver router
 (`pathType: Exact`) always answers on port 80: keep it the lowest.
 
 Each instance needs public DNS for every front hostname pointing at its own IP.
-**`cert-manager-appset.yaml` must stay free of any domain or IP** (MAIR-157):
+**`cert-manager-appset.yaml` and `bootstrap/addons/cert-manager/` must stay free of any domain or IP** (MAIR-157, checked by CI):
 it is shared by every group. The HTTP-01 self-check goes through public DNS;
 it works from inside the cluster because the instance's public IP is on its
 interface, so ServiceLB publishes it as the ingress controller's LoadBalancer IP and
@@ -272,6 +307,30 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   Redis ACL passwords always come from Secrets. `*.secret.create` /
   `secrets.create` default to `false` (SealedSecret expected) and are only set
   to `true` for the throwaway local cluster.
+- **Session tokens: core-api alone signs (MAIR-680, audit A1).** Until then
+  one HS256 `JWT_SECRET` reached the 5 APIs and 7 BFFs, so any compromised pod
+  could forge an administrator token. Now core-api signs with an Ed25519 key
+  (`JWT_PRIVATE_KEY`, EdDSA) and every API and BFF (compliance-api included)
+  verifies with `global.jwt.publicKey`, injected in clear as
+  `JWT_PUBLIC_KEY` (PEM, several `PUBLIC KEY` blocks during a rotation;
+  `""` = not injected). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
+  (`<release>-jwt-signing-secret`, sealed) to the instance named `core-api`
+  and to nothing else; `templates/jwt-session-keys.yaml` fails the render
+  when signing is on without a public key, or when `publicKey` is not made of
+  complete Ed25519 `PUBLIC KEY` blocks or holds a `PRIVATE KEY`. `scripts/seal-secrets.sh` generates the pair once
+  per instance (`openssl genpkey -algorithm ed25519`), seals the private key,
+  never replaces it (not even with `--rotate`, and a failed read of the
+  Secret stops it), and prints the public key to paste into the instance's
+  `values.yaml` (it is plain config, reviewed in the diff; the ansible role
+  shows that output). `tests/mair_680_jwt_session_keys_test.yaml`,
+  `tests/scripts/mair_680_seal_signing_key_test.sh`, `scripts/verify.sh`
+  step 5b (no workload but core-api reads `JWT_PRIVATE_KEY`).
+  **Rollout order per instance:** seal + paste `publicKey` (harmless: services
+  keep accepting HS256 while `JWT_SECRET` is set) → every API/BFF image
+  verifies EdDSA (API_lib / bffs-lib MAIR-680) → `signing.enabled: true` →
+  after `JWT_TIMEOUT`, drop `JWT_SECRET` (follow-up branch
+  `mair-680-drop-jwt-secret`). Turning signing on before every image
+  verifies EdDSA logs every user out of the older services.
 - **`extraObjects`** renders raw manifests through `tpl`; this is how each
   environment's `secrets.yaml` (SealedSecrets) is injected.
 - `templates/ingress.yaml` creates **one Ingress for all enabled fronts**:
@@ -695,7 +754,7 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   flow must *time out* (Cilium drops silently); a fast failure is reported
   as an error, so a broken Service can't pass as "deny".
 - `chainsaw/ingress` (MAIR-260): `run.sh` installs Traefik (versions read
-  from the AppSets, values `bootstrap/values/traefik.yaml`), cert-manager and
+  and values: the wrapper charts `bootstrap/addons/{traefik,cert-manager}`), cert-manager and
   **Pebble** (Let's Encrypt's test ACME server, `tests/e2e/pebble.yaml`),
   and rewrites `*.e2e.invalid` to Traefik in CoreDNS. The test asserts the
   fronts certificate is issued over HTTP-01 through Traefik (the e2e
@@ -754,20 +813,55 @@ and maintaining a parallel Kind topology is what produced the earlier
   `Promote` workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`):
   fast-forward only, a commit must already be in `main` to reach `staging` and
   in `staging` to reach `prod`, the whole `cicd.yaml` re-runs on it, and `prod`
-  additionally needs the `staging_verified` box (run `scripts/verify.sh` on
-  staging first: GitHub runners cannot reach the instance API servers) and the
-  approval of the `promote-prod` GitHub environment. `rollback: true` force-moves
-  the branch back to an older commit. **MAIR-444:** argocd-image-updater
+  additionally needs: the commit to be `staging`'s head, the `verify-staging`
+  job to pass (MAIR-346: `scripts/verify.sh` against staging, run on the
+  **self-hosted runner** of the group's Argo CD machine, labels `self-hosted`,
+  `linux`, `mairie360-argocd-mairie360`, the only place reaching the instance
+  API servers over WireGuard, with `KUBECONFIG=/home/gh-runner/.kube/instance-staging.yaml`,
+  context = that file's current context, domain = `global.domain` of the
+  staging values; that kubeconfig has no Secret read, so verify.sh skips its
+  two plaintext checks there) and the approval of the `promote-prod` GitHub
+  environment. It replaced the former `staging_verified` checkbox. Staging's
+  instance Application auto-syncs (MAIR-444) on Argo CD's next refresh:
+  check it is Synced at the promoted commit before promoting to prod, or
+  verify.sh checks the previous commit (not checked by the workflow yet). `rollback: true` force-moves the branch back to an older
+  commit, without verification. **Never delete `staging` or `prod`
+  (MAIR-745):** both were deleted on 2026-10-23, which left their Applications
+  without a revision and made `Promote` refuse everything; they were recreated
+  at `3c006cc` (what Argo CD last deployed) on 2026-11-02. The "environment
+  branches protection" ruleset refuses their deletion and force-pushes (so a
+  `rollback: true` needs a ruleset bypass), and
+  `.github/workflows/environment-branches.yaml` runs
+  `scripts/check-env-branches.sh` on every branch deletion and daily, failing
+  when one is missing (`tests/scripts/mair_745_env_branches_test.sh`). Since
+  MAIR-346 the bootstrap add-ons follow these branches too.
+  **MAIR-444:** argocd-image-updater
   commits staging's tags straight onto `staging`
   (`clusters/mairie360/instances/staging/images.yaml`, never edited on `main`),
   so `Promote` to staging merges instead of fast-forwarding when `staging` is
   ahead by such commits only (ADR 0002 amendment). Consequences: a change to
-  `clusters/mairie360/instances/prod/values.yaml` or a freshly sealed
-  `secrets.yaml` also needs a promotion; the AppSet generator still lists
+  `clusters/mairie360/instances/prod/values.yaml`, a freshly sealed
+  `secrets.yaml` or a bump in `bootstrap/addons/` or `bootstrap/cluster-addons/`
+  also needs a promotion; the AppSet generator still lists
   directories on `main`, so a **new environment directory must be promoted
-  before its Application can render**. The bootstrap appsets (`bootstrap/`,
-  cert-manager, ingress-nginx, sealed-secrets, cluster-addons) are **not**
-  covered: the root `platform` app follows `main` and hits every instance at once.
+  before its Application can render**. **Bootstrap add-ons (MAIR-346):** each
+  instance AppSet of `bootstrap/appsets/` reads its wrapper chart
+  (`bootstrap/addons/<x>/`) or `bootstrap/cluster-addons/` at the Argo CD
+  cluster annotation `mairie360.fr/revision` (ansible, from
+  `deploiment_env_revisions`: dev → `main`, `staging`, `prod`), `main` when
+  absent; `scripts/check-bootstrap-revisions.sh` (CI) refuses an instance
+  AppSet that reads a chart repository or a fixed revision. What stays on
+  `main` for every machine at once: `platform-app.yaml`, the AppSet manifests
+  themselves and `image-updater-app.yaml` (Argo CD machine only). A **new
+  path** referenced by an AppSet (a new addon) needs two PRs: add the path,
+  promote it to staging and prod, then reference it from the AppSet; otherwise
+  those machines' Applications fail with "path does not exist" until it is
+  promoted. Since MAIR-710 a change to the AppSets themselves deletes nothing
+  on the instances: `platform` does not prune (remove an ApplicationSet by
+  hand once its file is gone) and the add-on AppSets set
+  `preserveResourcesOnDeletion` (only the two ingress-controller AppSets keep
+  their resources finalizer, to free ports 80/443 on a switch);
+  `tests/scripts/mair_710_bootstrap_no_prune_test.sh` pins both.
   Also, when working on a branch, Ansible's `deploiment_repo_branch` repoints
   `platform-app.yaml`, the instances AppSet generator and the `dev` revision —
   do not let them diverge, or Argo CD silently serves the old appsets from
@@ -781,9 +875,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   `elearning-api` stays there too when `secrets.yaml` was sealed before the
   `S3_*` keys existed: re-run `seal-secrets.sh` with `S3_ACCESS_KEY` /
   `S3_SECRET_KEY` set (`scripts/verify.sh` step 4 reports empty keys).
-- **The GHCR PAT leaked into git history.** `configs/ghcr-registry-secret.yaml`
-  and every `image.pullSecretData` have been removed, but the token is still
-  readable in past commits: rotate it, then purge history (`git filter-repo`).
+- **A GHCR PAT leaked into git history (MAIR-677).** `configs/ghcr-registry-secret.yaml`
+  and every `image.pullSecretData` have been removed and the token is revoked
+  (GitHub API answers 401, checked 2026-11-01); the history purge is tracked in
+  MAIR-677. Never commit a registry credential again: the GHCR credentials live
+  in ansible (`GHCR_USER` / `GHCR_TOKEN`), and the `secret-scan` CI job blocks it.
 - `helm lint` on subcharts standalone fails (they need umbrella `global.*`);
   CI lints the umbrella only and validates subcharts through the per-env render.
 - **Instance image tags must exist without the image-updater (MAIR-172).**
@@ -855,6 +951,23 @@ and maintaining a parallel Kind topology is what produced the earlier
   `scripts/verify.sh` step 4 flags them on the cluster.
 - `.env` (gitignored, not tracked) holds a real GHCR token and GitHub App creds
   used for local registry auth — never commit it.
+- **The session signing key is only replaced by `--rotate-signing-key`
+  (MAIR-680).** A plain run or `--rotate` keeps it, and a run while the
+  committed `secrets.yaml` seals a key the cluster has not received yet stops
+  (a second key would not match the public key already pasted). Do not delete
+  `<release>-jwt-signing-secret` to rotate: its SealedSecret is still in git
+  and the controller brings the old Secret back. `--rotate-signing-key`
+  generates the new key without reading the cluster, then the rollout is two
+  commits, in this order (one commit does not order the restarts, and a
+  core-api signing before the verifiers know the key logs users out):
+  1. `values.yaml` only, `global.jwt.publicKey` listing the current **and**
+     the new block; sync, wait for every API and BFF rollout;
+  2. the new `secrets.yaml`; sync, `kubectl rollout restart` core-api (env
+     from `secretKeyRef` is read at start only);
+  3. after `JWT_TIMEOUT`, drop the old block.
+  core-api refuses to start when its private key matches no block of
+  `JWT_PUBLIC_KEY`. The chart has no override of the Secret name: it is
+  always `<release>-jwt-signing-secret`, the one the script seals.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
   too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
   derives its master key from that one password, and nothing here runs the

@@ -1,0 +1,17 @@
+# Wrapper chart: pins Traefik, the ingress controller replacing ingress-nginx
+# (MAIR-260, docs/adr/0001-replace-ingress-nginx.md), on the INSTANCE machines
+# switched to it. Applied by bootstrap/appsets/traefik-appset.yaml at the
+# machine's own revision (Argo CD cluster annotation mairie360.fr/revision).
+# tests/e2e/run.sh installs this very chart, so the e2e ingress test runs the
+# version and values the machines run.
+apiVersion: v2
+name: bootstrap-traefik
+description: Traefik as installed on Mairie360 instance machines switched to it
+type: application
+version: 0.1.0
+dependencies:
+  - name: traefik
+    # PINNED: chart 41.6.0 = Traefik v3.7.13 (Sept 2026, current minor;
+    # Kubernetes >= 1.25). Upgrades go through Renovate.
+    version: 41.6.0
+    repository: https://traefik.github.io/charts

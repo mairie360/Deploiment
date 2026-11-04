@@ -1,0 +1,275 @@
+suite: session token keys (MAIR-680, audit A1)
+# core-api alone signs the session tokens (Ed25519, JWT_PRIVATE_KEY from the
+# sealed signing Secret); every API and BFF only verifies them with the public
+# key(s) of global.jwt.publicKey (JWT_PUBLIC_KEY). Before MAIR-680 the same
+# HS256 JWT_SECRET reached 12 services, so any compromised pod could forge an
+# administrator token.
+# The throwaway public keys below were generated for this test only. No
+# private key PEM block appears here (Gitleaks private-key rule, MAIR-677).
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: "MAIR-680: every API gets JWT_PUBLIC_KEY from global.jwt.publicKey"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+          count: 1
+
+  - it: "MAIR-680: every BFF gets JWT_PUBLIC_KEY from global.jwt.publicKey"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+          count: 1
+
+  - it: "MAIR-680: compliance-api gets JWT_PUBLIC_KEY and never JWT_PRIVATE_KEY"
+    set:
+      global.compliance.enabled: true
+      APIs.instances.compliance-api: { enabled: true, image: { repository: ghcr.io/mairie360/compliance-api, tag: dev-abc1234 } }
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-compliance-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+
+  - it: "MAIR-680: several PUBLIC KEY blocks (rotation) reach the services unchanged"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAt0Od+hPFxxrs5Re7cCzabCVVPc2aeVRBOGko3olbtoo=\n-----END PUBLIC KEY-----\n"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-bff }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAt0Od+hPFxxrs5Re7cCzabCVVPc2aeVRBOGko3olbtoo=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: without a public key (transition) no service gets JWT_PUBLIC_KEY and JWT_SECRET stays"
+    templates: [charts/APIs/templates/deployment.yaml, charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY }
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_SECRET
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: JWT_SECRET }
+
+  - it: "MAIR-680: with signing on, core-api gets JWT_PRIVATE_KEY from the sealed signing Secret"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_PRIVATE_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-jwt-signing-secret, key: JWT_PRIVATE_KEY }
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: with signing on, no BFF gets JWT_PRIVATE_KEY"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - notMatchRegexRaw:
+          pattern: jwt-signing-secret
+
+  - it: "MAIR-680: with signing on, project-api gets no JWT_PRIVATE_KEY"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: with signing on, calendar-api gets no JWT_PRIVATE_KEY"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-calendar-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: with signing on, message-api gets no JWT_PRIVATE_KEY"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-message-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: with signing on, elearning-api gets no JWT_PRIVATE_KEY"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-elearning-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----" }
+
+  - it: "MAIR-680: signing on without a public key fails the render"
+    set:
+      global.jwt.signing.enabled: true
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.jwt.signing.enabled needs global.jwt.publicKey"
+
+  - it: "MAIR-680: a private key pasted as publicKey fails the render"
+    set:
+      global.jwt.publicKey: "pasted PRIVATE KEY instead of the public one"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "holds a PRIVATE KEY"
+
+  - it: "MAIR-680: a placeholder that is not PEM fails the render"
+    set:
+      global.jwt.publicKey: "TODO"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be PEM"
+
+  - it: "MAIR-680: a PUBLIC KEY block without body or END marker fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: a folded block (markers and body on one line) fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY----- MCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4= -----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: a truncated Ed25519 block fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmnts\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: a non-Ed25519 public key (EC P-256) fails the render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQ8dpo4X0GJ3T7jlMmmfLsG6ObIaR\nv0Ah0zSuzBiKZ4ZqGGr7uIfBxaz3vtwCfkuoAmmFy+R8xUwq+Hs4+9TN7w==\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "complete Ed25519"
+
+  - it: "MAIR-680: two complete Ed25519 blocks (rotation) render"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/KSQpOSkcSoT/6RwUcX2vADZ3lUwmDlZRY+4M4J9J4I=\n-----END PUBLIC KEY-----\n"
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: "MAIR-680: no signing Secret is created in clear on a real instance"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: "MAIR-680: the local cluster (secrets.create) gets the signing Secret from secrets.jwtPrivateKey"
+    set:
+      secrets.create: true
+      secrets.jwtSecret: "test-only"
+      secrets.s3AccessKey: "SCWTESTACCESS"
+      secrets.s3SecretKey: "test-secret"
+      database.image.tag: "test"
+      liquibase.image.tag: "test"
+      secrets.jwtPrivateKey: "test-only-not-a-pem-key"
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+      - isKind: { of: Secret }
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-jwt-signing-secret
+      - equal:
+          path: stringData.JWT_PRIVATE_KEY
+          value: "test-only-not-a-pem-key"
+
+  - it: "MAIR-680: the local cluster refuses signing without secrets.jwtPrivateKey"
+    set:
+      secrets.create: true
+      secrets.jwtSecret: "test-only"
+      secrets.s3AccessKey: "SCWTESTACCESS"
+      secrets.s3SecretKey: "test-secret"
+      database.image.tag: "test"
+      liquibase.image.tag: "test"
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
+      global.jwt.signing.enabled: true
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "secrets.jwtPrivateKey is required"

@@ -1,0 +1,13 @@
+# Values of the sealed-secrets subchart (everything sits under `sealed-secrets:`).
+#
+# The sealing key is SPECIFIC TO EACH CLUSTER: a secret sealed for one
+# client's instance cannot be decrypted on another one. That is the isolation
+# we want; the price is sealing once per machine (scripts/seal-secrets.sh) and
+# BACKING UP every key: without it, a reinstall makes the committed secrets
+# unrecoverable.
+sealed-secrets:
+  # scripts/seal-secrets.sh and kubeseal look for this controller name.
+  fullnameOverride: sealed-secrets-controller
+  resources:
+    requests: { memory: 64Mi, cpu: 50m }
+    limits:   { memory: 256Mi }

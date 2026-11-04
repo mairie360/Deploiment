@@ -143,6 +143,31 @@ global:
     # Défaut : <release>-app-secrets. Voir `secrets.create` plus bas.
     appSecretName: ""
 
+  # Session tokens signed by core-api alone (MAIR-680, audit A1). Core signs
+  # with an Ed25519 key (EdDSA), every API and BFF only verifies them with the
+  # public half: a compromised pod can no longer forge an administrator token,
+  # as it could with the HS256 JWT_SECRET shared by the 12 services.
+  # scripts/seal-secrets.sh generates the key pair of the instance (once,
+  # never overwritten), seals the private key in <release>-jwt-signing-secret
+  # and prints the public key to paste below. templates/jwt-session-keys.yaml
+  # refuses inconsistent settings.
+  jwt:
+    # JWT_PUBLIC_KEY of every API and BFF (compliance-api included): plain
+    # PEM, not a secret. Several `PUBLIC KEY` blocks are allowed during a
+    # rotation (publish the new key first, then let core-api sign with it).
+    # "" = not injected: the services then only accept the HS256 tokens of
+    # JWT_SECRET (transition, safe as long as JWT_SECRET is set).
+    publicKey: ""
+    signing:
+      # core-api (and only core-api) gets JWT_PRIVATE_KEY and signs EdDSA
+      # tokens. Turn on only once EVERY API and BFF of the instance runs an
+      # image that verifies EdDSA (API_lib / bffs-lib MAIR-680): an older one
+      # refuses every session signed after the switch. Requires publicKey.
+      # The private key is read from <release>-jwt-signing-secret (key
+      # JWT_PRIVATE_KEY), the name scripts/seal-secrets.sh seals: no override,
+      # so the chart and the provisioning cannot disagree.
+      enabled: false
+
   database:
     # Nom du Secret Postgres (clés POSTGRES_USER / POSTGRES_PASSWORD /
     # POSTGRES_DB, réservées à Liquibase, + une clé <ROLE>_PASSWORD par rôle
@@ -242,6 +267,9 @@ secrets:
   # create=true: the API refuses to start without them.
   s3AccessKey: ""
   s3SecretKey: ""
+  # Ed25519 private key (PEM) of <release>-jwt-signing-secret, created with
+  # create=true and global.jwt.signing.enabled only (MAIR-680).
+  jwtPrivateKey: ""
 
 # -----------------------------------------------------------------------------
 # Single Ingress for every enabled front (templates/ingress.yaml), and the
@@ -266,7 +294,7 @@ ingress:
   maxBodySizeMiB: 50
   # HTTP -> HTTPS redirect: nginx gets ssl-redirect/force-ssl-redirect on the
   # Ingress; with traefik the redirect is done by the controller itself (web
-  # entrypoint, bootstrap/values/traefik.yaml) and the fronts' routers only
+  # entrypoint, bootstrap/addons/traefik/values.yaml) and the fronts' routers only
   # listen on websecure, so it cannot be turned off per instance.
   # Extra annotations, added as-is whatever the controller (they win over
   # the generated ones).

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# MAIR-677: a GitHub PAT was committed in clear (pullSecretData, 446103e) and
+# stayed readable in this public repo's history. The CI `secret-scan` job runs
+# Gitleaks with .gitleaks.toml on every new commit: it must block a PAT or a
+# plain Secret, including inside an instance's secrets.yaml, and must let the
+# SealedSecret ciphertext written by scripts/seal-secrets.sh through.
+# Needs docker (preinstalled on GitHub runners).
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Same image as mairie360/CICD actions/security/gitleaks (bump both together).
+IMAGE="zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+FAILED=0
+WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+
+# Fake values built at runtime so this file itself never matches a rule, and
+# derived from fixed seeds (not /dev/urandom) so the result never depends on a
+# random substring hitting a Gitleaks stopword.
+alnum() { # alnum <seed> <length>: deterministic high-entropy [A-Za-z0-9] string
+  local out="" i=0
+  while [ "${#out}" -lt "$2" ]; do
+    out+="$(printf '%s-%s' "$1" "$i" | openssl dgst -sha512 -binary | base64 -w0 | tr -d '+/=')"
+    i=$((i + 1))
+    [ "$i" -lt 100 ] || { echo "alnum: no output (openssl missing?)" >&2; return 1; }
+  done
+  printf '%s' "${out:0:$2}"
+}
+fake_pat="ghp_$(alnum pat 36)"
+sealed="Ag$(alnum sealed 718)"
+short_ag="Ag$(alnum short 120)"
+
+scan() { # scan <expected: clean|leak> <label> <file> <content>
+  local repo="$WORK/$RANDOM$RANDOM"
+  mkdir -p "$repo/$(dirname "$3")"
+  cp "$ROOT/.gitleaks.toml" "$repo/"
+  printf '%s\n' "$4" > "$repo/$3"
+  git -C "$repo" init -q
+  git -C "$repo" -c user.name=t -c user.email=t@t add -A
+  git -C "$repo" -c user.name=t -c user.email=t@t commit -qm test
+  docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/repo" -w /repo "$IMAGE" \
+    git /repo --redact --no-banner --exit-code 42 >/dev/null 2>&1
+  local rc=$? got
+  # 42 = findings; Gitleaks also exits 1 on a scan error, which must not pass as a leak.
+  if [ "$rc" -eq 0 ]; then got=clean; elif [ "$rc" -eq 42 ]; then got=leak; else got="error($rc)"; fi
+  if [ "$got" = "$1" ]; then echo "  OK    $1: $2"; else echo "  FAIL  expected $1, got $got: $2"; FAILED=1; fi
+}
+
+SEALED_FILE=clusters/acme/instances/dev/secrets.yaml
+
+scan leak "PAT in an instance's values.yaml (the 446103e leak)" \
+  clusters/acme/instances/dev/values.yaml \
+  "global:
+  pullSecretToken: \"$fake_pat\""
+
+scan clean "SealedSecret ciphertext in secrets.yaml" "$SEALED_FILE" \
+  "extraObjects:
+  - |
+    kind: SealedSecret
+    spec:
+      encryptedData:
+        JWT_SECRET: $sealed
+        POSTGRES_PASSWORD: $sealed"
+
+scan leak "PAT pasted into secrets.yaml next to sealed values" "$SEALED_FILE" \
+  "extraObjects:
+  - |
+    kind: SealedSecret
+    spec:
+      encryptedData:
+        JWT_SECRET: $sealed
+        GHCR_TOKEN: $fake_pat"
+
+scan leak "short Ag... plaintext token under stringData in secrets.yaml" "$SEALED_FILE" \
+  "extraObjects:
+  - |
+    kind: Secret
+    stringData:
+      API_TOKEN: $short_ag"
+
+scan leak "PAT in chart values (no allowlist outside secrets.yaml)" \
+  charts/mairie360-stack/values.yaml \
+  "apiKey: \"$fake_pat\""
+
+exit "$FAILED"
