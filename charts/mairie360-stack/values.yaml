@@ -217,6 +217,14 @@ global:
     hostname: ""
     # Realm provisioned at first start (charts/keycloak/values.yaml `realm`).
     realm: "mairie360"
+    # MAIR-609 / MAIR-610: the realm's admin console on the public host,
+    # behind a temporary access issued by core-api (Traefik ForwardAuth,
+    # templates/keycloak-console.yaml). Traefik instances only; needs a
+    # core-api image with MAIR-609. On, Keycloak no longer sets
+    # KC_HOSTNAME_ADMIN (charts/keycloak `adminUrl`): the master realm is then
+    # administered with kcadm in the pod, its console is not reachable.
+    consoleAccess:
+      enabled: false
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans

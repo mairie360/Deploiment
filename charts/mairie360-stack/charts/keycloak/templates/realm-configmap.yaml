@@ -14,7 +14,8 @@ file after the first sync changes nothing on a running instance: use the
 admin console, or delete the realm and let the next restart re-import it.
 The core-api client (MAIR-554) is added to an existing realm by
 scripts/keycloak-core-api-client.sh, the second-factor flow and OTP policy
-(MAIR-572) by scripts/keycloak-2fa.sh.
+(MAIR-572) by scripts/keycloak-2fa.sh, the composites of the roles
+(`clientComposites`, MAIR-610) by scripts/keycloak-admin-role.sh.
 */ -}}
 {{- $realm := .Values.realm -}}
 {{- $loginFront := $realm.clients.loginFront -}}
@@ -109,7 +110,14 @@ data:
         "realm": [
           {{- range $i, $role := $realm.roles }}
           {{- if $i }},{{ end }}
-          { "name": {{ $role.name | quote }}, "description": {{ $role.description | default "" | quote }} }
+          {
+            "name": {{ $role.name | quote }},
+            "description": {{ $role.description | default "" | quote }}
+            {{- with $role.clientComposites }},
+            "composite": true,
+            "composites": { "client": {{ toJson . }} }
+            {{- end }}
+          }
           {{- end }}
         ]
       },

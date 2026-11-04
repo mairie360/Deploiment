@@ -1,0 +1,174 @@
+{{- /*
+Keycloak's realm administration console on auth.<domain> (MAIR-609 / MAIR-610),
+behind a temporary access issued by core-api. Rendered only with
+global.keycloak.consoleAccess.enabled on a Traefik instance: ingress-nginx has
+no ForwardAuth here, so an nginx instance keeps the console closed (404) and
+the port-forward of charts/keycloak `adminUrl`.
+
+The journey:
+1. a town hall Admin asks core-api for a link
+   (POST /api/v1/admin/keycloak/console-access, through BFF_user): a signed,
+   single-use token valid 120 s;
+2. the browser opens https://auth.<domain>/admin-access?token=… , routed to
+   core-api by the `-keycloak-console-access` Ingress below: core-api burns
+   the token, sets the HttpOnly cookie __Secure-mairie360-kc-console
+   (Path=/admin, SameSite=Strict, 30 min) and redirects to
+   /admin/<realm>/console/;
+3. every request to the console paths goes through the `-keycloak-console`
+   Ingress, whose ForwardAuth Middleware asks core-api
+   GET /internal/keycloak-console/verify with the Cookie header only: 200 lets
+   it through to Keycloak, anything else (401 no or expired cookie, 503 not
+   configured, 404 older core-api image) is returned to the browser instead.
+   The admin then signs in to the realm in Keycloak as usual: the cookie only
+   opens the door, Keycloak still checks the account and its roles (realm
+   role `Admin`, composite of realm-management user roles, charts/keycloak).
+
+Only the console of the instance realm and the Admin REST API of that realm
+are routed; the master realm (/admin/master/…), any other realm and the rest
+of /admin stay 404 from the ingress. Sign-in pages of the console are the
+realm's public ones (keycloak.ingress.paths). The cookie's Path=/admin is
+not sent to /realms/…, so nothing there sits behind the ForwardAuth.
+The cluster-issuer annotation stays on templates/keycloak-ingress.yaml alone:
+these Ingresses reuse its TLS Secret, a second Certificate for the same
+Secret would fight over it.
+*/ -}}
+{{- $console := ((.Values.global.keycloak).consoleAccess | default dict) -}}
+{{- $traefik := eq (include "mairie360.ingressController" .) "traefik" -}}
+{{- /* charts/keycloak drops KC_HOSTNAME_ADMIN on that switch alone (it cannot
+see ingress.enabled): without the Ingress the console would be reachable
+nowhere, so refuse the combination. */ -}}
+{{- if and $console.enabled $traefik .Values.keycloak.enabled (not .Values.ingress.enabled) -}}
+{{- fail "global.keycloak.consoleAccess.enabled needs ingress.enabled: the console is published on the Keycloak Ingress host (MAIR-610)" -}}
+{{- end -}}
+{{- if and $console.enabled .Values.ingress.enabled .Values.keycloak.enabled $traefik }}
+{{- $core := index (.Values.APIs.instances | default dict) "core-api" | default dict -}}
+{{- if not $core.enabled -}}
+{{- fail "global.keycloak.consoleAccess.enabled needs the core-api instance: it issues and checks the console access (MAIR-609)" -}}
+{{- end -}}
+{{- $host := include "mairie360.keycloakHost" . -}}
+{{- $fullname := include "mairie360.fullname" . -}}
+{{- $realm := include "mairie360.keycloakRealm" . -}}
+{{- $corePort := (index .Values.global.apis.instances "core-api").port -}}
+{{- $coreService := printf "%s-core-api" .Release.Name -}}
+{{- $middleware := printf "%s-keycloak-console-auth" $fullname | trunc 63 | trimSuffix "-" -}}
+{{- /* The fronts' annotations for Traefik, without the certificate (see above). */}}
+{{- $base := merge (dict) (.Values.keycloak.ingress | default dict).annotations (include "mairie360.ingressAnnotations" . | fromYaml) -}}
+{{- $base = omit $base "cert-manager.io/cluster-issuer" "acme.cert-manager.io/http01-ingress-ingressclassname" -}}
+{{- $chain := list (printf "%s-%s@kubernetescrd" .Release.Namespace $middleware) -}}
+{{- with (get $base "traefik.ingress.kubernetes.io/router.middlewares") }}
+{{- $chain = append $chain . -}}
+{{- end }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $middleware }}
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    # Before the Ingresses (wave 5) that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  forwardAuth:
+    address: {{ printf "http://%s.%s.svc.cluster.local:%v/internal/keycloak-console/verify" $coreService .Release.Namespace $corePort | quote }}
+    # Only the console cookie reaches core-api: not the Authorization header
+    # of the console's REST calls (a Keycloak token), nor anything else.
+    authRequestHeaders:
+      - Cookie
+    trustForwardHeader: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-keycloak-console
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    {{- toYaml (merge (dict "traefik.ingress.kubernetes.io/router.middlewares" (join "," $chain)) $base) | nindent 4 }}
+spec:
+  ingressClassName: {{ include "mairie360.ingressClassName" . | quote }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ printf "%s-keycloak-tls" $fullname }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range (list
+                (dict "path" (printf "/admin/%s/console/" $realm) "pathType" "Prefix")
+                (dict "path" (printf "/admin/realms/%s" $realm) "pathType" "Exact")
+                (dict "path" (printf "/admin/realms/%s/" $realm) "pathType" "Prefix")
+                (dict "path" "/admin/realms" "pathType" "Exact")
+                (dict "path" "/admin/serverinfo" "pathType" "Exact")) }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ printf "%s-keycloak" $.Release.Name }}
+                port:
+                  number: 8080
+          {{- end }}
+---
+# The link of step 2: core-api checks the token itself (signature, 120 s,
+# single use), so no ForwardAuth here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-keycloak-console-access
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    {{- toYaml $base | nindent 4 }}
+spec:
+  ingressClassName: {{ include "mairie360.ingressClassName" . | quote }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ printf "%s-keycloak-tls" $fullname }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /admin-access
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $coreService }}
+                port:
+                  number: {{ $corePort }}
+{{- if .Values.global.networkPolicy.enabled }}
+---
+# The ingress controller reaches core-api for the two steps above: the
+# /admin-access link and the ForwardAuth check. Traefik routes nothing else to
+# it (no Ingress for /api/ or /internal/ on any host).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-core-api-allow-from-ingress" .Release.Name }}
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: core-api
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "mairie360.ingressNamespace" . }}
+      ports:
+        - protocol: TCP
+          port: 3000
+{{- end }}
+{{- end }}

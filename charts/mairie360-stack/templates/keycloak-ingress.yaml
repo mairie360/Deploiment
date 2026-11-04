@@ -8,7 +8,9 @@ account console) and the static resources, validated by
 "mairie360.keycloakIngressPaths" (templates/_helpers.tpl). The master realm,
 any other realm, `userinfo`, the realm's other OIDC endpoints and the admin
 console (/admin) answer 404 from the ingress; the admin console is reached
-through `kubectl port-forward`, see charts/keycloak/values.yaml `adminUrl`.
+through `kubectl port-forward`, see charts/keycloak/values.yaml `adminUrl`,
+or, for the instance realm, behind core-api's temporary access
+(templates/keycloak-console.yaml, MAIR-610).
 Class, ClusterIssuer and annotations are the fronts' (`ingress.*`), plus
 `keycloak.ingress.annotations` (proxy buffer size, see values.yaml), all
 through the controller-agnostic helpers of templates/_helpers.tpl (MAIR-260).

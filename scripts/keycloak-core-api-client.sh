@@ -57,8 +57,9 @@ kcadm() {
     read -r P
     C=$(mktemp /tmp/kcadm.XXXXXX)
     trap "rm -f $C" EXIT
-    /opt/keycloak/bin/kcadm.sh config credentials --config "$C" --server http://localhost:8080 \
-      --realm master --user "$0" --password "$P" >/dev/null \
+    # KC_CLI_PASSWORD, not --password: kept off the process arguments in the pod.
+    KC_CLI_PASSWORD="$P" /opt/keycloak/bin/kcadm.sh config credentials --config "$C" --server http://localhost:8080 \
+      --realm master --user "$0" >/dev/null \
       || { echo "Keycloak refused the admin login (set KEYCLOAK_ADMIN_PASSWORD)" >&2; exit 3; }
     /opt/keycloak/bin/kcadm.sh "$@" --config "$C"
   ' "$ADMIN_USER" "$@"
