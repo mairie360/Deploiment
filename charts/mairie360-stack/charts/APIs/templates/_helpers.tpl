@@ -140,11 +140,7 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
 */}}
 - name: REDIS_URL
   value: {{ printf "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:6379" .root.Release.Name | quote }}
-- name: JWT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "apis.appSecretName" .root }}
-      key: JWT_SECRET
+{{- /* MAIR-680: no JWT_SECRET anymore, the APIs verify EdDSA tokens only. */}}
 {{- include "apis.jwtKeysEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
 {{- include "apis.keycloakEnv" . }}

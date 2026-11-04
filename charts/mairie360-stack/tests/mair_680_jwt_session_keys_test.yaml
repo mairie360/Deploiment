@@ -56,23 +56,23 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAt0Od+hPFxxrs5Re7cCzabCVVPc2aeVRBOGko3olbtoo=\n-----END PUBLIC KEY-----" }
 
-  - it: "MAIR-680: without a public key (transition) no service gets JWT_PUBLIC_KEY and JWT_SECRET stays"
+  - it: "MAIR-680 drop: no API or BFF gets JWT_SECRET, the shared HS256 secret is gone"
+    set:
+      global.jwt.publicKey: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n"
     templates: [charts/APIs/templates/deployment.yaml, charts/BFFs/templates/deployment.yaml]
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
-          content: { name: JWT_PUBLIC_KEY }
+          content: { name: JWT_SECRET }
           any: true
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content: { name: JWT_PRIVATE_KEY }
-          any: true
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWT_SECRET
-            valueFrom:
-              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: JWT_SECRET }
+
+  - it: "MAIR-680 drop: the render fails without a public key (no service could verify a session)"
+    set:
+      global.jwt.publicKey: ""
+    templates: [templates/jwt-session-keys.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.jwt.publicKey is required"
 
   - it: "MAIR-680: with signing on, core-api gets JWT_PRIVATE_KEY from the sealed signing Secret"
     set:
@@ -167,11 +167,12 @@ tests:
 
   - it: "MAIR-680: signing on without a public key fails the render"
     set:
+      global.jwt.publicKey: ""
       global.jwt.signing.enabled: true
     templates: [templates/jwt-session-keys.yaml]
     asserts:
       - failedTemplate:
-          errorPattern: "global.jwt.signing.enabled needs global.jwt.publicKey"
+          errorPattern: "global.jwt.publicKey is required"
 
   - it: "MAIR-680: a private key pasted as publicKey fails the render"
     set:
@@ -240,7 +241,6 @@ tests:
   - it: "MAIR-680: the local cluster (secrets.create) gets the signing Secret from secrets.jwtPrivateKey"
     set:
       secrets.create: true
-      secrets.jwtSecret: "test-only"
       secrets.s3AccessKey: "SCWTESTACCESS"
       secrets.s3SecretKey: "test-secret"
       database.image.tag: "test"
@@ -262,7 +262,6 @@ tests:
   - it: "MAIR-680: the local cluster refuses signing without secrets.jwtPrivateKey"
     set:
       secrets.create: true
-      secrets.jwtSecret: "test-only"
       secrets.s3AccessKey: "SCWTESTACCESS"
       secrets.s3SecretKey: "test-secret"
       database.image.tag: "test"

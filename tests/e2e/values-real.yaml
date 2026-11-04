@@ -15,6 +15,13 @@
 # =============================================================================
 
 global:
+  # MAIR-680: required since JWT_SECRET is gone. Public half of a key pair
+  # generated for e2e only; its private half was thrown away (nothing signs).
+  jwt:
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEA3mlSss0OXmrR0w5uY/dRfJJLujfJCfXesLPO2+zOnUc=
+      -----END PUBLIC KEY-----
   # Public images: no ghcr-secret exists in this cluster.
   imagePullSecret: ""
   # The e2e cluster runs Traefik and resolves *.e2e.invalid to it; the
@@ -27,7 +34,6 @@ ingress:
 
 secrets:
   create: true
-  jwtSecret: "e2e-jwt-not-a-secret"
   # Placeholders: app-secrets requires the S3 pair when create=true.
   s3AccessKey: "e2e-s3-access-not-a-secret"
   s3SecretKey: "e2e-s3-secret-not-a-secret"

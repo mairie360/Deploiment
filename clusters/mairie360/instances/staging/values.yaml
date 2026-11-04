@@ -40,8 +40,8 @@ global:
   # (after scripts/seal-secrets.sh, or ansible playbooks/secrets.yml, sealed
   # <release>-jwt-signing-secret on this machine): paste the PUBLIC KEY block
   # it printed as publicKey, then turn signing on once every API and BFF image
-  # of staging verifies EdDSA. Empty = the services keep verifying the HS256
-  # tokens of JWT_SECRET only; the chart refuses signing without a public key.
+  # of staging verifies EdDSA. Required since JWT_SECRET was removed: the chart
+  # refuses to render without it.
   jwt:
     publicKey: ""
     signing:

@@ -136,7 +136,7 @@
 # MAIR-119: if backup (charts/backup) is enabled for this instance, export
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before calling this script —
 # they cannot be generated, they are credentials for the external S3 bucket.
-# RESTIC_PASSWORD is generated like JWT_SECRET / POSTGRES_PASSWORD; LOSING IT
+# RESTIC_PASSWORD is generated like POSTGRES_PASSWORD; LOSING IT
 # MAKES EVERY EXISTING BACKUP UNREADABLE, keep it outside the cluster too,
 # like the sealing key.
 # WARNING: rotating POSTGRES_PASSWORD does not change the live superuser
@@ -198,14 +198,12 @@ prev() {
 gen() { openssl rand -hex 32; }
 
 if [ "$ROTATE" = "--rotate" ]; then
-  JWT=""; PGPASS=""; ADMINPASS=""; RESTICPASS=""
+  PGPASS=""; ADMINPASS=""; RESTICPASS=""
 else
-  JWT="$(prev "${RELEASE}-app-secrets" JWT_SECRET)"
   PGPASS="$(prev "${RELEASE}-database-secret" POSTGRES_PASSWORD)"
   ADMINPASS="$(prev "${RELEASE}-redis" redis-password)"
   RESTICPASS="$(prev "${RELEASE}-backup-secret" RESTIC_PASSWORD)"
 fi
-[ -n "$JWT" ]        || { JWT="$(gen)";        echo "  JWT_SECRET             : généré"; }
 [ -n "$PGPASS" ]     || { PGPASS="$(gen)";     echo "  POSTGRES_PASSWORD      : généré"; }
 [ -n "$ADMINPASS" ]  || { ADMINPASS="$(gen)";  echo "  redis-password (admin) : généré"; }
 if [ -n "${RESTIC_PASSWORD:-}" ]; then
@@ -471,7 +469,6 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 kubectl create secret generic "${RELEASE}-app-secrets" \
   --namespace "$NS" \
-  --from-literal=JWT_SECRET="$JWT" \
   --from-literal=SMTP_PASSWORD="$SMTPPASS" \
   --from-literal=S3_ACCESS_KEY="$S3AK" \
   --from-literal=S3_SECRET_KEY="$S3SK" \
