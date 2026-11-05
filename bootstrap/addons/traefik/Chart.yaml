@@ -13,5 +13,5 @@ dependencies:
   - name: traefik
     # PINNED: chart 41.6.0 = Traefik v3.7.13 (Sept 2026, current minor;
     # Kubernetes >= 1.25). Upgrades go through Renovate.
-    version: 41.6.0
+    version: 41.7.1
     repository: https://traefik.github.io/charts
