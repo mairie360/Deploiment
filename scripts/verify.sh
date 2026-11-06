@@ -31,6 +31,8 @@
 #     batch        cronjobs              get list
 #     apps         statefulsets          list
 #     bitnami.com  sealedsecrets         get
+#     cert-manager.io   certificates     list   step 12c, optional: skipped when denied
+#     networking.k8s.io ingresses        list   step 12c, optional: skipped when denied
 #   namespace kube-system
 #     apps         daemonsets            get list watch   resourceNames: cilium
 #     apps         deployments           get list watch   resourceNames: hubble-relay
@@ -49,6 +51,8 @@ set -uo pipefail
 
 # shellcheck source=scripts/lib/secret-values.sh
 . "$(dirname "$0")/lib/secret-values.sh"
+# shellcheck source=scripts/lib/cert-solvers.sh
+. "$(dirname "$0")/lib/cert-solvers.sh"
 
 CTX="${1:?usage: $0 <kube-context> <env> [domain]}"
 ENV="${2:?}"
@@ -292,6 +296,41 @@ if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
   fi
 else
   ok "keycloak not enabled for this instance"
+fi
+
+# MAIR-795: cert-manager copies the Ingress's solver class onto a Certificate
+# only when it creates it. One created before that (or on another ingress
+# controller) keeps the wrong class: its HTTP-01 challenges answer 404 forever
+# and the renewal stalls silently. Needs list on Certificates and Ingresses,
+# which the runner's ServiceAccount only has once ansible grants it: skipped
+# (not failed) without it, like step 4's plaintext checks.
+step 12c "MAIR-795: every Certificate's HTTP-01 solver class is the one its Ingress asks for"
+if [ "$($K auth can-i list certificates.cert-manager.io 2>/dev/null)" = yes ] \
+   && [ "$($K auth can-i list ingresses.networking.k8s.io 2>/dev/null)" = yes ]; then
+  SOLVER_TMP=$(mktemp -d)
+  if $K get certificates.cert-manager.io -o \
+       jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.ownerReferences[?(@.kind=="Ingress")].name}{"\t"}{.metadata.annotations.acme\.cert-manager\.io/http01-override-ingress-ingressclassname}{"\n"}{end}' \
+       > "$SOLVER_TMP/certificates.tsv" 2>/dev/null \
+     && $K get ingresses.networking.k8s.io -o \
+       jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.acme\.cert-manager\.io/http01-ingress-ingressclassname}{"\n"}{end}' \
+       > "$SOLVER_TMP/ingresses.tsv" 2>/dev/null; then
+    if [ ! -s "$SOLVER_TMP/certificates.tsv" ]; then
+      ok "no Certificate in ${NS}"
+    else
+      while IFS=$'\t' read -r verdict cert ingress expected inuse how; do
+        case "$verdict" in
+          OK)   ok "${cert}: solver class ${expected:-$inuse} (Ingress ${ingress})" ;;
+          SKIP) ok "${cert}: not compared (${ingress})" ;;
+          FAIL) ko "${cert}: HTTP-01 solver class '${inuse}' (${how}) but Ingress ${ingress} asks for '${expected}': kubectl -n ${NS} delete certificate ${cert} (cert-manager recreates it from the Ingress; its TLS Secret keeps being served meanwhile)" ;;
+        esac
+      done < <(cert_solver_report "$SOLVER_TMP/certificates.tsv" "$SOLVER_TMP/ingresses.tsv")
+    fi
+  else
+    ko "cannot list the Certificates / Ingresses of ${NS} although the context may"
+  fi
+  rm -rf "$SOLVER_TMP"
+else
+  ok "no Certificate/Ingress read with this context: solver classes not compared (grant list on both, ansible github_runner role)"
 fi
 
 if [ -n "$DOMAIN" ]; then

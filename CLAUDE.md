@@ -232,6 +232,27 @@ which overrides the solver class per Ingress. With Traefik, HTTP → HTTPS is
 the web entrypoint's redirect pinned at **priority 1**, so the solver router
 (`pathType: Exact`) always answers on port 80: keep it the lowest.
 
+**cert-manager copies that annotation onto the Certificate only when it
+creates it** (as `acme.cert-manager.io/http01-override-ingress-ingressclassname`)
+and never updates it (MAIR-795). A Certificate created before the annotation
+existed, or while the machine ran another ingress controller, keeps the wrong
+class or none, and a Certificate with none uses the ClusterIssuer default
+(`nginx`): on a Traefik machine its HTTP-01 challenges answer 404 forever and
+the renewal stalls without any alert (prod fronts, 2026-11-06). Fix:
+`kubectl -n mairie360-<env> delete certificate <name>`; the owning Ingress makes
+cert-manager recreate it with the right class, and the TLS Secret (no owner
+reference) keeps being served meanwhile. `scripts/verify.sh` step 12c fails on
+any such Certificate (`scripts/lib/cert-solvers.sh`,
+`tests/scripts/mair_795_cert_solver_test.sh`); `CLUSTER_ISSUER_DEFAULT_SOLVER`
+there must stay equal to the ClusterIssuers' solver class in
+`bootstrap/cluster-addons/cluster-issuers.yaml`, and the test checks it. The
+step needs `list` on Certificates and Ingresses: it is skipped, not failed,
+with a context that lacks it, so the Promote workflow only enforces it once
+ansible's `github_runner` role grants those two reads. Changing the
+ClusterIssuers' default itself is not part of this: that file is read from
+`main` by every machine until the `mairie360.fr/revision` annotation is rolled
+out (MAIR-346).
+
 Each instance needs public DNS for every front hostname pointing at its own IP.
 **`cert-manager-appset.yaml` and `bootstrap/addons/cert-manager/` must stay free of any domain or IP** (MAIR-157, checked by CI):
 it is shared by every group. The HTTP-01 self-check goes through public DNS;
@@ -594,7 +615,8 @@ subchart renders, all named `<release>-keycloak*`:
   404, not Keycloak's (MAIR-414, MAIR-610), step 13c that the realm console
   answers 401 without core-api's cookie (or the ingress 404 when not
   published) and `/admin-access` refuses a bogus link (MAIR-609),
-  step 15 that 8080/9000 are closed.
+  step 12c that every Certificate's HTTP-01 solver class is the one its
+  Ingress asks for (MAIR-795), step 15 that 8080/9000 are closed.
 - **Realm console (MAIR-609 / MAIR-610), `global.keycloak.consoleAccess.enabled`
   (off by default, on for dev; Traefik only).** `templates/keycloak-console.yaml`
   publishes the console of the instance realm on `auth.<domain>` behind a
