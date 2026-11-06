@@ -13,6 +13,25 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: COOKIE_DOMAIN, value: ".mairie360.ville-exemple.fr" }
 
+  # MAIR-794: admin.<domain> answered Traefik's 404 because the base kept admin-front disabled.
+  - it: MAIR-794 admin-front is deployed on prod at a published release
+    templates: [charts/Fronts/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-admin-front }
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^ghcr\.io/mairie360/administrator-front:[0-9]+\.[0-9]+\.[0-9]+$'
+
+  - it: MAIR-794 admin.<domain> is routed and covered by the fronts certificate on prod
+    templates: [templates/ingress.yaml]
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: admin.mairie360.ville-exemple.fr
+      - contains:
+          path: spec.tls[0].hosts
+          content: admin.mairie360.ville-exemple.fr
+
   # MAIR-612: core-api sends through the Resend API (MAIR-522) from no-reply@<EMAIL_DOMAIN>.
   - it: core-api's PUBLIC_URL and EMAIL_DOMAIN come from the instance
     templates: [charts/APIs/templates/deployment.yaml]
