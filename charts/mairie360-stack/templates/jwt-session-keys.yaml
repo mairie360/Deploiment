@@ -2,6 +2,8 @@
 MAIR-680 (audit A1): session tokens signed by core-api alone.
 
 Render guards on global.jwt (the APIs and BFFs charts inject the keys):
+  - publicKey is required: since JWT_SECRET was removed it is the only way
+    any service verifies a session;
   - publicKey, when set, holds only `PUBLIC KEY` PEM blocks: a private key
     pasted here would reach every API and BFF in clear;
   - each block is a complete Ed25519 public key (SPKI prefix MCowBQYDK2VwAyEA,
@@ -20,6 +22,17 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- $jwt := .Values.global.jwt | default dict }}
 {{- $public := $jwt.publicKey | default "" | trim }}
 {{- $signing := ($jwt.signing | default dict) }}
+{{- $services := 0 }}
+{{- range $group := list .Values.APIs .Values.BFFs }}
+{{- if ($group | default dict).enabled }}
+{{- range $name, $cfg := ($group.instances | default dict) }}
+{{- if ($cfg | default dict).enabled }}{{- $services = add1 $services }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and (not $public) (gt $services 0) }}
+{{- fail "global.jwt.publicKey is required: JWT_SECRET is gone, every API and BFF verifies the session tokens with it (MAIR-680). Paste the public key printed by scripts/seal-secrets.sh" }}
+{{- end }}
 {{- if $public }}
 {{- if contains "PRIVATE KEY" $public }}
 {{- fail "global.jwt.publicKey holds a PRIVATE KEY: it is injected in clear into every API and BFF. Put the public half there (openssl pkey -pubout), the private key only in the sealed signing Secret (MAIR-680)" }}
@@ -32,7 +45,15 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- end }}
 {{- end }}
 {{- if $signing.enabled }}
-{{- if not $public }}
+{{- $services := 0 }}
+{{- range $group := list .Values.APIs .Values.BFFs }}
+{{- if ($group | default dict).enabled }}
+{{- range $name, $cfg := ($group.instances | default dict) }}
+{{- if ($cfg | default dict).enabled }}{{- $services = add1 $services }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and (not $public) (gt $services 0) }}
 {{- fail "global.jwt.signing.enabled needs global.jwt.publicKey: every API and BFF must be able to verify what core-api signs (MAIR-680). Paste the public key printed by scripts/seal-secrets.sh" }}
 {{- end }}
 {{- if .Values.secrets.create }}

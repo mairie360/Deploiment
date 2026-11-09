@@ -38,7 +38,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-Nom du Secret applicatif partagé (JWT_SECRET…).
+Name of the shared application Secret (SMTP_PASSWORD, S3_*).
 */}}
 {{- define "mairie360.appSecretName" -}}
 {{- default (printf "%s-app-secrets" .Release.Name) .Values.global.secrets.appSecretName -}}

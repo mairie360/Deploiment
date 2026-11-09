@@ -199,6 +199,13 @@ elif printf '%s' "$MANIFESTS" | grep -q 'BEGIN PRIVATE KEY'; then
 else
   ok "no PEM private key in clear in the workload manifests"
 fi
+# The shared HS256 secret is gone: a JWT_SECRET left on a workload means a
+# stale manifest, or an image still verifying HS256 tokens.
+if $K get deploy,statefulset -o yaml 2>/dev/null | grep -q 'name: JWT_SECRET$'; then
+  ko "a workload still gets JWT_SECRET (removed by MAIR-680)"
+else
+  ok "no workload gets JWT_SECRET"
+fi
 if [ -n "$SIGNERS" ] && ! $K get deploy "${RELEASE}-core-api" -o yaml 2>/dev/null | grep -q 'name: JWT_PUBLIC_KEY'; then
   ko "core-api signs but has no JWT_PUBLIC_KEY (global.jwt.publicKey)"
 fi
