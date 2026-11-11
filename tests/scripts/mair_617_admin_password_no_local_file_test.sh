@@ -56,10 +56,12 @@ chmod +x "$WORK/bin/kubectl" "$WORK/bin/kubeseal"
 
 HASH='$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA'
 SECRETS="$WORK/root/clusters/org/instances/env/secrets.yaml"
-# Run seal-secrets.sh by hand: no ADMIN_PASSWORD, HOME in the work dir.
+# Run seal-secrets.sh by hand: no ADMIN_PASSWORD, HOME in the work dir. The
+# caller's ADMIN_PASSWORD / ADMIN_PASSWORD_FILE are dropped first, so they can
+# neither hide a missing value nor make the script write outside $WORK.
 # Extra environment assignments come first ("VAR=value ... run").
 run() {
-  (cd "$WORK/root" && env HOME="$WORK/home" PATH="$WORK/bin:$PATH" FAKE_CLUSTER="$WORK/cluster" \
+  (cd "$WORK/root" && env -u ADMIN_PASSWORD -u ADMIN_PASSWORD_FILE HOME="$WORK/home" PATH="$WORK/bin:$PATH" FAKE_CLUSTER="$WORK/cluster" \
     ADMIN_EMAIL=admin@example.org RESTIC_PASSWORD=restic "$@" ./scripts/seal-secrets.sh ctx org env) > "$WORK/out" 2>&1
 }
 fresh() {
