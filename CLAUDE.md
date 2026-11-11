@@ -727,11 +727,13 @@ OpenSSL 3.2 or the `argon2` CLI): Database's `create_admin.sql` stores it
 as-is and `chk_users_password_hashed` rejects anything else. The env var is
 the plaintext (an `$argon2id$` value is sealed unchanged); a password the
 script generates, or a plaintext sealed before MAIR-414 that it re-hashes,
-goes to `ADMIN_PASSWORD_FILE` (default `~/.mairie360/admin-<org>-<env>.txt`,
-mode 600), never to the cluster. The ansible role always passes both `ADMIN_PASSWORD` and
-`RESTIC_PASSWORD` in (resolved on its side, backed up to
-`~/.mairie360/admin-<org>-<env>.txt` / `restic-<org>-<env>.txt`), so the
-sealed value is the backed-up one. The Liquibase Job passes
+goes to `ADMIN_PASSWORD_FILE` (mode 600), never to the cluster. That file has
+**no default since MAIR-617**: without it the script stops before sealing
+anything (`tests/scripts/mair_617_admin_password_no_local_file_test.sh`). The
+ansible role always passes both `ADMIN_PASSWORD` and `RESTIC_PASSWORD` in
+(resolved on its side and stored in Scaleway Secret Manager under
+`/<org>/<env>`, secrets created by `mairie360/Infra`), so the sealed value is
+the one in the vault. The Liquibase Job passes
 both as changelog parameters (`-Dadmin_email` / `-Dadmin_password`) and,
 since MAIR-414, **requires them** (`liquibase.adminAccount.required`): the
 `secretKeyRef`s are not optional, and the Job exits before migrating when

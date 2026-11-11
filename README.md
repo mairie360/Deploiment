@@ -51,7 +51,8 @@ Le provisionnement des machines est dans le dépôt
    - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170), mandatory.
      Sealed as `ADMIN_EMAIL` into `<env>-database-secret` alongside the
      argon2id hash of a generated `ADMIN_PASSWORD` (MAIR-414; the plaintext is
-     backed up to `~/.mairie360/admin-<org>-<env>.txt`, never sealed); the
+     stored in the team vault, Scaleway Secret Manager, by the ansible role,
+     MAIR-617, never sealed); the
      Liquibase Job creates or resets the admin account with them,
      `first_connect = TRUE`, and refuses to migrate without them.
 

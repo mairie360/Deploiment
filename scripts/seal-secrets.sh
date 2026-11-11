@@ -43,8 +43,9 @@
 #                   kept; with neither, <env>-backup-secret is not sealed.
 #   RESTIC_PASSWORD / ADMIN_PASSWORD  normally generated here, but the ansible
 #                   role resolves them itself and passes them in, so the value
-#                   sealed is exactly the one it backs up on the workstation
-#                   (~/.mairie360/restic-<org>-<env>.txt, admin-<org>-<env>.txt).
+#                   sealed is exactly the one it stores in the team vault,
+#                   Scaleway Secret Manager (MAIR-617, /<org>/<env>/restic-password
+#                   and admin-password).
 #                   When set, used as-is, even with --rotate; when unset,
 #                   kept from the cluster, else generated.
 #                   ADMIN_PASSWORD is the PLAINTEXT first password of the admin
@@ -54,7 +55,11 @@
 #                   `$argon2id$` hash is sealed as-is. Hashing needs OpenSSL
 #                   >= 3.2 (`openssl kdf ARGON2ID`) or the `argon2` CLI.
 #   ADMIN_PASSWORD_FILE  where a password generated here is written (mode 600)
-#                   for the operator, default ~/.mairie360/admin-<org>-<env>.txt.
+#                   for the operator. No default (MAIR-617): when this script
+#                   has to come up with a plaintext (none passed, none sealed,
+#                   or one sealed before MAIR-414) and no file is given, it
+#                   stops before sealing anything; run playbooks/secrets.yml of
+#                   mairie360/ansible instead, which stores it in the vault.
 #                   The cluster only ever gets the hash.
 #   ADMIN_EMAIL     e-mail of the town hall's administrator account (MAIR-170),
 #                   stored as-is in <env>-database-secret. When unset, the
@@ -252,7 +257,14 @@ argon2id_hash() {
 # A password this script came up with (generated, or the plaintext sealed
 # before MAIR-414) is handed to the operator in a 600 file, never printed.
 save_admin_password() {
-  local file="${ADMIN_PASSWORD_FILE:-$HOME/.mairie360/admin-${ORG}-${ENV}.txt}"
+  local file="${ADMIN_PASSWORD_FILE:-}"
+  # MAIR-617: no default file on the workstation, the vault is the only copy.
+  if [ -z "$file" ]; then
+    echo "ADMIN_PASSWORD has to be generated (or hashed from a plaintext sealed before MAIR-414)" >&2
+    echo "and its plaintext would be kept nowhere: run playbooks/secrets.yml of mairie360/ansible," >&2
+    echo "which stores it in Scaleway Secret Manager, or pass ADMIN_PASSWORD (or ADMIN_PASSWORD_FILE)." >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$file")"
   [ ! -e "$file" ] || mv "$file" "${file}.$(date +%Y%m%d%H%M%S)"
   (umask 077; printf '%s\n' "$1" > "$file")
