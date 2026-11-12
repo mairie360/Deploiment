@@ -43,7 +43,10 @@ global:
   # of dev verifies EdDSA. Empty = the services keep verifying the HS256
   # tokens of JWT_SECRET only; the chart refuses signing without a public key.
   jwt:
-    publicKey: ""
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEACIJhCfqjMY6nw8yMQ6jHzqbjFq78hmaNdE3WIT7tQx0=
+      -----END PUBLIC KEY-----
     signing:
       enabled: false
   imagePullSecret: "ghcr-secret"
