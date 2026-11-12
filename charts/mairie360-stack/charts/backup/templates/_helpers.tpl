@@ -213,3 +213,15 @@ admits nothing else (no Service, no port exposed).
 {{- define "backup.complianceImage" -}}
 "{{ .Values.sealing.image.repository }}:{{ required "backup.sealing.image.tag is required when backup.sealing.enabled=true" .Values.sealing.image.tag }}"
 {{- end -}}
+
+{{/* MAIR-240: the restore needs an exact snapshot id. `latest` (or none) is
+refused: the newest snapshot may be the pre-restore one, or one taken after
+the incident, and a wrong guess overwrites the database. List them with
+`restic snapshots --host <db-name>`. */}}
+{{- define "backup.restoreSnapshotId" -}}
+{{- $id := .Values.restore.snapshotId | default "" | toString -}}
+{{- if or (eq $id "") (eq $id "latest") -}}
+{{- fail "backup.restore.snapshotId is required and must be an exact snapshot id, not latest (list them: restic snapshots --host <db-name>)" -}}
+{{- end -}}
+{{- $id -}}
+{{- end -}}

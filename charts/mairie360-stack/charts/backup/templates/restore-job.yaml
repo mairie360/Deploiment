@@ -48,25 +48,64 @@ spec:
             {{- include "backup.env" . | nindent 12 }}
             {{- include "backup.workEnv" . | nindent 12 }}
             - name: SNAPSHOT_ID
-              value: {{ required "backup.restore.snapshotId is required when backup.restore.enabled=true" .Values.restore.snapshotId | quote }}
-          # --clean --if-exists drops existing objects before recreating them
-          # so the restored database matches the dump exactly, including
-          # objects that no longer exist in the dump. --no-owner avoids
-          # failing on role names that differ between environments.
-          # --single-transaction --exit-on-error (MAIR-414): a restore that
-          # fails half way rolls back instead of leaving a database with
-          # its objects dropped and only part of the dump loaded.
+              value: {{ include "backup.restoreSnapshotId" . | quote }}
+            # MAIR-240: must be the name of the database this Job is about to
+            # replace; compared with the real one before anything is touched.
+            - name: CONFIRM_DATABASE
+              value: {{ required "backup.restore.confirmDatabase is required: the name of the database to replace (its POSTGRES_DB)" .Values.restore.confirmDatabase | quote }}
+          # MAIR-240, nothing is touched before every check below passed:
+          #  1. CONFIRM_DATABASE is the database this pod is connected to;
+          #  2. the snapshot exists (an explicit id, never `latest`) and its
+          #     archive is readable (`pg_restore --list`);
+          #  3. the current state is saved first, as a `pre-restore` snapshot
+          #     (a wrong snapshot can then be undone). Not with sealing: that
+          #     copy would hold unsealed personal data, which the sealed
+          #     backups exist to avoid; the scheduled sealed backup is the net.
+          # The restore replaces schema public, then loads the dump, in ONE
+          # transaction (MAIR-414: a restore that fails half way rolls back
+          # instead of leaving a database with its objects dropped and only
+          # part of the dump loaded). `pg_restore --clean` cannot do it, it
+          # fails on partitioned tables ("cannot drop inherited constraint
+          # access_logs_default_pkey"), so the dump is turned into SQL and fed
+          # to psql after a DROP SCHEMA. The COMMIT is only sent when
+          # pg_restore finished: a truncated script ends with the transaction
+          # still open, which the server rolls back at EOF. Schema public gets
+          # back what a new database has (owner pg_database_owner, USAGE for
+          # PUBLIC), then the dump brings the grants of the API roles. A
+          # restored `public.users` table that is empty aborts the transaction.
+          # --no-owner avoids failing on role names that differ between
+          # environments.
           command: ["sh", "-c"]
           args:
             - |
               set -euo pipefail
+              if [ "$PGDATABASE" != "$CONFIRM_DATABASE" ]; then
+                echo "REFUSED: this Job targets '$PGDATABASE' but backup.restore.confirmDatabase is '$CONFIRM_DATABASE'. Nothing was changed." >&2
+                exit 1
+              fi
+              echo "== snapshot $SNAPSHOT_ID of host $PGDATABASE"
+              restic snapshots --host "$PGDATABASE" "$SNAPSHOT_ID"
               {{- if .Values.sealing.enabled }}
               restic restore --host "$PGDATABASE" "$SNAPSHOT_ID" --target /work
-              pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error --dbname="$PGDATABASE" "/work/${PGDATABASE}.dump"
+              pg_restore --list "/work/${PGDATABASE}.dump" >/dev/null
               {{- else }}
-              restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" \
-                | pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error --dbname="$PGDATABASE"
+              restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" | pg_restore --list >/dev/null
+              echo "== saving the current state as a pre-restore snapshot"
+              pg_dump -Fc "$PGDATABASE" \
+                | restic backup --stdin --stdin-filename "${PGDATABASE}.dump" --host "$PGDATABASE" --tag pre-restore
               {{- end }}
+              echo "== restoring"
+              {
+                echo 'BEGIN; DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION pg_database_owner; GRANT USAGE ON SCHEMA public TO PUBLIC;'
+                {{- if .Values.sealing.enabled }}
+                pg_restore --no-owner -f - "/work/${PGDATABASE}.dump" \
+                {{- else }}
+                restic dump --host "$PGDATABASE" "$SNAPSHOT_ID" "${PGDATABASE}.dump" | pg_restore --no-owner -f - \
+                {{- end }}
+                  && echo "DO \$\$ BEGIN IF (SELECT count(*) FROM public.users) = 0 THEN RAISE EXCEPTION 'restored users table is empty'; END IF; END \$\$;" \
+                  && echo 'COMMIT;'
+              } | psql -q -v ON_ERROR_STOP=1 -d "$PGDATABASE"
+              echo "== restore committed"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- if .Values.sealing.enabled }}
