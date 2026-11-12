@@ -128,25 +128,49 @@ is set, and carries no Argo CD hook annotation — so it must be applied by
 hand, never left `true` in a values file an Argo CD Application tracks:
 
 ```bash
+kubectl config current-context        # must be the cluster of the instance to restore
 helm dependency build ./charts/mairie360-stack
 helm template <release> ./charts/mairie360-stack -f <instance values file> \
   -s charts/backup/templates/restore-job.yaml \
   --set backup.restore.enabled=true \
-  --set backup.restore.snapshotId=<snapshot-id-or-latest> \
+  --set backup.restore.snapshotId=<exact-snapshot-id> \
+  --set backup.restore.confirmDatabase=<POSTGRES_DB of the database to replace> \
   | kubectl --context <kube-context> -n mairie360-<env> apply -f -
 ```
 
-List available snapshots first with a throwaway pod using the same image and
-env as the CronJob (`AWS_*` / `RESTIC_*` from `<release>-backup-secret`):
-`restic snapshots --host <db-name>`.
+List the snapshots first with a throwaway pod using the same image and env as
+the CronJob (`AWS_*` / `RESTIC_*` from `<release>-backup-secret`):
+`restic snapshots --host <db-name>`. The chart refuses to render without an
+exact snapshot id (`latest` is refused) and without `confirmDatabase`.
 
-The restore Job runs `pg_restore --clean --if-exists --no-owner`: it drops
-and recreates every object the dump contains against the *existing*
-Postgres server (it does not create the server or the role, only the schema
-and data), so the database ends up in the exact state it was in at backup
-time. Delete the Job (`kubectl delete job <release>-backup-restore`) once
-done — `ttlSecondsAfterFinished` also cleans it up automatically after an
-hour.
+The Job checks everything before it changes anything, and stops otherwise:
+
+1. `confirmDatabase` is the database the pod is connected to;
+2. the snapshot exists and its archive is readable (`pg_restore --list`);
+3. the current state is saved as a `pre-restore` snapshot (not with
+   `sealing`: that copy would hold unsealed personal data, the scheduled
+   sealed backup is the safety net there). A restore of the wrong snapshot
+   can then be undone by restoring the `pre-restore` one.
+
+Then it drops schema `public` and loads the dump back, in one transaction
+(`BEGIN; DROP SCHEMA public CASCADE; CREATE SCHEMA public …`, then the dump as
+SQL through `pg_restore -f -`, `COMMIT` only once `pg_restore` finished and
+`public.users` is not empty) against the *existing* Postgres server (it does
+not create the server or the role, only the schema and data), so the database
+ends up in the exact state it was in at backup time, or untouched when
+anything fails. It does not use `pg_restore --clean`: that fails on
+partitioned tables (`cannot drop inherited constraint
+access_logs_default_pkey`, found by the backup/restore e2e test, MAIR-240).
+Everything in schema `public` is replaced; only Liquibase edits it, so
+nothing outside the dump is lost, but everything written after the snapshot is.
+
+**What a restore cannot give back.** Backups run once a day: up to 24 hours of
+writes are lost, and the chart has no point-in-time recovery or failover.
+Keycloak's database and Redis (the JWT revocation list) are not restored by
+this Job.
+
+Delete the Job (`kubectl delete job <release>-backup-restore`) once done —
+`ttlSecondsAfterFinished` also cleans it up automatically after an hour.
 
 ## Verifying
 

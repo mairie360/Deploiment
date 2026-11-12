@@ -106,18 +106,18 @@ tests:
       backup:
         enabled: true
         s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
-        restore: { enabled: true, snapshotId: "" }
+        restore: { enabled: true, snapshotId: "", confirmDatabase: "db" }
     templates: [charts/backup/templates/restore-job.yaml]
     asserts:
       - failedTemplate:
           errorPattern: "backup.restore.snapshotId is required"
 
-  - it: the restore Job runs pg_restore --clean against the chosen snapshot
+  - it: the restore Job replaces schema public with the chosen snapshot
     set:
       backup:
         enabled: true
         s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
-        restore: { enabled: true, snapshotId: "abcd1234" }
+        restore: { enabled: true, snapshotId: "abcd1234", confirmDatabase: "db" }
     templates: [charts/backup/templates/restore-job.yaml]
     asserts:
       - equal:
@@ -130,7 +130,13 @@ tests:
           pattern: 'restic dump --host "\$PGDATABASE" "\$SNAPSHOT_ID"'
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'pg_restore --clean --if-exists --no-owner'
+          pattern: 'DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION pg_database_owner;'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'restic dump --host "\$PGDATABASE" "\$SNAPSHOT_ID" "\${PGDATABASE}.dump" \| pg_restore --no-owner -f -'
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'pg_restore .*--clean'
 
   - it: "MAIR-231: no Keycloak dump wired in when backup.keycloak.enabled is left off"
     set:
@@ -201,15 +207,83 @@ tests:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
           pattern: ':\d+-alpine$'
 
-  - it: "MAIR-414: the restore is all-or-nothing"
+  - it: "MAIR-414, MAIR-240: the restore is all-or-nothing, COMMIT only when pg_restore finished"
     set:
       backup:
-        restore: { enabled: true, snapshotId: "abcd1234" }
+        restore: { enabled: true, snapshotId: "abcd1234", confirmDatabase: "db" }
     templates: [charts/backup/templates/restore-job.yaml]
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'pg_restore .*--single-transaction --exit-on-error'
+          pattern: "BEGIN; DROP SCHEMA public CASCADE"
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "pg_restore --no-owner -f - \\\\\n(.|\n)*echo 'COMMIT;'"
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'psql -q -v ON_ERROR_STOP=1'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'set -euo pipefail'
       - equal:
           path: spec.template.spec.securityContext.runAsUser
           value: 70
+
+  # --- MAIR-240: a restore cannot be started by mistake ----------------------
+  - it: "MAIR-240: latest is refused, an exact snapshot id is required"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        restore: { enabled: true, snapshotId: "latest", confirmDatabase: "db" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "exact snapshot id, not latest"
+
+  - it: "MAIR-240: no snapshot id is refused"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        restore: { enabled: true, snapshotId: "", confirmDatabase: "db" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "exact snapshot id, not latest"
+
+  - it: "MAIR-240: confirmDatabase is required"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        restore: { enabled: true, snapshotId: "abcd1234" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "backup.restore.confirmDatabase is required"
+
+  - it: "MAIR-240: the Job checks everything before it touches the database"
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        restore: { enabled: true, snapshotId: "abcd1234", confirmDatabase: "mairie_db_dev" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CONFIRM_DATABASE, value: mairie_db_dev }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SNAPSHOT_ID, value: abcd1234 }
+      # order: confirmation, snapshot check, archive check, safety backup, restore
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'REFUSED(.|\n)*restic snapshots --host(.|\n)*pg_restore --list(.|\n)*--tag pre-restore(.|\n)*DROP SCHEMA public CASCADE'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'CREATE SCHEMA public AUTHORIZATION pg_database_owner; GRANT USAGE ON SCHEMA public TO PUBLIC;'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "restored users table is empty(.|\n)*echo 'COMMIT;'"
