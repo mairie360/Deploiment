@@ -43,7 +43,10 @@ global:
   # of staging verifies EdDSA. Empty = the services keep verifying the HS256
   # tokens of JWT_SECRET only; the chart refuses signing without a public key.
   jwt:
-    publicKey: ""
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEA/HVvxLHuMT/0AfZwWW7e8LnSti6TGI9OzuW9+6p2E5I=
+      -----END PUBLIC KEY-----
     signing:
       enabled: false
   imagePullSecret: "ghcr-secret"
@@ -71,7 +74,7 @@ ingress:
 
 database:
   image:
-    tag: "staging-5fe90c1"
+    tag: "staging-c4fa2dd"
   secret:
     create: false
   persistence:
@@ -84,7 +87,7 @@ redis:
 
 liquibase:
   image:
-    tag: "staging-5fe90c1"
+    tag: "staging-c4fa2dd"
   db:
     name: "mairie_db_staging"
 
@@ -149,7 +152,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-b900797" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "staging-a7458a5" }
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
@@ -171,16 +174,16 @@ APIs:
           value: "Mairie360 (staging)"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-be2b410" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "staging-9a2f251" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-3b4668b" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "staging-89649f7" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-75d7650" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "staging-b71b66c" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e3ffc1c" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-7f790d5" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -212,90 +215,90 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-b6b04cf" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "staging-654debe" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-b643e72" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "staging-599b001" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-f6bf247" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "staging-f13ee2e" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-815c732" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "staging-8908c78" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-3d74a6a" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "staging-ffa2b2e" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-bdc4a88" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "staging-46af114" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-55dfd4b" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "staging-248e4b8" }
 
 Fronts:
   instances:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-4acf656" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "staging-7503ac1" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-8bfd374" }
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-86e8d05" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-e4129bd" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-91a5fa6" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-500ac41" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "staging-2fdf0c4" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-f671932" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "staging-2fdcf10" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-891e2fa" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "staging-86f6ee7" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-6f7aef7" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-8a76bd6" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-078db63" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-2eee764" }
       env:
         - name: COOKIE_DOMAIN
           value: ".staging.mairie360-eip.fr"
