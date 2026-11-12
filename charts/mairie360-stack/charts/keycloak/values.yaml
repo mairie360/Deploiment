@@ -146,7 +146,7 @@ db:
     repository: postgres
     # Exact minor (MAIR-414): a floating tag changes the server on whichever
     # node pull happens next. Bumped by Renovate.
-    tag: "18.6-alpine"
+    tag: "18.7-alpine"
     pullPolicy: IfNotPresent
   name: "keycloak"
   user: "keycloak"

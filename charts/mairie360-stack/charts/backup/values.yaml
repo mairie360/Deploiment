@@ -17,7 +17,7 @@ enabled: false
 image:
   repository: postgres
   # Exact minor (MAIR-414), bumped by Renovate.
-  tag: "18.6-alpine"
+  tag: "18.7-alpine"
   pullPolicy: IfNotPresent
 
 # restic isn't in the postgres:alpine image. An initContainer copies its static
