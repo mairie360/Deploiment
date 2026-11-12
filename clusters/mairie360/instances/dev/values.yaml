@@ -48,7 +48,7 @@ global:
       MCowBQYDK2VwAyEACIJhCfqjMY6nw8yMQ6jHzqbjFq78hmaNdE3WIT7tQx0=
       -----END PUBLIC KEY-----
     signing:
-      enabled: false
+      enabled: true
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
   # Must match the Argo CD cluster label mairie360.fr/ingress set by ansible
