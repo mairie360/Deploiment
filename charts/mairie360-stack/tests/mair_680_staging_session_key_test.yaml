@@ -1,0 +1,20 @@
+suite: session public key of staging (MAIR-680, MAIR-1001)
+# Rollout on staging: the instance values carry the public half of the key
+# sealed in clusters/mairie360/instances/staging/secrets.yaml, so every API and
+# BFF of staging verifies the EdDSA tokens before core-api signs any.
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+tests:
+  - it: "MAIR-680 staging: the staging values publish the session public key to every API"
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "JWT_PUBLIC_KEY")].value
+          pattern: '^-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\n-----END PUBLIC KEY-----$'
+
+  - it: "MAIR-680 staging: the staging values publish the session public key to every BFF"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "JWT_PUBLIC_KEY")].value
+          pattern: '^-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\n-----END PUBLIC KEY-----$'
