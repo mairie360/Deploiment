@@ -34,12 +34,12 @@ with a retention period longer than `retention.keepDaily`).
    Once `backup.enabled` is true (step 3), later runs prompt for the key pair
    instead when it is neither exported nor already sealed.
    `RESTIC_PASSWORD` (the repository encryption key) is not an input: the
-   ansible role generates it on the first run, then keeps it, and writes it
-   to `~/.mairie360/restic-<org>-<env>.txt` (mode 600) on the workstation.
-   Store that file in the team vault, like the sealed-secrets sealing key —
-   losing it makes every existing backup permanently unreadable. To restore
-   into a reinstalled instance, pass the old value back through
-   `instance_secrets[<host>].restic_password`. When sealing by hand, read it
+   ansible role generates it on the first run, then keeps it, and stores it
+   in the team vault, Scaleway Secret Manager (`/<org>/<env>/restic-password`,
+   MAIR-617), like the sealed-secrets sealing keys — losing it makes every
+   existing backup permanently unreadable. To restore into a reinstalled
+   instance, the role reads it back from the vault (or pass it through
+   `instance_secrets[<host>].restic_password`). When sealing by hand, read it
    from the cluster:
    ```bash
    kubectl -n mairie360-<env> get secret <env>-backup-secret \
