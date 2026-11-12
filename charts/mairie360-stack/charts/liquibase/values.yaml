@@ -21,7 +21,7 @@ image:
 # pg_isready for the wait-for-db initContainer. Pinned (MAIR-414).
 waitImage:
   repository: postgres
-  tag: "18.6-alpine"
+  tag: "18.7-alpine"
 
 db:
   port: 5432
