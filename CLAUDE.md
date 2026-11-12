@@ -186,7 +186,7 @@ describes desired state.
 
 | File | Kind | Generates | Destination |
 |---|---|---|---|
-| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` from `bootstrap/addons/sealed-secrets` (2.17.3) | instances only |
+| `sealed-secrets-appset.yaml` | AppSet, clusters generator | `sealed-secrets-<cluster>` from `bootstrap/addons/sealed-secrets` (2.22.0, key renewal off) | instances only |
 | `cert-manager-appset.yaml` | AppSet, clusters generator | `cert-manager-<cluster>` from `bootstrap/addons/cert-manager` (v1.21.2) | instances only |
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
 | `ingress-nginx-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/ingress-nginx` (4.15.1, last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
@@ -905,7 +905,13 @@ and maintaining a parallel Kind topology is what produced the earlier
 - **SealedSecrets are per-machine.** The sealing key belongs to one cluster's
   controller; `clusters/<org>/instances/<env>/secrets.yaml` must be generated on
   that machine with `scripts/seal-secrets.sh`. Back up every key — losing one
-  makes that instance's committed secrets permanently undecryptable.
+  makes that instance's committed secrets permanently undecryptable. Since
+  MAIR-617 the controller never renews its key (`keyrenewperiod: "0"` in
+  `bootstrap/addons/sealed-secrets/values.yaml`,
+  `tests/scripts/mair_617_sealing_key_no_renewal_test.sh`): ansible backs every
+  key up as a version of the vault secret `/<org>/<env>/sealing-keys`, which
+  Scaleway caps at 20 versions, and the chart's 30-day default would fill it.
+  Renewal never re-encrypted existing SealedSecrets anyway; rotate on purpose.
 - **First sync of a new environment will fail until its secrets.yaml exists**:
   pods stay in `CreateContainerConfigError` with no Secret to mount. Expected.
   `elearning-api` stays there too when `secrets.yaml` was sealed before the

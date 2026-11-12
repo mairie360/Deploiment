@@ -8,6 +8,14 @@
 sealed-secrets:
   # scripts/seal-secrets.sh and kubeseal look for this controller name.
   fullnameOverride: sealed-secrets-controller
+  # MAIR-617: one sealing key per instance, no automatic renewal. The keys are
+  # backed up as versions of the vault secret /<org>/<env>/sealing-keys
+  # (role k8s_instance_secrets of mairie360/ansible), and Scaleway Secret
+  # Manager keeps at most 20 versions per secret: the default 30-day renewal
+  # would fill it in under two years. Renewal does not re-encrypt existing
+  # SealedSecrets anyway; rotate on purpose (new key, reseal, back up).
+  # "0" must stay a quoted string, the chart's documented way to disable it.
+  keyrenewperiod: "0"
   resources:
     requests: { memory: 64Mi, cpu: 50m }
     limits:   { memory: 256Mi }
