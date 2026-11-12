@@ -96,7 +96,11 @@ cert-manager and no database.
    `kubeseal` asks the controller for its public key. Ansible's phase 4
    (`k8s_instance_secrets`) waits for it before sealing, then backs its key up
    in the vault. The controller keeps that one key: automatic renewal is off
-   (MAIR-617, see `addons/sealed-secrets/values.yaml`).
+   (MAIR-617, see `addons/sealed-secrets/values.yaml`). Turning it off deletes
+   no key: a cluster that ran with renewal keeps its older keys, which older
+   SealedSecrets may still need. The role backs up every key it finds (one
+   vault version each), and a reinstall must restore them all
+   (`scripts/restore-sealing-keys.sh` of `mairie360/ansible`).
 2. `cert-manager` before `cluster-issuers`: the retry policy absorbs the
    initial "CRD not found", but the first sync shows as failed for a minute or
    two.
