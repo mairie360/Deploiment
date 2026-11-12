@@ -18,3 +18,31 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].env[?(@.name == "JWT_PUBLIC_KEY")].value
           pattern: '^-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\n-----END PUBLIC KEY-----$'
+
+  # Staging signs with core-api's key (MAIR-680): JWT_PRIVATE_KEY reaches
+  # core-api only, from the sealed staging-jwt-signing-secret.
+  - it: "MAIR-680 staging: core-api signs with the sealed key of staging"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY, valueFrom: { secretKeyRef: { name: RELEASE-NAME-jwt-signing-secret, key: JWT_PRIVATE_KEY } } }
+          count: 1
+
+  - it: "MAIR-680 staging: no API but core-api gets the signing key"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+
+  - it: "MAIR-680 staging: no BFF gets the signing key"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
