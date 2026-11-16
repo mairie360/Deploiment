@@ -14,16 +14,21 @@ filesystem; restic is copied by an initContainer from the pinned
 --exit-on-error`: a failed restore rolls back instead of leaving a half-loaded
 database.
 
-**Known limit:** the same key pair writes snapshots and runs
-`restic forget --prune`, so a compromised instance can delete its own
-backups. Protect the bucket on the provider side (object lock / versioning
-with a retention period longer than `retention.keepDaily`).
+The same key pair writes snapshots and runs `restic forget --prune`, so the
+bucket itself must refuse deletions: the instance buckets
+`<org>-backups-<env>` are created by
+[`mairie360/Infra`](https://github.com/mairie360/Infra) (MAIR-618) versioned
+and locked in **COMPLIANCE mode for 30 days**. A prune (or a stolen key) only
+adds delete markers; every version of the last 30 days stays restorable
+(`restic` >= 0.13 sends the Content-MD5 object lock requires). To restore
+a snapshot pruned by mistake, roll the bucket objects back to their previous
+version before running restic.
 
 ## Enabling it for an instance
 
-1. Create an S3-compatible bucket for that instance (provider and bucket
-   naming are an infra decision, not part of this repo) and an access-key
-   pair scoped to it.
+1. Add the instance to `orgs/<org>/` of `mairie360/Infra`: its apply
+   creates the locked bucket `<org>-backups-<env>` (MAIR-618). The access-key
+   pair must reach that bucket only.
 2. Seal `<release>-backup-secret` with the ansible repo (phase 4, which runs
    `scripts/seal-secrets.sh` on the group's Argo CD machine), then commit the
    `secrets.yaml` it writes into this checkout:
@@ -52,7 +57,7 @@ with a retention period longer than `retention.keepDaily`).
      schedule: "0 3 * * *"          # cron, evaluated in UTC
      s3:
        endpoint: "https://s3.<region>.example.com"
-       bucket: "mairie360-<org>-<env>-backups"
+       bucket: "<org>-backups-<env>"   # created by mairie360/Infra
        region: "<region>"
      retention:
        keepDaily: 7

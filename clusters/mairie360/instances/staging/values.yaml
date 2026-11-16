@@ -106,7 +106,8 @@ backup:
     keepMonthly: 6
   s3:
     endpoint: "https://s3.fr-par.scw.cloud"
-    bucket: "mairie360-backup-staging"
+    # Versioned, COMPLIANCE-locked 30 days, created by mairie360/Infra (MAIR-618).
+    bucket: "mairie360-backups-staging"
     region: "fr-par"
   keycloak:
     enabled: true

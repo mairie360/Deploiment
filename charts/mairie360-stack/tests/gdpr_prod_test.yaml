@@ -5,13 +5,13 @@ values:
   - ../../../clusters/_base/prod.yaml
   - ../../../clusters/mairie360/instances/prod/values.yaml
 tests:
-  - it: backs the database up into the instance's bucket
+  - it: backs the database up into the instance's locked bucket (MAIR-618)
     templates: [charts/backup/templates/cronjob.yaml]
     asserts:
       - hasDocuments: { count: 1 }
       - contains:
           path: spec.jobTemplate.spec.template.spec.containers[0].env
-          content: { name: RESTIC_REPOSITORY, value: "s3:https://s3.fr-par.scw.cloud/mairie360-backup-prod" }
+          content: { name: RESTIC_REPOSITORY, value: "s3:https://s3.fr-par.scw.cloud/mairie360-backups-prod" }
 
   - it: applies the retention periods before every purge
     templates: [charts/retention/templates/cronjob.yaml]
