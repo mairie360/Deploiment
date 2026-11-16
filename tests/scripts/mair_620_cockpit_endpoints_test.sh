@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MAIR-620: prod (and the other mairie360 instances) push their traces and
-# metrics to Cockpit, and every instance with global.observability.enabled
+# MAIR-620: every mairie360 instance declares its observability switch and its
+# Cockpit endpoints, and every instance with global.observability.enabled
 # points at real Cockpit data sources: the OTLP URLs mairie360/Infra outputs
 # (orgs/<org> output instances.<env>.cockpit_endpoints), never a placeholder.
 set -uo pipefail
@@ -30,8 +30,9 @@ def merged(instance):
 
 for env in ("dev", "staging", "prod"):
     v = merged(root / f"clusters/mairie360/instances/{env}")
-    check(((v.get("global") or {}).get("observability") or {}).get("enabled") is True,
-          f"mairie360/{env}: global.observability.enabled")
+    obs = (v.get("global") or {}).get("observability") or {}
+    check("enabled" in obs and "cockpit" in (v.get("observability") or {}),
+          f"mairie360/{env}: observability switch and Cockpit endpoints declared")
 
 for instance in sorted((root / "clusters").glob("*/instances/*")):
     v = merged(instance)

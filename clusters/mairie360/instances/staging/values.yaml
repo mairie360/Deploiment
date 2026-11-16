@@ -21,8 +21,11 @@ global:
   # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
   # ansible from the vault (/mairie360/staging/cockpit-token, issued by Infra's
   # scripts/issue-cockpit-tokens.sh).
+  # TO TURN ON (true) in the same commit as the endpoints below, once the
+  # Infra apply created the data sources: the chart refuses to render an
+  # enabled collector without them.
   observability:
-    enabled: true
+    enabled: false
     apis: ["core-api"]
   # Legal pages (MAIR-292): identity of the mairie to complete; retention and
   # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
