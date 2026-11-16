@@ -72,6 +72,11 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
    kubectl --context <ctx> -n $NS patch cronjob <env>-backup -p '{"spec":{"suspend":true}}'
    kubectl --context <ctx> -n $NS get cronjob -o name | grep retention \
      | xargs -r kubectl --context <ctx> -n $NS patch -p '{"spec":{"suspend":true}}'
+   # Suspending a CronJob does not stop a Job it already started: wait for a running
+   # backup to end (its pg_dump transaction would hold the restore back).
+   kubectl --context <ctx> -n $NS get jobs -o name | grep -E "/<env>-backup-[0-9]+$" \
+     | xargs -r kubectl --context <ctx> -n $NS wait --for=condition=complete --timeout=30m
+   kubectl --context <ctx> -n $NS get pods | grep -E "^<env>-backup-[0-9]+" || true   # must print nothing running
    ```
 
    The ApplicationSet controller rewrites the Application from its template within
@@ -81,15 +86,19 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
 
 3. **Restore** with the restore Job, exactly as the backup chart README says ("Restoring":
    `helm template … -s charts/backup/templates/restore-job.yaml --set
-   backup.restore.enabled=true --set backup.restore.snapshotId=<id> | kubectl apply -f -`,
-   plus the confirmation values the chart asks for). Follow it:
+   backup.restore.enabled=true --set backup.restore.snapshotId=<id> --set
+   backup.restore.confirmDatabase=<database> | kubectl apply -f -`). Follow it:
 
    ```bash
    kubectl --context <ctx> -n $NS logs -f job/<env>-backup-restore
    ```
 
-   The Job loads the dump in one transaction: if it fails, the database is left as it
-   was. With `backup.sealing.enabled`, users erased since the snapshot stay anonymized.
+   The Job loads the dump in one transaction: if `pg_restore` fails, the database is left
+   as it was. With `backup.sealing.enabled`, that guarantee only covers the load: the dump
+   is committed by the `restore` initContainer, then the `unseal` container puts the sealed
+   personal data back. If `unseal` fails, the database already holds the snapshot with its
+   personal data still sealed: keep the writers stopped, fix the cause (key, secret) and
+   apply the Job again until it completes. Users erased since the snapshot stay anonymized.
 
 4. **Keycloak** (instances with `keycloak.enabled`, until it is removed, MAIR-804): its
    database is a separate lineage that the Job does not restore. Restore it only if the
@@ -200,7 +209,12 @@ The committed `secrets.yaml` of the instance is now useless. What still matters 
    instance has none: put the vault copy there first). Phase 4 generates new database,
    Redis and JWT secrets and asks for the external keys (Resend, Object Storage, backup
    bucket keys, admin e-mail).
-2. Commit and push the new `secrets.yaml`, let Argo CD deploy it.
+2. Publish the new session key, then the secrets. Phase 4 runs `scripts/seal-secrets.sh`,
+   which prints the new public key of Core's session key: put it in
+   `global.jwt.publicKey` of the instance's `values.yaml` (the old block can go, its
+   private key is lost), commit and push it, then commit and push the new `secrets.yaml`
+   and let Argo CD deploy both. Without the new public key, every service refuses the
+   tokens Core signs and nobody can sign in.
 3. Restore the data (scenario A). The dump is restored with `--no-owner`, so the new
    database passwords do not matter.
 4. Store the new sealing key and admin password in the vault. Every user must sign in
@@ -216,4 +230,4 @@ A drill replays the risky steps on throwaway clusters, never on a real instance.
 | 2026-11-16 | `scripts/list-snapshots.sh` on a kind cluster with the rendered dev CronJob and a dummy `dev-backup-secret` (`restic version`, then `restic snapshots` against the unreachable dev bucket), plus `tests/scripts/mair_244_list_snapshots_test.sh` | The pod starts with the CronJob's image, keys and labels, prints restic's output and is deleted afterwards; no secret value is passed on the command line. |
 
 The database part (backup then restore on a real cluster) is replayed by the e2e test of
-the backup chart once MAIR-240 is merged (`tests/e2e/restore.sh`).
+the backup chart (`tests/e2e/restore.sh`, MAIR-240).

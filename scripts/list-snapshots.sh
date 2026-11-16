@@ -11,7 +11,7 @@
 # `--host keycloak-<db-name>`). Any read-only restic command works the same way
 # (`ls <id>`, `stats`, `check`); never `forget` / `prune` from here.
 #
-# Starts a throwaway pod (deleted on exit) built from the instance's backup
+# Starts a throwaway pod (deleted on every exit path) built from the instance's backup
 # CronJob (<env>-backup in mairie360-<env>): its restic image, its pod labels
 # (the network policies already let them reach the bucket), its security
 # context, its image pull secret and its AWS_* / RESTIC_* environment, which
@@ -39,10 +39,11 @@ cronjob=$(k get cronjob "$env-backup" -o json) || {
   exit 1
 }
 
-# restic's image entrypoint is restic: the pod args are the restic arguments,
-# with --no-cache (read-only root filesystem, nothing kept between runs).
-restic_args=$(jq -cn '$ARGS.positional' --args -- "$@")
-overrides=$(jq -c --argjson args "$restic_args" '
+# The pod only sleeps; restic runs through `kubectl exec` once the pod is Ready.
+# `kubectl run -i` attaches after the container started, so the first bytes of
+# a `restic dump` could be lost; exec streams from the first byte. --no-cache:
+# read-only root filesystem, nothing kept between runs.
+overrides=$(jq -c '
   .spec.jobTemplate.spec.template as $t
   | ($t.spec.initContainers // [] | map(select(.name == "restic")) | first) as $restic
   | ($t.spec.containers | first) as $main
@@ -59,7 +60,7 @@ overrides=$(jq -c --argjson args "$restic_args" '
         containers: [ {
           name: "restic",
           image: $restic.image,
-          args: ($args + ["--no-cache"]),
+          command: ["sleep", "900"],
           env: (($main.env // [])
                 | map(select(.name | test("^(AWS_[A-Z_]+|RESTIC_PASSWORD|RESTIC_REPOSITORY)$")))
                 + [ { name: "HOME", value: "/tmp" } ]),
@@ -70,5 +71,10 @@ overrides=$(jq -c --argjson args "$restic_args" '
     }' <<<"$cronjob")
 image=$(jq -r '.spec.containers[0].image' <<<"$overrides")
 
-k run "$env-backup-snapshots-$$" --rm -i --quiet --restart=Never \
-  --image="$image" --overrides="$overrides" --pod-running-timeout=2m
+pod="$env-backup-snapshots-$$"
+cleanup() { k delete pod "$pod" --ignore-not-found --wait=false > /dev/null 2>&1 || true; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+k run "$pod" --quiet --restart=Never --image="$image" --overrides="$overrides" > /dev/null
+k wait --for=condition=Ready "pod/$pod" --timeout=2m > /dev/null
+k exec "$pod" -c restic -- restic "$@" --no-cache

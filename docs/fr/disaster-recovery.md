@@ -75,6 +75,11 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
    kubectl --context <ctx> -n $NS patch cronjob <env>-backup -p '{"spec":{"suspend":true}}'
    kubectl --context <ctx> -n $NS get cronjob -o name | grep retention \
      | xargs -r kubectl --context <ctx> -n $NS patch -p '{"spec":{"suspend":true}}'
+   # Suspendre un CronJob n'arrête pas un Job déjà lancé : attendre la fin d'une
+   # sauvegarde en cours (sa transaction pg_dump bloquerait la restauration).
+   kubectl --context <ctx> -n $NS get jobs -o name | grep -E "/<env>-backup-[0-9]+$" \
+     | xargs -r kubectl --context <ctx> -n $NS wait --for=condition=complete --timeout=30m
+   kubectl --context <ctx> -n $NS get pods | grep -E "^<env>-backup-[0-9]+" || true   # ne doit rien afficher en cours
    ```
 
    Le contrôleur d'ApplicationSet réécrit l'Application depuis son modèle en quelques
@@ -85,16 +90,20 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
 3. **Restaurer** avec le Job de restauration, exactement comme le dit le README du chart
    de sauvegarde (« Restoring » : `helm template … -s
    charts/backup/templates/restore-job.yaml --set backup.restore.enabled=true --set
-   backup.restore.snapshotId=<id> | kubectl apply -f -`, plus les valeurs de confirmation
-   que le chart demande). Le suivre :
+   backup.restore.snapshotId=<id> --set backup.restore.confirmDatabase=<base> | kubectl
+   apply -f -`). Le suivre :
 
    ```bash
    kubectl --context <ctx> -n $NS logs -f job/<env>-backup-restore
    ```
 
-   Le Job charge le dump en une transaction : s'il échoue, la base reste telle qu'elle
-   était. Avec `backup.sealing.enabled`, les utilisateurs effacés depuis le snapshot restent
-   anonymisés.
+   Le Job charge le dump en une transaction : si `pg_restore` échoue, la base reste telle
+   qu'elle était. Avec `backup.sealing.enabled`, cette garantie ne couvre que le chargement :
+   le dump est validé par l'initContainer `restore`, puis le conteneur `unseal` remet les
+   données personnelles scellées. Si `unseal` échoue, la base contient déjà le snapshot avec
+   ses données personnelles encore scellées : garder les écrivains arrêtés, corriger la
+   cause (clé, secret) et réappliquer le Job jusqu'à ce qu'il se termine. Les utilisateurs
+   effacés depuis le snapshot restent anonymisés.
 
 4. **Keycloak** (instances avec `keycloak.enabled`, jusqu'à son retrait, MAIR-804) : sa
    base est une lignée à part que le Job ne restaure pas. Ne la restaurer que si la base
@@ -208,7 +217,13 @@ Le `secrets.yaml` commité de l'instance ne sert plus à rien. Ce qui compte enc
    `~/.mairie360/restic-<org>-<env>.txt` quand l'instance n'en a pas : y remettre d'abord la
    copie du coffre). La phase 4 génère de nouveaux secrets base, Redis et JWT, et demande
    les clés externes (Resend, Object Storage, clés du bucket de sauvegarde, e-mail admin).
-2. Commiter et pousser le nouveau `secrets.yaml`, laisser Argo CD le déployer.
+2. Publier la nouvelle clé de session, puis les secrets. La phase 4 lance
+   `scripts/seal-secrets.sh`, qui affiche la nouvelle clé publique de la clé de session de
+   Core : la mettre dans `global.jwt.publicKey` du `values.yaml` de l'instance (l'ancien
+   bloc peut partir, sa clé privée est perdue), commiter et pousser, puis commiter et
+   pousser le nouveau `secrets.yaml` et laisser Argo CD déployer les deux. Sans la nouvelle
+   clé publique, tous les services refusent les jetons que Core signe et personne ne peut
+   se connecter.
 3. Restaurer les données (scénario A). Le dump est restauré avec `--no-owner`, les nouveaux
    mots de passe de la base n'ont donc pas d'importance.
 4. Ranger la nouvelle clé de scellement et le mot de passe admin dans le coffre. Tous les
@@ -224,4 +239,4 @@ Un exercice rejoue les étapes risquées sur des clusters jetables, jamais sur u
 | 2026-11-16 | `scripts/list-snapshots.sh` sur un cluster kind avec le CronJob dev rendu et un `dev-backup-secret` factice (`restic version`, puis `restic snapshots` contre le bucket dev, injoignable), plus `tests/scripts/mair_244_list_snapshots_test.sh` | Le pod démarre avec l'image, les clés et les labels du CronJob, affiche la sortie de restic et est supprimé ensuite ; aucune valeur secrète ne passe sur la ligne de commande. |
 
 La partie base (sauvegarde puis restauration sur un vrai cluster) est rejouée par le test
-e2e du chart de sauvegarde une fois MAIR-240 fusionné (`tests/e2e/restore.sh`).
+e2e du chart de sauvegarde (`tests/e2e/restore.sh`, MAIR-240).
