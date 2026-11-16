@@ -58,6 +58,12 @@ helm dependency build ./charts/mairie360-stack
 # machine's revision, no chart repository, no fixed revision (MAIR-346, CI)
 ./scripts/check-bootstrap-revisions.sh
 
+# Release manifests (MAIR-1006, releases/README.md): freeze the commit of each
+# service repo's main for a platform release (promotions then run with -f sha=),
+# and check them (CI runs `check --remote`: every sha is on its repo's main)
+./scripts/release-manifest.py new 1.2.0
+./scripts/release-manifest.py check --remote
+
 # Values files of an instance, in the instances AppSet's order
 # (clusters/_base/<env>.yaml, values.yaml, [secrets.yaml]): every render goes
 # through it.
