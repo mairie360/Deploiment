@@ -10,6 +10,13 @@
 # ============================================================================
 
 global:
+  # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
+  # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
+  # ansible from the vault (/mairie360/prod/cockpit-token, issued by Infra's
+  # scripts/issue-cockpit-tokens.sh).
+  observability:
+    enabled: true
+    apis: ["core-api"]
   # Legal pages (MAIR-292): identity of the mairie to complete; retention and
   # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
   legal:
@@ -48,6 +55,17 @@ global:
   emailFrom: "noreply@mairie360-eip.fr"
   # Scaleway Object Storage bucket of elearning-api's course attachments.
   elearningBucket: "mairie360-elearning-prod"
+
+# MAIR-620: push URLs of this instance's Cockpit data sources, from
+#   scripts/tf.sh orgs/mairie360 output -json instances | jq '.prod.cockpit_endpoints'
+# in mairie360/Infra. Not secret. TO FILL after the Infra apply: the chart
+# refuses to render with empty endpoints, and
+# tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
+# Cockpit data source URL.
+observability:
+  cockpit:
+    metricsEndpoint: ""
+    tracesEndpoint: ""
 
 backup:
   s3:
