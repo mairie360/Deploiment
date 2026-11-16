@@ -32,6 +32,7 @@ Le provisionnement des machines est dans le dépôt
 | `clusters/_base/<env>.yaml` | What every `<env>` instance shares (prod: versions and settings of every prod, MAIR-414) |
 | `bootstrap/` | Argo CD bootstrap: platform AppSets (cert-manager, sealed-secrets, ingress controller: ingress-nginx or Traefik, see `bootstrap/README.md`) |
 | `docs/adr/` | Architecture decision records (`0001`: replacing ingress-nginx with Traefik, migration procedure) |
+| `docs/en/`, `docs/fr/` | Runbooks, in English and French: disaster recovery (`disaster-recovery.md`) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
 
 ## Ajouter une instance
@@ -89,6 +90,18 @@ Kubernetes réels.
 
 ```bash
 ./scripts/verify.sh <contexte-kube> dev dev.mairie360-eip.fr
+```
+
+## Disaster recovery
+
+Lost data, a lost instance machine, a lost Argo CD machine or a lost sealing key: follow
+the runbook [`docs/en/disaster-recovery.md`](docs/en/disaster-recovery.md)
+([French](docs/fr/disaster-recovery.md)). It gives the RPO / RTO targets, the rebuild
+order (the sealing key goes back before Argo CD deploys sealed-secrets) and the restore
+steps. List the backups of an instance with:
+
+```bash
+./scripts/list-snapshots.sh <kube-context> <env>
 ```
 
 ## Network traffic (Cilium / Hubble)

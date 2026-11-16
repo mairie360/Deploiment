@@ -85,7 +85,8 @@ without Keycloak. The restore Job (`templates/restore-job.yaml`) is not
 wired up for the Keycloak dump yet — restoring it today means dumping the
 snapshot by hand (`restic dump --host keycloak-<db-name> <snapshot> ... |
 pg_restore` against `<release>-keycloak-db`), same connection details as
-`charts/keycloak/templates/db-statefulset.yaml`.
+`charts/keycloak/templates/db-statefulset.yaml`; the runbook
+(`docs/en/disaster-recovery.md`, scenario A step 4) gives the commands.
 
 ## Sealed backups: a key per user (MAIR-500)
 
@@ -136,9 +137,16 @@ helm template <release> ./charts/mairie360-stack -f <instance values file> \
   | kubectl --context <kube-context> -n mairie360-<env> apply -f -
 ```
 
-List available snapshots first with a throwaway pod using the same image and
-env as the CronJob (`AWS_*` / `RESTIC_*` from `<release>-backup-secret`):
-`restic snapshots --host <db-name>`.
+List available snapshots first with `scripts/list-snapshots.sh <kube-context>
+<env>` (a throwaway pod using the same image and env as the CronJob, `AWS_*` /
+`RESTIC_*` from `<release>-backup-secret`; extra arguments go to restic, e.g.
+`snapshots --host <db-name>`).
+
+Stop the APIs and BFFs, the backup and retention CronJobs (and Argo CD's
+automated sync, which would scale them back) before applying the Job, and
+start them again afterwards: the full sequence, and how to rebuild a lost
+machine before restoring, is in the disaster-recovery runbook,
+`docs/en/disaster-recovery.md` at the root of this repository.
 
 The restore Job runs `pg_restore --clean --if-exists --no-owner`: it drops
 and recreates every object the dump contains against the *existing*

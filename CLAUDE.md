@@ -79,6 +79,10 @@ KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360
 # needs is listed at the top of the script.
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
 
+# restic snapshots of an instance's backup bucket (MAIR-244): throwaway pod
+# built from <env>-backup, extra arguments go to restic (read-only commands only)
+./scripts/list-snapshots.sh <kube-context> dev
+
 # Argo CD admin password (on the group's Argo CD machine)
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 ```
@@ -394,6 +398,13 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
+  The disaster-recovery runbook (MAIR-244, `docs/en/disaster-recovery.md` +
+  `docs/fr/`) holds the RPO/RTO targets and the full order: rebuild a lost
+  machine with ansible `--tags phase1,phase1b,phase2`, put the sealing key
+  back (ansible `scripts/restore-sealing-key-file.sh`), `--tags phase3`, no
+  phase 4, then stop the writers (and pause the ApplicationSet controller on
+  auto-sync envs) and run the restore Job. Its drill log is updated after each
+  drill.
   `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
   copy of the live dump, `compliance-backup seal` (Compliance_API image) moves each user's personal
   values into blobs encrypted under a data key wrapped by the user's key in Scaleway Key Manager
