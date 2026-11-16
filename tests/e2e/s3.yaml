@@ -1,0 +1,61 @@
+# S3 endpoint for the backup/restore test (MAIR-240): the restic repository of
+# the backup CronJob lives here, in a namespace of its own (no NetworkPolicy,
+# like pebble.yaml) so that the chart's default-deny does not interfere.
+#
+# The ticket asked for MinIO, but MinIO no longer publishes container images
+# (the project stopped in 2025), so a pinned Versity S3 Gateway with its
+# posix backend stands in: same S3 API, one bucket = one directory under /data.
+# Throwaway credentials, emptyDir storage: lives as long as the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: s3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  namespace: s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: s3 }
+  template:
+    metadata:
+      labels: { app: s3 }
+    spec:
+      initContainers:
+        # A bucket is a top-level directory of the posix backend.
+        - name: bucket
+          image: busybox:1.38.0
+          command: ["mkdir", "-p", "/data/e2e-backups"]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      containers:
+        - name: s3
+          image: ghcr.io/versity/versitygw:v1.11.0
+          args:
+            - --access=e2e-s3-access-not-a-secret
+            - --secret=e2e-s3-secret-not-a-secret
+            - --port=:7070
+            - posix
+            - /data
+          ports:
+            - { name: s3, containerPort: 7070 }
+          readinessProbe:
+            tcpSocket: { port: s3 }
+            periodSeconds: 2
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - { name: data, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  namespace: s3
+spec:
+  selector: { app: s3 }
+  ports:
+    - { name: s3, port: 7070, targetPort: s3 }

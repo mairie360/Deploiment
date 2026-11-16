@@ -122,8 +122,13 @@ resources:
 #   helm template <release> ./charts/mairie360-stack -f <instance values> \
 #     -s charts/backup/templates/restore-job.yaml \
 #     --set backup.restore.enabled=true \
-#     --set backup.restore.snapshotId=<snapshot-id-or-latest> \
+#     --set backup.restore.snapshotId=<exact-snapshot-id> \
+#     --set backup.restore.confirmDatabase=<POSTGRES_DB of the database to replace> \
 #     | kubectl --context <ctx> -n <namespace> apply -f -
 restore:
   enabled: false
-  snapshotId: "latest"
+  # MAIR-240: an exact id (`restic snapshots --host <db-name>`), never latest.
+  snapshotId: ""
+  # MAIR-240: the name of the database the Job will replace; the Job refuses to
+  # run when it is not the one it is connected to.
+  confirmDatabase: ""

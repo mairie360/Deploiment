@@ -146,6 +146,11 @@ $K -n kube-system rollout restart deployment/coredns >/dev/null
 $K -n kube-system rollout status deployment/coredns --timeout 2m
 $K apply -f "$HERE/pebble.yaml"
 $K -n pebble rollout status deployment/pebble --timeout 2m
+# S3 endpoint of the backup/restore test (MAIR-240), see s3.yaml.
+if [ -z "${INSTANCE:-}" ]; then
+  $K apply -f "$HERE/s3.yaml"
+  $K -n s3 rollout status deployment/s3 --timeout 3m
+fi
 
 step "Install: data layer and migrations (sync waves 0-1)${INSTANCE:+ — real images of instance $INSTANCE}"
 helm dependency build "$ROOT/charts/mairie360-stack" >/dev/null
@@ -185,3 +190,12 @@ chainsaw test \
   --kube-context "$CTX" \
   --config "$HERE/chainsaw/.chainsaw.yaml" \
   --test-dir "$HERE/chainsaw"
+
+# Backup then restore (MAIR-240), on the placeholder install only: a real
+# instance has its own bucket and sealed secrets.
+if [ -z "${INSTANCE:-}" ]; then
+  step "Backup and restore"
+  HELM_VALUES=("${VALUES[@]}")
+  # shellcheck source=restore.sh
+  source "$HERE/restore.sh"
+fi

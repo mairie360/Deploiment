@@ -390,7 +390,9 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   CronJob's pod sits in `CreateContainerConfigError` like any Secret-less
   new resource (see Gotchas). `templates/restore-job.yaml` (disabled by
   default, `restore.enabled`) is the disaster-recovery counterpart for the
-  Mairie360 database (Keycloak's dump is restored by hand, see
+  Mairie360 database (it replaces schema `public` and reloads the dump in one
+  transaction, MAIR-240: `pg_restore --clean` fails on partitioned tables;
+  `tests/e2e/restore.sh` runs the whole backup → restore round trip) (Keycloak's dump is restored by hand, see
   `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
@@ -796,6 +798,14 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   301/308 HTTP → HTTPS redirect, the 413 above 50 MiB and that a client-sent
   `X-Forwarded-For` is not trusted. The e2e values run Traefik, so the
   network-policies probe sits in the `traefik` namespace.
+- `restore.sh` (MAIR-240, sourced by `run.sh` after Chainsaw, placeholder install only): backup then
+  restore on the real database. `s3.yaml` deploys a pinned Versity S3 Gateway (MinIO no longer
+  publishes images) as the restic repository; the script writes a probe table, runs the backup
+  CronJob, damages the data, checks that the restore Job refuses `latest`, a missing
+  `confirmDatabase`, another database and an unknown snapshot without changing anything, then
+  restores for real and compares the rows, the schema ACL and the grants of the API roles. The
+  restore saves the state before it as a `pre-restore` snapshot. It found that `pg_restore --clean`
+  fails on the partitioned `access_logs`; the Job now replaces schema `public` in one transaction.
 - `chainsaw/data-access`: Redis ACL (prefix and command restrictions) and
   the per-API Postgres role logging in with its Secret password. The latter
   depends on the `Devops/Database` images actually creating those roles.
