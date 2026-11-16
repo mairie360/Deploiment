@@ -4,6 +4,7 @@ suite: backup success metric (MAIR-622)
 values:
   - ../../../clusters/mairie360/instances/staging/values.yaml
 set:
+  global.observability.enabled: true
   observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
   observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
 tests:
