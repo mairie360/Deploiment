@@ -40,7 +40,7 @@ ingress:
 
 database:
   image:
-    tag: "3.3.0"
+    tag: "3.4.0"
   secret:
     create: false
   persistence:
@@ -53,7 +53,7 @@ redis:
 
 liquibase:
   image:
-    tag: "3.3.0"
+    tag: "3.4.0"
   db:
     name: "mairie_db_prod"
 
@@ -118,7 +118,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "2.2.0" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "2.3.0" }
       env:
         - name: PUBLIC_URL
           value: "https://login.{{ .Values.global.domain }}"
@@ -140,16 +140,16 @@ APIs:
           value: "Mairie360"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "1.2.0" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "1.3.0" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "1.2.0" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "1.3.0" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "2.1.0" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "2.2.0" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "1.2.0" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "1.3.0" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -181,47 +181,47 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "1.2.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "1.2.0" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "1.2.0" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "1.2.0" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "2.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "2.2.0" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "2.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "2.2.0" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "1.1.0" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "1.2.0" }
 
 Fronts:
   instances:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "0.4.0" }
+      image: { repository: ghcr.io/mairie360/login-front, tag: "0.5.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
@@ -235,42 +235,42 @@ Fronts:
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "0.5.0" }
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "0.6.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "0.5.0" }
+      image: { repository: ghcr.io/mairie360/message-front, tag: "0.6.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "1.6.0" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "1.7.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "1.7.0" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "1.8.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "0.4.0" }
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "0.5.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "1.2.0" }
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "1.3.0" }
       env:
         - name: COOKIE_DOMAIN
           value: ".{{ .Values.global.domain }}"

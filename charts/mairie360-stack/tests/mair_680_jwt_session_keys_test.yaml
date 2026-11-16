@@ -57,6 +57,9 @@ tests:
           content: { name: JWT_PUBLIC_KEY, value: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHiUmntsKoefgXgXwokjli1dYPMgEjeIJvlESq6owhw4=\n-----END PUBLIC KEY-----\n-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAt0Od+hPFxxrs5Re7cCzabCVVPc2aeVRBOGko3olbtoo=\n-----END PUBLIC KEY-----" }
 
   - it: "MAIR-680: without a public key (transition) no service gets JWT_PUBLIC_KEY and JWT_SECRET stays"
+    set:
+      global.jwt.publicKey: ""
+      global.jwt.signing.enabled: false
     templates: [charts/APIs/templates/deployment.yaml, charts/BFFs/templates/deployment.yaml]
     asserts:
       - notContains:
@@ -167,6 +170,7 @@ tests:
 
   - it: "MAIR-680: signing on without a public key fails the render"
     set:
+      global.jwt.publicKey: ""
       global.jwt.signing.enabled: true
     templates: [templates/jwt-session-keys.yaml]
     asserts:
@@ -273,3 +277,48 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "secrets.jwtPrivateKey is required"
+
+  # Rollout on dev (MAIR-680): the instance values carry the public half of
+  # the key sealed in clusters/mairie360/instances/dev/secrets.yaml, so every
+  # API and BFF of dev verifies the EdDSA tokens before core-api signs any.
+  - it: "MAIR-680 dev: the dev values publish the session public key to every API"
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "JWT_PUBLIC_KEY")].value
+          pattern: '^-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\n-----END PUBLIC KEY-----$'
+
+  - it: "MAIR-680 dev: the dev values publish the session public key to every BFF"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "JWT_PUBLIC_KEY")].value
+          pattern: '^-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA[A-Za-z0-9+/]{43}=\n-----END PUBLIC KEY-----$'
+
+  # Dev signs with core-api's key (MAIR-680): JWT_PRIVATE_KEY reaches core-api
+  # only, from the sealed dev-jwt-signing-secret.
+  - it: "MAIR-680 dev: core-api signs with the sealed key of dev"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY, valueFrom: { secretKeyRef: { name: RELEASE-NAME-jwt-signing-secret, key: JWT_PRIVATE_KEY } } }
+          count: 1
+
+  - it: "MAIR-680 dev: no API but core-api gets the signing key"
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+
+  - it: "MAIR-680 dev: no BFF gets the signing key"
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
