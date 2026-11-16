@@ -889,7 +889,16 @@ and maintaining a parallel Kind topology is what produced the earlier
   `.github/workflows/environment-branches.yaml` runs
   `scripts/check-env-branches.sh` on every branch deletion and daily, failing
   when one is missing (`tests/scripts/mair_745_env_branches_test.sh`). Since
-  MAIR-346 the bootstrap add-ons follow these branches too.
+  MAIR-346 the bootstrap add-ons follow these branches too. **Never commit
+  straight onto `staging` or `prod` (MAIR-798):** a fix pushed onto `prod` on
+  2026-11-06 blocked every later Promote until `prod` was merged back into
+  `main` (merge commit, #250). The same workflow's `divergence` job runs
+  `scripts/check-env-divergence.sh` on every push to `staging`/`prod` and
+  daily: it fails when `staging` holds anything but argocd-image-updater
+  commits on top of `main`, or when `prod` is not an ancestor of `staging`,
+  and lists the commits with the way back (PR merging `origin/<env>` into
+  `main`, then promote); `scripts/promote-mode.sh` prints the same guidance
+  when a Promote is refused (`tests/scripts/mair_798_env_divergence_test.sh`).
   **MAIR-444:** argocd-image-updater
   commits staging's tags straight onto `staging`
   (`clusters/mairie360/instances/staging/images.yaml`, never edited on `main`),

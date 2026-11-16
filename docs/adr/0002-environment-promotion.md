@@ -262,3 +262,26 @@ target, which would supersede this ADR explicitly):
   `scripts/check-env-branches.sh` on every branch deletion, every day and on
   demand, and fails when either branch is missing, for the cases the ruleset
   does not cover (ruleset disabled or edited).
+
+## Amendment (MAIR-798, 2026-11-16): no commit straight on an environment branch
+
+On 2026-11-06 the MAIR-794 fix was committed straight onto `prod`, because
+`Promote` could not run (no runner for `verify-staging`). `prod` then held a
+commit `main` and `staging` did not, every later Promote to prod was refused as
+"not a fast-forward", and nothing reported it before. It was resolved by
+merging `prod` back into `main` with a merge commit (#250, MAIR-1003) and
+promoting again. The decision of this ADR stands; what changes:
+
+- the way back is always the same, and both checks below print it: a pull
+  request that merges `origin/<env>` into `main` **with a merge commit** (a
+  squash would give new commits, and the branch would still not be an
+  ancestor), then `Promote` main → staging (→ prod). Never force-push the
+  environment branch;
+- `scripts/promote-mode.sh` lists the commits found only on the target when it
+  refuses a promotion;
+- the `divergence` job of `.github/workflows/environment-branches.yaml`
+  (`scripts/check-env-divergence.sh`) runs on every push to `staging` or
+  `prod` and daily. It fails as soon as `staging` holds anything but
+  argocd-image-updater commits on top of `main`, or `prod` is not an ancestor
+  of `staging`, even while the branch is only ahead (the case where
+  `promote-mode.sh` has nothing to do yet).
