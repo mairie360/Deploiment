@@ -140,3 +140,23 @@ Fronts:
     settings-front:  { enabled: true, port: 5005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5005" }] }
     elearning-front: { enabled: true, port: 5006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5006" }] }
     admin-front:     { enabled: true, port: 5007, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5007" }] }
+
+# MAIR-240: the backup CronJob and the restore Job run against the S3 endpoint
+# of tests/e2e/s3.yaml (restore.sh). The schedule never fires: the test starts
+# the CronJob by hand.
+backup:
+  enabled: true
+  secret:
+    create: true
+  env:
+    AWS_ACCESS_KEY_ID: "e2e-s3-access-not-a-secret"
+    AWS_SECRET_ACCESS_KEY: "e2e-s3-secret-not-a-secret"
+    RESTIC_PASSWORD: "e2e-restic-not-a-secret"
+  s3:
+    endpoint: "http://s3.s3.svc.cluster.local:7070"
+    bucket: "e2e-backups"
+    region: "us-east-1"
+  schedule: "0 3 1 1 *"
+  # Keycloak's dump is a separate lineage restored by hand (charts/backup/README.md).
+  keycloak:
+    enabled: false

@@ -65,7 +65,7 @@ tests:
 
   - it: the restore unseals after pg_restore, with the connection from the PG variables
     set:
-      backup: { restore: { enabled: true, snapshotId: "latest" } }
+      backup: { restore: { enabled: true, snapshotId: "abcd1234", confirmDatabase: "db" } }
     templates: [charts/backup/templates/restore-job.yaml]
     asserts:
       - equal:
@@ -74,6 +74,9 @@ tests:
       - matchRegex:
           path: spec.template.spec.initContainers[1].args[0]
           pattern: 'restic restore --host "\$PGDATABASE" "\$SNAPSHOT_ID" --target /work'
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].args[0]
+          pattern: "BEGIN; DROP SCHEMA public CASCADE(.|\n)*pg_restore --no-owner -f - \"/work/\\$\\{PGDATABASE\\}.dump\"(.|\n)*echo 'COMMIT;'"
       - equal:
           path: spec.template.spec.containers[0].command
           value: ["/app/compliance-backup", "unseal", "env", "/work"]

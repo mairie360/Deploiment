@@ -1,0 +1,208 @@
+suite: Services, URL injection, ingress hosts, resources (MAIR-240)
+# What the other suites do not pin: the Service of every API / BFF / front,
+# the <NAME>_URL variables computed from global.*.instances, the `env` of an
+# instance expanded through `tpl`, the Ingress hosts derived from the front
+# names, and the resources defaults and overrides of the three workload charts.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  # --- Services -------------------------------------------------------------
+  - it: an API Service is a ClusterIP on its own port, selecting only its pods
+    templates: [charts/APIs/templates/service.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-calendar-api
+    asserts:
+      - isKind: { of: Service }
+      - equal: { path: spec.type, value: ClusterIP }
+      - equal: { path: "spec.ports[0].port", value: 3002 }
+      - equal: { path: "spec.ports[0].targetPort", value: http }
+      - equal: { path: spec.selector.app, value: calendar-api }
+
+  - it: a disabled API renders no Service
+    templates: [charts/APIs/templates/service.yaml]
+    set:
+      APIs.instances.calendar-api.enabled: false
+    asserts:
+      - hasDocuments: { count: 4 }
+      - notEqual:
+          path: metadata.name
+          value: RELEASE-NAME-calendar-api
+
+  - it: a BFF Service uses the port of the instance, 4000 when none is given
+    templates: [charts/BFFs/templates/service.yaml]
+    set:
+      BFFs.instances.user-bff.port: null
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - equal: { path: "spec.ports[0].port", value: 4000 }
+      - equal: { path: "spec.ports[0].targetPort", value: http }
+      - equal: { path: spec.selector.app, value: user-bff }
+
+  - it: a front Service always listens on 80 whatever the container port
+    templates: [charts/Fronts/templates/service.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-project-front
+    asserts:
+      - equal: { path: spec.type, value: ClusterIP }
+      - equal: { path: "spec.ports[0].port", value: 80 }
+      - equal: { path: "spec.ports[0].targetPort", value: http }
+      - equal: { path: spec.selector.app, value: project-front }
+
+  # --- <NAME>_URL -------------------------------------------------------------
+  - it: a BFF gets one URL per API and per BFF, on the port of the target
+    templates: [charts/BFFs/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CORE_API_URL, value: "http://RELEASE-NAME-core-api:3000" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CALENDAR_API_URL, value: "http://RELEASE-NAME-calendar-api:3002" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PROJECT_BFF_URL, value: "http://RELEASE-NAME-project-bff:4001" }
+
+  - it: a front gets its own public URL, the admin URL and the BFF URLs
+    templates: [charts/Fronts/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: LOGIN_FRONT_URL, value: "https://login.dev.mairie360-eip.fr/" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: ADMINISTRATION_FRONT_URL, value: "https://admin.dev.mairie360-eip.fr/" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: USER_BFF_URL, value: "http://RELEASE-NAME-user-bff:4000" }
+
+  - it: the front URLs follow global.domain
+    templates: [charts/Fronts/templates/deployment.yaml]
+    set:
+      global.domain: town.example.org
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-login-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: ADMINISTRATION_FRONT_URL, value: "https://admin.town.example.org/" }
+
+  # --- env through tpl --------------------------------------------------------
+  - it: the env of an API instance is expanded through tpl
+    templates: [charts/APIs/templates/deployment.yaml]
+    set:
+      APIs.instances.core-api.env:
+        - { name: SELF_URL, value: "http://{{ .Release.Name }}-core-api:3000" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SELF_URL, value: "http://RELEASE-NAME-core-api:3000" }
+
+  - it: the env of a BFF instance is expanded through tpl
+    templates: [charts/BFFs/templates/deployment.yaml]
+    set:
+      BFFs.instances.user-bff.env:
+        - { name: SELF_URL, value: "http://{{ .Release.Name }}-user-bff:4000" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-user-bff
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: SELF_URL, value: "http://RELEASE-NAME-user-bff:4000" }
+
+  # --- Ingress hosts ----------------------------------------------------------
+  - it: each enabled front is served on <front minus -front>.<domain>
+    templates: [templates/ingress.yaml]
+    set:
+      global.domain: town.example.org
+    asserts:
+      - contains:
+          path: spec.rules
+          content:
+            host: login.town.example.org
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend: { service: { name: RELEASE-NAME-login-front, port: { number: 80 } } }
+      - contains:
+          path: spec.tls[0].hosts
+          content: login.town.example.org
+      - notContains:
+          path: spec.tls[0].hosts
+          content: login.dev.mairie360-eip.fr
+
+  - it: a disabled front has neither a host nor a TLS entry
+    templates: [templates/ingress.yaml]
+    set:
+      Fronts.instances.project-front.enabled: false
+    asserts:
+      - lengthEqual: { path: spec.rules, count: 7 }
+      - lengthEqual: { path: "spec.tls[0].hosts", count: 7 }
+      - notContains:
+          path: "spec.tls[0].hosts"
+          content: project.dev.mairie360-eip.fr
+
+  - it: the Ingress is not rendered without any enabled front
+    templates: [templates/ingress.yaml]
+    set:
+      Fronts.enabled: false
+      Fronts.instances: null
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  # --- resources --------------------------------------------------------------
+  - it: an API without resources of its own gets the chart default
+    templates: [charts/APIs/templates/deployment.yaml]
+    set:
+      APIs.resources:
+        requests: { memory: 11Mi, cpu: 7m }
+        limits: { memory: 22Mi, cpu: 70m }
+      APIs.instances.core-api.resources: null
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests: { memory: 11Mi, cpu: 7m }
+            limits: { memory: 22Mi, cpu: 70m }
+
+  - it: the resources of an API instance win over the chart default
+    templates: [charts/APIs/templates/deployment.yaml]
+    set:
+      APIs.instances.core-api.resources:
+        requests: { memory: 33Mi, cpu: 9m }
+        limits: { memory: 99Mi, cpu: 90m }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 99Mi
+
+  - it: every BFF and front container declares requests and limits
+    templates:
+      - charts/BFFs/templates/deployment.yaml
+      - charts/Fronts/templates/deployment.yaml
+    asserts:
+      - exists: { path: "spec.template.spec.containers[0].resources.requests.memory" }
+      - exists: { path: "spec.template.spec.containers[0].resources.requests.cpu" }
+      - exists: { path: "spec.template.spec.containers[0].resources.limits.memory" }
+      - exists: { path: "spec.template.spec.containers[0].resources.limits.cpu" }
