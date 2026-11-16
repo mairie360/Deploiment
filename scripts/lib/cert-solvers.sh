@@ -15,7 +15,7 @@
 # `ingressClassName` of the ClusterIssuers' solver in
 # bootstrap/cluster-addons/cluster-issuers.yaml. Keep both equal
 # (tests/scripts/mair_795_cert_solver_test.sh checks it).
-CLUSTER_ISSUER_DEFAULT_SOLVER="nginx"
+CLUSTER_ISSUER_DEFAULT_SOLVER="traefik"
 
 # cert_solver_report <certificates.tsv> <ingresses.tsv>
 #

@@ -229,7 +229,7 @@ the old controller. The instance values must agree:
 `ingress-nginx-appset` or `traefik-appset` (one per machine, default
 IngressClass; k3s's bundled Traefik stays disabled so the version is pinned
 here) → `cert-manager-appset` → `cluster-issuer-appset` (`letsencrypt-prod` /
-`-staging`, HTTP-01 solver class `nginx` by default) → the
+`-staging`, HTTP-01 solver class `traefik` by default since MAIR-795, `nginx` before) → the
 `cert-manager.io/cluster-issuer` annotation on the fronts Ingress, plus
 `acme.cert-manager.io/http01-ingress-ingressclassname: <instance class>`,
 which overrides the solver class per Ingress. With Traefik, HTTP → HTTPS is
@@ -241,8 +241,9 @@ creates it** (as `acme.cert-manager.io/http01-override-ingress-ingressclassname`
 and never updates it (MAIR-795). A Certificate created before the annotation
 existed, or while the machine ran another ingress controller, keeps the wrong
 class or none, and a Certificate with none uses the ClusterIssuer default
-(`nginx`): on a Traefik machine its HTTP-01 challenges answer 404 forever and
-the renewal stalls without any alert (prod fronts, 2026-11-06). Fix:
+(`nginx` until MAIR-795, `traefik` since every instance runs Traefik): on a
+machine of the other class its HTTP-01 challenges answer 404 forever and the
+renewal stalls without any alert (prod fronts, 2026-11-06). Fix:
 `kubectl -n mairie360-<env> delete certificate <name>`; the owning Ingress makes
 cert-manager recreate it with the right class, and the TLS Secret (no owner
 reference) keeps being served meanwhile. `scripts/verify.sh` step 12c fails on

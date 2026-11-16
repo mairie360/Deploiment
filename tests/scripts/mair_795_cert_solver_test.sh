@@ -2,9 +2,10 @@
 # MAIR-795: cert-manager copies an Ingress's HTTP-01 solver class onto its
 # Certificate only when it CREATES it. A Certificate created before the
 # annotation existed (or on another ingress controller) keeps the wrong class,
-# or none, and falls back to the ClusterIssuer default (nginx): on a Traefik
-# machine its challenges answer 404 forever and the renewal stalls silently
-# (prod fronts 2026-11-06, prod Keycloak still pinned on nginx).
+# or none, and falls back to the ClusterIssuer default (nginx until MAIR-795,
+# traefik since): on a machine of the other class its challenges answer 404
+# forever and the renewal stalls silently (prod fronts 2026-11-06, prod
+# Keycloak pinned on nginx).
 #
 # scripts/verify.sh step 12c must fail, naming the Certificate and both
 # classes, when a Certificate's class is not the one its Ingress asks for. The
@@ -58,13 +59,15 @@ run ok yes
 check "a Certificate on the class its Ingress asks for passes" "grep -q 'OK .*prod-fronts-tls: solver class traefik' '$TMP/ok.out'"
 check "...and nothing fails in step 12c" "! sed -n '/^\[12c\]/,/^\[13/p' '$TMP/ok.out' | grep -q '^  FAIL  '"
 
-# 2. Prod fronts before the fix: no annotation, so the ClusterIssuer default.
-fixture legacy "prod-fronts-tls${TAB}prod-fronts${TAB}" -- "prod-fronts${TAB}traefik"
+# 2. A Certificate without annotation on a nginx Ingress (a machine left on
+#    nginx whose Certificate predates the annotation): the default is now
+#    traefik, so it fails.
+fixture legacy "dev-fronts-tls${TAB}dev-fronts${TAB}" -- "dev-fronts${TAB}nginx"
 run legacy yes
-check "a Certificate without annotation on a Traefik Ingress fails" "grep -q 'FAIL .*prod-fronts-tls' '$TMP/legacy.out'"
+check "a Certificate without annotation on a nginx Ingress fails" "grep -q 'FAIL .*dev-fronts-tls' '$TMP/legacy.out'"
 check "...naming both classes and where the wrong one comes from" \
-  "grep 'FAIL .*prod-fronts-tls' '$TMP/legacy.out' | grep -q \"'nginx' (default) but Ingress prod-fronts asks for 'traefik'\""
-check "...with the command that recreates it" "grep -q 'delete certificate prod-fronts-tls' '$TMP/legacy.out'"
+  "grep 'FAIL .*dev-fronts-tls' '$TMP/legacy.out' | grep -q \"'traefik' (default) but Ingress dev-fronts asks for 'nginx'\""
+check "...with the command that recreates it" "grep -q 'delete certificate dev-fronts-tls' '$TMP/legacy.out'"
 
 # 3. Prod Keycloak: an explicit nginx override copied while the machine was on nginx.
 fixture pinned "prod-keycloak-tls${TAB}prod-keycloak${TAB}nginx" -- "prod-keycloak${TAB}traefik"
@@ -72,11 +75,11 @@ run pinned yes
 check "an explicit nginx override on a Traefik Ingress fails" \
   "grep 'FAIL .*prod-keycloak-tls' '$TMP/pinned.out' | grep -q \"'nginx' (annotation) but Ingress prod-keycloak asks for 'traefik'\""
 
-# 4. A nginx machine whose Certificate predates the annotation still works:
-#    no annotation = the ClusterIssuer default = nginx = what its Ingress asks for.
-fixture nginx "dev-fronts-tls${TAB}dev-fronts${TAB}" -- "dev-fronts${TAB}nginx"
-run nginx yes
-check "no annotation passes on a nginx Ingress (the ClusterIssuer default)" "grep -q 'OK .*dev-fronts-tls' '$TMP/nginx.out'"
+# 4. The incident (prod fronts 2026-11-06): no annotation on a Traefik
+#    Ingress. With the ClusterIssuers on traefik it is now the right class.
+fixture traefikdefault "prod-fronts-tls${TAB}prod-fronts${TAB}" -- "prod-fronts${TAB}traefik"
+run traefikdefault yes
+check "no annotation passes on a Traefik Ingress (the ClusterIssuer default)" "grep -q 'OK .*prod-fronts-tls' '$TMP/traefikdefault.out'"
 
 # 5. Mixed: one good, one bad; the good one must not hide the bad one.
 fixture mixed "a-tls${TAB}a${TAB}traefik" "b-tls${TAB}b${TAB}nginx" -- "a${TAB}traefik" "b${TAB}traefik"
@@ -103,5 +106,7 @@ check "...and no Certificate or Ingress was read" "! grep -qE '(^| )get (certifi
 ISSUER_CLASSES=$(grep -E '^[[:space:]]+ingressClassName:' "$ROOT/bootstrap/cluster-addons/cluster-issuers.yaml" | awk '{print $2}' | sort -u)
 check "CLUSTER_ISSUER_DEFAULT_SOLVER equals the ClusterIssuers' solver class (${ISSUER_CLASSES:-none})" \
   "[ '$ISSUER_CLASSES' = '$CLUSTER_ISSUER_DEFAULT_SOLVER' ]"
+check "the ClusterIssuers solve HTTP-01 on traefik, the class of every instance" \
+  "[ '$ISSUER_CLASSES' = traefik ]"
 
 exit "$FAILED"
