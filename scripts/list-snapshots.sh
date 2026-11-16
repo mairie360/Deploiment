@@ -39,7 +39,7 @@ cronjob=$(k get cronjob "$env-backup" -o json) || {
   exit 1
 }
 
-# The pod only sleeps; restic runs through `kubectl exec` once the pod is Ready.
+# The pod only waits (no time limit: a long dump or check must not outlive it); restic runs through `kubectl exec` once the pod is Ready.
 # `kubectl run -i` attaches after the container started, so the first bytes of
 # a `restic dump` could be lost; exec streams from the first byte. --no-cache:
 # read-only root filesystem, nothing kept between runs.
@@ -60,7 +60,7 @@ overrides=$(jq -c '
         containers: [ {
           name: "restic",
           image: $restic.image,
-          command: ["sleep", "900"],
+          command: ["sh", "-c", "while :; do sleep 30; done"],
           env: (($main.env // [])
                 | map(select(.name | test("^(AWS_[A-Z_]+|RESTIC_PASSWORD|RESTIC_REPOSITORY)$")))
                 + [ { name: "HOME", value: "/tmp" } ]),
@@ -71,10 +71,14 @@ overrides=$(jq -c '
     }' <<<"$cronjob")
 image=$(jq -r '.spec.containers[0].image' <<<"$overrides")
 
-pod="$env-backup-snapshots-$$"
-cleanup() { k delete pod "$pod" --ignore-not-found --wait=false > /dev/null 2>&1 || true; }
+# Random suffix: two operators on different machines can have the same PID. The pod
+# is only deleted once this invocation created it, never someone else's.
+pod="$env-backup-snapshots-$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')"
+created=0
+cleanup() { [ "$created" = 1 ] && k delete pod "$pod" --ignore-not-found --wait=false > /dev/null 2>&1 || true; }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 k run "$pod" --quiet --restart=Never --image="$image" --overrides="$overrides" > /dev/null
+created=1
 k wait --for=condition=Ready "pod/$pod" --timeout=2m > /dev/null
 k exec "$pod" -c restic -- restic "$@" --no-cache

@@ -74,9 +74,14 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
      | xargs -r kubectl --context <ctx> -n $NS patch -p '{"spec":{"suspend":true}}'
    # Suspending a CronJob does not stop a Job it already started: wait for a running
    # backup to end (its pg_dump transaction would hold the restore back).
-   kubectl --context <ctx> -n $NS get jobs -o name | grep -E "/<env>-backup-[0-9]+$" \
-     | xargs -r kubectl --context <ctx> -n $NS wait --for=condition=complete --timeout=30m
-   kubectl --context <ctx> -n $NS get pods | grep -E "^<env>-backup-[0-9]+" || true   # must print nothing running
+   # Every backup Job still active (scheduled or created by hand, e.g. <env>-backup-after-restore);
+   # finished or failed ones are left out. The restore Job does not exist yet at this step.
+   active_backups() {
+     kubectl --context <ctx> -n $NS get jobs -o json | jq -r --arg p "<env>-backup-" \
+       '.items[] | select(.metadata.name | startswith($p)) | select(.metadata.name != $p + "restore")
+        | select((.status.active // 0) > 0) | .metadata.name'
+   }
+   while [ -n "$(active_backups)" ]; do echo "waiting for: $(active_backups)"; sleep 15; done
    ```
 
    The ApplicationSet controller rewrites the Application from its template within
@@ -97,8 +102,9 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
    as it was. With `backup.sealing.enabled`, that guarantee only covers the load: the dump
    is committed by the `restore` initContainer, then the `unseal` container puts the sealed
    personal data back. If `unseal` fails, the database already holds the snapshot with its
-   personal data still sealed: keep the writers stopped, fix the cause (key, secret) and
-   apply the Job again until it completes. Users erased since the snapshot stay anonymized.
+   personal data still sealed: keep the writers stopped, fix the cause (key, secret), delete
+   the failed Job (`kubectl --context <ctx> -n $NS delete job <env>-backup-restore`: a Job in
+   `Failed` is not started again by a new `apply`) and create it again until it completes. Users erased since the snapshot stay anonymized.
 
 4. **Keycloak** (instances with `keycloak.enabled`, until it is removed, MAIR-804): its
    database is a separate lineage that the Job does not restore. Restore it only if the

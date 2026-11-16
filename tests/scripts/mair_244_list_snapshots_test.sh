@@ -26,6 +26,7 @@ printf '%s\n' "$*" >> "$WORK/calls"
 case "$*" in
   *"get cronjob dev-backup -o json") [ "${NO_CRONJOB:-}" = 1 ] && exit 1; cat "$WORK/cronjob.json" ;;
   *" run "*)
+    [ "${RUN_FAILS:-}" = 1 ] && exit 1
     for a in "$@"; do case "$a" in --overrides=*) printf '%s' "${a#--overrides=}" > "$WORK/overrides.json" ;; esac; done ;;
   *" wait --for=condition=Ready pod/"*) [ "${NOT_READY:-}" = 1 ] && exit 1; : ;;
   *" exec "*" -c restic -- restic "*) echo "restic output" ;;
@@ -39,7 +40,7 @@ export WORK KUBECTL="$WORK/kubectl"
 # 1. Default: `restic snapshots` in a pod shaped like the CronJob.
 rm -f "$WORK/calls" "$WORK/overrides.json"
 "$SCRIPT" mairie360-dev dev > "$WORK/out" 2>&1 && ok "exit 0" || fail "exit code: $(cat "$WORK/out")"
-grep -q -- "--context mairie360-dev -n mairie360-dev run dev-backup-snapshots-[0-9]* --quiet --restart=Never --image=restic/restic:" "$WORK/calls" \
+grep -q -- "--context mairie360-dev -n mairie360-dev run dev-backup-snapshots-[0-9a-f]\{8\} --quiet --restart=Never --image=restic/restic:" "$WORK/calls" \
   && ok "throwaway pod in mairie360-dev, restic image" || fail "run call: $(cat "$WORK/calls")"
 grep -q "restic output" "$WORK/out" && ok "restic's output is printed" || fail "output: $(cat "$WORK/out")"
 # restic starts only once the pod is Ready, through exec (no output lost before an attach).
@@ -47,7 +48,7 @@ python3 - "$WORK/calls" <<'PY' && ok "wait Ready, then exec restic, then delete 
 import re, sys
 calls = open(sys.argv[1]).read().splitlines()
 idx = lambda pat: next(i for i, c in enumerate(calls) if re.search(pat, c))
-run, wait, ex, rm = idx(r" run "), idx(r" wait --for=condition=Ready pod/dev-backup-snapshots-"), idx(r" exec dev-backup-snapshots-\d+ -c restic -- restic snapshots --no-cache$"), idx(r" delete pod dev-backup-snapshots-")
+run, wait, ex, rm = idx(r" run "), idx(r" wait --for=condition=Ready pod/dev-backup-snapshots-"), idx(r" exec dev-backup-snapshots-[0-9a-f]{8} -c restic -- restic snapshots --no-cache$"), idx(r" delete pod dev-backup-snapshots-")
 assert run < wait < ex < rm, calls
 PY
 python3 - "$WORK/overrides.json" "$WORK/cronjob.json" <<'PY' && ok "pod copies the CronJob's labels, security, pull secret and restic env" || fail "overrides"
@@ -55,7 +56,7 @@ import json, sys
 o = json.load(open(sys.argv[1]))
 t = json.load(open(sys.argv[2]))["spec"]["jobTemplate"]["spec"]["template"]
 c = o["spec"]["containers"][0]
-assert c["command"] == ["sleep", "900"] and "args" not in c, c
+assert c["command"] == ["sh", "-c", "while :; do sleep 30; done"] and "args" not in c, c
 assert o["metadata"]["labels"] == t["metadata"]["labels"]
 assert o["metadata"]["labels"]["app.kubernetes.io/component"] == "backup"
 assert o["spec"]["securityContext"] == t["spec"]["securityContext"]
@@ -85,6 +86,11 @@ rm -f "$WORK/calls"
 if NOT_READY=1 "$SCRIPT" mairie360-dev dev > /dev/null 2>&1; then fail "succeeded without a Ready pod"; else ok "fails when the pod is not Ready"; fi
 grep -q " exec " "$WORK/calls" && fail "restic ran in a pod that was not Ready" || ok "no restic before Ready"
 grep -q " delete pod dev-backup-snapshots-" "$WORK/calls" && ok "pod deleted on the error path" || fail "pod left behind: $(cat "$WORK/calls")"
+
+# 2c. A pod name already taken (another operator): fails without deleting that pod.
+rm -f "$WORK/calls"
+if RUN_FAILS=1 "$SCRIPT" mairie360-dev dev > /dev/null 2>&1; then fail "succeeded when the pod was not created"; else ok "fails when the pod cannot be created"; fi
+grep -q " delete pod " "$WORK/calls" && fail "deleted a pod it did not create" || ok "no deletion of a pod it did not create"
 
 # 3. No CronJob (backup disabled): clear error, no pod.
 rm -f "$WORK/calls"

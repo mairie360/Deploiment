@@ -77,9 +77,14 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
      | xargs -r kubectl --context <ctx> -n $NS patch -p '{"spec":{"suspend":true}}'
    # Suspendre un CronJob n'arrête pas un Job déjà lancé : attendre la fin d'une
    # sauvegarde en cours (sa transaction pg_dump bloquerait la restauration).
-   kubectl --context <ctx> -n $NS get jobs -o name | grep -E "/<env>-backup-[0-9]+$" \
-     | xargs -r kubectl --context <ctx> -n $NS wait --for=condition=complete --timeout=30m
-   kubectl --context <ctx> -n $NS get pods | grep -E "^<env>-backup-[0-9]+" || true   # ne doit rien afficher en cours
+   # Tout Job de sauvegarde encore actif (planifié ou créé à la main, ex. <env>-backup-after-restore) ;
+   # ceux terminés ou en échec sont ignorés. Le Job de restauration n'existe pas encore à ce stade.
+   active_backups() {
+     kubectl --context <ctx> -n $NS get jobs -o json | jq -r --arg p "<env>-backup-" \
+       '.items[] | select(.metadata.name | startswith($p)) | select(.metadata.name != $p + "restore")
+        | select((.status.active // 0) > 0) | .metadata.name'
+   }
+   while [ -n "$(active_backups)" ]; do echo "en attente de : $(active_backups)"; sleep 15; done
    ```
 
    Le contrôleur d'ApplicationSet réécrit l'Application depuis son modèle en quelques
@@ -102,7 +107,9 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
    le dump est validé par l'initContainer `restore`, puis le conteneur `unseal` remet les
    données personnelles scellées. Si `unseal` échoue, la base contient déjà le snapshot avec
    ses données personnelles encore scellées : garder les écrivains arrêtés, corriger la
-   cause (clé, secret) et réappliquer le Job jusqu'à ce qu'il se termine. Les utilisateurs
+   cause (clé, secret), supprimer le Job en échec (`kubectl --context <ctx> -n $NS delete job
+   <env>-backup-restore` : un Job `Failed` ne repart pas sur un nouvel `apply`) et le recréer
+   jusqu'à ce qu'il se termine. Les utilisateurs
    effacés depuis le snapshot restent anonymisés.
 
 4. **Keycloak** (instances avec `keycloak.enabled`, jusqu'à son retrait, MAIR-804) : sa
