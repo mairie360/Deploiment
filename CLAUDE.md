@@ -976,7 +976,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   pods stay in `CreateContainerConfigError` with no Secret to mount. Expected.
   `elearning-api` stays there too when `secrets.yaml` was sealed before the
   `S3_*` keys existed: re-run `seal-secrets.sh` with `S3_ACCESS_KEY` /
-  `S3_SECRET_KEY` set (`scripts/verify.sh` step 4 reports empty keys).
+  `S3_SECRET_KEY` set (`scripts/verify.sh` step 4 reports empty keys). Since
+  MAIR-619 every bucket (`<org>-backups-<env>`, `<org>-elearning-<env>`) has
+  its own key, limited to it by a bucket policy, issued by `mairie360/Infra`
+  into the vault and sealed by ansible's `playbooks/secrets.yml` with nothing
+  typed (`tests/scripts/mair_619_instance_buckets_test.sh` pins the names).
 - **A GHCR PAT leaked into git history (MAIR-677).** `configs/ghcr-registry-secret.yaml`
   and every `image.pullSecretData` have been removed and the token is revoked
   (GitHub API answers 401, checked 2026-11-01); the history purge is tracked in

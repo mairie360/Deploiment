@@ -33,7 +33,7 @@ global:
   # in the Resend dashboard.
   emailFrom: "noreply@mairie360.ville-exemple.fr"
   # Scaleway Object Storage bucket of elearning-api's course attachments.
-  elearningBucket: "ville-exemple-elearning"
+  elearningBucket: "ville-exemple-elearning-prod"
 
 backup:
   s3:

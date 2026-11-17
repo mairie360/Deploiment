@@ -84,7 +84,7 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
-          content: { name: S3_BUCKET, value: "ville-exemple-elearning" }
+          content: { name: S3_BUCKET, value: "ville-exemple-elearning-prod" }
 
   - it: an instance without global.emailFrom fails to render instead of sending from nowhere
     set:
