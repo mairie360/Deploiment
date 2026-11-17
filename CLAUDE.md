@@ -436,6 +436,10 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   phase 4, then stop the writers (and pause the ApplicationSet controller on
   auto-sync envs) and run the restore Job. Its drill log is updated after each
   drill.
+  With `global.observability.enabled`, every successful run pushes
+  `mairie360_backup_last_success_timestamp_seconds` to the instance's collector
+  (MAIR-622); `mairie360/Infra` alerts (`BackupMissed`) after 26 h without one.
+  A failed report never fails the backup.
   `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
   copy of the live dump, `compliance-backup seal` (Compliance_API image) moves each user's personal
   values into blobs encrypted under a data key wrapped by the user's key in Scaleway Key Manager
@@ -735,6 +739,7 @@ ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
   core-api [+ compliance-api] ─► keycloak         (MAIR-610, by app.kubernetes.io/name)
 ingress-controller ─► core-api :3000             (MAIR-610, /admin-access + ForwardAuth, consoleAccess only)
                         apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
+              backup CronJob ──OTLP 4318─────► otel-collector   (MAIR-622, success time)
 ```
 
 Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
