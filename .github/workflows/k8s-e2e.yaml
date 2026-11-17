@@ -51,9 +51,11 @@ jobs:
             exit 0
           fi
           # bootstrap/: Traefik and cert-manager versions and values used by
-          # the ingress test
+          # the ingress test. clusters/ (MAIR-541): the instance values feed the
+          # chart; the e2e installs tests/e2e/values.yaml, but a values change
+          # must still run it so a key the chart stops reading shows up here.
           if git diff --name-only "$BASE_SHA" HEAD \
-              | grep -qE '^(charts|tests/e2e|bootstrap)/|^\.github/workflows/k8s-e2e\.yaml$'; then
+              | grep -qE '^(charts|tests/e2e|bootstrap|clusters)/|^\.github/workflows/k8s-e2e\.yaml$'; then
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
             echo "e2e=false" >> "$GITHUB_OUTPUT"

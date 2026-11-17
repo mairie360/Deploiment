@@ -64,7 +64,7 @@ jobs:
         run: helm lint ./charts/mairie360-stack
 
       # Render every instance and validate it against the Kubernetes schemas.
-      # CiliumNetworkPolicy has no schema in kubeconform's default store.
+      # CiliumNetworkPolicy comes from the datreeio CRDs-catalog (MAIR-541).
       # Every instance is rendered with both ingress controllers (MAIR-260),
       # so a switch to Traefik is validated before it happens; the Traefik
       # Middleware and the Argo CD AppSets are checked against the
@@ -81,12 +81,15 @@ jobs:
             # clusters/_base/<env>.yaml first, like the instances AppSet (MAIR-414).
             mapfile -t files < <(./scripts/instance-values.sh "$v")
             args=(); for f in "${files[@]}"; do args+=(-f "$f"); done
+            # MAIR-541: --strict turns the chart warnings into errors, with the
+            # values of each instance (the default values alone prove little).
+            helm lint ./charts/mairie360-stack --strict "${args[@]}"
             for controller in nginx traefik; do
               echo "Rendering $v (ingress controller: $controller)"
               helm template r ./charts/mairie360-stack "${args[@]}" \
                 --set global.ingressController="$controller" \
                 | kubeconform -strict -summary -schema-location default \
-                    -schema-location "$CRDS" -skip CiliumNetworkPolicy
+                    -schema-location "$CRDS"
             done
           done
           echo "Validating bootstrap/"
@@ -153,6 +156,13 @@ jobs:
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2 --verify=false
           helm unittest ./charts/mairie360-stack
+
+      # MAIR-541: errors and warnings of shellcheck on every shell script of the
+      # repo (info and style findings are reported by the editor, not blocking).
+      - name: Shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          shellcheck -x --severity=warning "${scripts[@]}"
 
       - name: Script tests
         run: for t in tests/scripts/*_test.sh; do echo "== $t"; "$t" || exit 1; done

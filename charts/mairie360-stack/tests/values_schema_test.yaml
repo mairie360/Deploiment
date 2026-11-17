@@ -1,0 +1,27 @@
+# MAIR-541: values.schema.json refuses a misspelled key instead of ignoring it silently.
+# The wording of the schema error differs between Helm 3 ("additional properties 'x' not allowed") and Helm 4 ("Additional property x is not allowed"): the patterns accept both.
+suite: values schema
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates:
+  - templates/network-policy.yaml
+tests:
+  - it: accepts the dev instance values
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: refuses a misspelled top-level key
+    set:
+      globl:
+        domain: example.org
+    asserts:
+      - failedTemplate:
+          errorPattern: "[Aa]dditional propert(y|ies) '?globl'? (is )?not allowed"
+
+  - it: refuses a misspelled global key
+    set:
+      global.networkPolcy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "[Aa]dditional propert(y|ies) '?networkPolcy'? (is )?not allowed"

@@ -1,0 +1,56 @@
+# MAIR-541: the BFFs network policy (ingress -> fronts -> BFFs). Only fronts and other BFFs
+# may reach a BFF; nothing else, and nothing at all when network policies are off.
+suite: network policy of the BFFs
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates:
+  - charts/BFFs/templates/network-policy.yaml
+tests:
+  - it: renders one ingress-only NetworkPolicy on the BFF pods
+    asserts:
+      - hasDocuments: { count: 1 }
+      - isKind: { of: NetworkPolicy }
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: bff
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+
+  - it: accepts the fronts and the other BFFs, nobody else
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 1
+      - lengthEqual:
+          path: spec.ingress[0].from
+          count: 2
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: frontend
+      - equal:
+          path: spec.ingress[0].from[1].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: bff
+
+  - it: never opens the BFFs to a whole namespace or to every pod
+    asserts:
+      - notExists:
+          path: spec.ingress[0].from[0].namespaceSelector
+      - notExists:
+          path: spec.ingress[0].from[1].namespaceSelector
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector: {}
+
+  - it: is applied before the workloads (sync wave -2)
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "-2"
+
+  - it: renders nothing when network policies are disabled
+    set:
+      global.networkPolicy.enabled: false
+    asserts:
+      - hasDocuments: { count: 0 }

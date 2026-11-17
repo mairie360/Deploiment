@@ -195,6 +195,7 @@ chainsaw test \
 # instance has its own bucket and sealed secrets.
 if [ -z "${INSTANCE:-}" ]; then
   step "Backup and restore"
+  # shellcheck disable=SC2034  # read by restore.sh, sourced below
   HELM_VALUES=("${VALUES[@]}")
   # shellcheck source=restore.sh
   source "$HERE/restore.sh"

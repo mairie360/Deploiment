@@ -30,12 +30,16 @@ helm unittest ./charts/mairie360-stack
 
 # Render + schema-validate every instance with both ingress controllers,
 # plus bootstrap/ (this is what CI does). CRD schemas (Traefik Middleware,
-# Argo CD AppSets) come from the datreeio CRDs-catalog.
+# Argo CD AppSets, CiliumNetworkPolicy) come from the datreeio CRDs-catalog.
+# CI also runs `helm lint --strict` with each instance's values (MAIR-541) and
+# shellcheck (warnings and errors) on every *.sh. charts/mairie360-stack/values.schema.json
+# closes the list of top-level and `global` keys: add a new top-level or global
+# key there, or helm refuses the values.
 CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 for v in clusters/*/instances/*; do for c in nginx traefik; do
   helm template r ./charts/mairie360-stack -f "$v/values.yaml" --set global.ingressController=$c \
     | kubeconform -strict -summary -schema-location default -schema-location "$CRDS" \
-        -skip CiliumNetworkPolicy || echo "KO: $v ($c)"
+    || echo "KO: $v ($c)"
 done; done
 kubeconform -strict -schema-location default -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons
 # Bootstrap wrapper charts (MAIR-346), as CI renders them

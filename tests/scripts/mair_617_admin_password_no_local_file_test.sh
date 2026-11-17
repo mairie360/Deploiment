@@ -65,7 +65,7 @@ run() {
     ADMIN_EMAIL=admin@example.org RESTIC_PASSWORD=restic "$@" ./scripts/seal-secrets.sh ctx org env) > "$WORK/out" 2>&1
 }
 fresh() {
-  rm -rf "$WORK/cluster" "$WORK/home" "$SECRETS" "$WORK/admin.txt"
+  rm -rf "${WORK:?}/cluster" "${WORK:?}/home" "${SECRETS:?}" "${WORK:?}/admin.txt"
   mkdir -p "$WORK/cluster" "$WORK/home"
 }
 no_local_file() {
