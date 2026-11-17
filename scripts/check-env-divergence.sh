@@ -36,7 +36,7 @@ failed=0
 report() {
   local target=$1 source=$2 commits=$3
   echo "Commits on '$target' that never came from '$source':"
-  sed 's/^/  /' <<<"$commits" | head -n 20
+  sed -n '1,20s/^/  /p' <<<"$commits"
   echo "::error::'$target' has diverged from '$source': the next Promote to $target will fail. Bring these commits back: open a pull request that merges origin/$target into main with a merge commit (not a squash), then promote main to staging$([ "$target" = prod ] && echo ", then staging to prod"). Never force-push '$target' (MAIR-798)."
   failed=1
 }

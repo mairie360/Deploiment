@@ -35,7 +35,7 @@ diverged() {
   count=$(git rev-list --count "$SHA..$CURRENT")
   {
     echo "Commits on '$TARGET' that are not in $SHA:"
-    git log --format='  %h %s' "$SHA..$CURRENT" | head -n 20
+    git log -n 20 --format='  %h %s' "$SHA..$CURRENT"
     [ "$count" -le 20 ] || echo "  ... and $((count - 20)) more"
   } >&2
   err "'$TARGET' ($CURRENT) is not an ancestor of $SHA: not a fast-forward. '$TARGET' holds $count commit(s) that were never promoted from main (listed above). Bring them back first: open a pull request that merges origin/$TARGET into main with a merge commit (not a squash, so the very same commits end up in main), then promote main to staging$([ "$TARGET" = prod ] && echo ", then staging to prod"). Never force-push '$TARGET' (docs/adr/0002-environment-promotion.md, MAIR-798)."
@@ -56,9 +56,10 @@ if git merge-base --is-ancestor "$CURRENT" "$SHA"; then echo "fast-forward true"
 
 BASE=$(git merge-base "$SHA" "$CURRENT")
 # Every file touched by a commit that is only on the target, not just the
-# final diff: a change made then reverted on staging is refused too. Merge
-# commits (former promotions) only bring main in, skip them.
-touched() { git log --format= --name-only "$1" | sed '/^$/d' | sort -u; }
+# final diff: a change made then reverted on staging is refused too. `--cc`
+# lists what a merge commit changes against all its parents: a former promotion
+# (it only brings main in) shows nothing, an edit hidden in a merge is seen.
+touched() { git log --cc --format= --name-only "$1" | sed '/^$/d' | sort -u; }
 OTHER=$(touched "$BASE..$CURRENT" | grep -vE "$IMAGES_RE" || true)
 if [ "$TARGET" != "staging" ] || [ -n "$OTHER" ]; then
   [ -z "$OTHER" ] || echo "::error::Changed only on $TARGET: $(echo $OTHER)" >&2

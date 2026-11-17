@@ -110,6 +110,11 @@ git commit -qm "Merge main into staging (with a hand edit)"
 push evil:staging
 fails "a values.yaml edit introduced by a staging-only merge commit"
 says "Merge main into staging (with a hand edit)" "lists the merge commit"
+# main moves on after the evil merge: the Promote must refuse to merge it into that staging.
+git checkout -q main
+commit charts/a.yaml "main 6b"
+out=$("$MODE" staging "$(git rev-parse main)" "$(git rev-parse evil)" 2>&1 >/dev/null); code=$?
+ok "$([ "$code" != 0 ] && grep -q "values.yaml" <<<"$out" && echo 0 || echo 1)" "promote-mode refuses the hand edit hidden in a merge commit"
 
 # A commit with many non-image paths: grep must read the whole list (no early exit under pipefail).
 git checkout -q -B many main
