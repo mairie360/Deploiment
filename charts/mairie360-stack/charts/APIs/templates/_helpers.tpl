@@ -146,6 +146,7 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
       name: {{ include "apis.appSecretName" .root }}
       key: JWT_SECRET
 {{- include "apis.jwtKeysEnv" . }}
+{{- include "apis.totpKeyEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
 {{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
@@ -336,5 +337,25 @@ templates/jwt-session-keys.yaml (umbrella) guards both values.
     secretKeyRef:
       name: {{ printf "%s-jwt-signing-secret" .root.Release.Name }}
       key: JWT_PRIVATE_KEY
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-805: TOTP_ENCRYPTION_KEY (base64 of 32 bytes) seals the second-factor
+secrets of the users in core-api (AES-256-GCM), and core-api alone reads it,
+whatever the instance is called in a values file it is the one named core-api.
+`optional`: an instance whose secrets.yaml was sealed before MAIR-805 keeps
+starting, and core-api then answers 503 on the second-factor routes instead of
+crash-looping. scripts/seal-secrets.sh generates it once per instance and
+never replaces it: a new key makes every enrolled secret unreadable.
+*/}}
+{{- define "apis.totpKeyEnv" -}}
+{{- if eq .name "core-api" }}
+- name: TOTP_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "apis.appSecretName" .root }}
+      key: TOTP_ENCRYPTION_KEY
+      optional: true
 {{- end }}
 {{- end -}}

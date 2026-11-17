@@ -278,6 +278,10 @@ secrets:
   # Ed25519 private key (PEM) of <release>-jwt-signing-secret, created with
   # create=true and global.jwt.signing.enabled only (MAIR-680).
   jwtPrivateKey: ""
+  # TOTP_ENCRYPTION_KEY of core-api (MAIR-805): base64 of 32 random bytes, only
+  # for create=true. Elsewhere scripts/seal-secrets.sh generates it once and
+  # never replaces it (a new key makes every enrolled secret unreadable).
+  totpEncryptionKey: ""
 
 # -----------------------------------------------------------------------------
 # Single Ingress for every enabled front (templates/ingress.yaml), and the

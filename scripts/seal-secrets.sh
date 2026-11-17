@@ -24,6 +24,10 @@
 # contrôleur sealed-secrets déployé (bootstrap/appsets/sealed-secrets-appset.yaml).
 #
 # Environment variables read by this script:
+#   TOTP_ENCRYPTION_KEY  (MAIR-805) base64 of 32 bytes sealing the second-factor
+#                   secrets of core-api. Normally unset: generated once, then
+#                   always kept from the cluster (--rotate never replaces it).
+#                   Set it only to restore a key kept outside the cluster.
 #   RESEND_API_KEY  Resend API key, stored as SMTP_PASSWORD in <env>-app-secrets
 #                   (core-api sends its e-mails through smtp.resend.com). When
 #                   unset, the value already present on the cluster is kept;
@@ -481,9 +485,30 @@ seal() {
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
+# MAIR-805: seals the second-factor secrets of core-api (AES-256-GCM, base64 of
+# 32 bytes). Generated once, ALWAYS kept from the cluster, even with --rotate:
+# a new key makes every enrolled TOTP secret unreadable, so every protected
+# account would be locked out. Keep a copy outside the cluster, like the sealing
+# key. TOTP_ENCRYPTION_KEY imposes a value (restore after a loss).
+TOTPKEY="${TOTP_ENCRYPTION_KEY:-}"
+if [ -n "$TOTPKEY" ]; then
+  echo "  TOTP_ENCRYPTION_KEY : from TOTP_ENCRYPTION_KEY"
+else
+  TOTPKEY="$(prev "${RELEASE}-app-secrets" TOTP_ENCRYPTION_KEY)"
+  if [ -n "$TOTPKEY" ]; then
+    echo "  TOTP_ENCRYPTION_KEY : kept from cluster (never rotated)"
+  else
+    TOTPKEY="$(openssl rand -base64 32)"
+    echo "  TOTP_ENCRYPTION_KEY : generated"
+  fi
+fi
+[ "$(printf '%s' "$TOTPKEY" | base64 -d 2>/dev/null | wc -c)" = 32 ] || {
+  echo "TOTP_ENCRYPTION_KEY must be the base64 of exactly 32 bytes" >&2; exit 1; }
+
 kubectl create secret generic "${RELEASE}-app-secrets" \
   --namespace "$NS" \
   --from-literal=JWT_SECRET="$JWT" \
+  --from-literal=TOTP_ENCRYPTION_KEY="$TOTPKEY" \
   --from-literal=SMTP_PASSWORD="$SMTPPASS" \
   --from-literal=S3_ACCESS_KEY="$S3AK" \
   --from-literal=S3_SECRET_KEY="$S3SK" \
