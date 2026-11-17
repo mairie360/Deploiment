@@ -81,6 +81,57 @@ out=$("$MODE" prod "$(git rev-parse main)" "$(git rev-parse ahead)" 2>&1 >/dev/n
 ok "$(grep -qF "then promote main to staging, then staging to prod" <<<"$out" && echo 0 || echo 1)" \
   "promote-mode explains the way back for prod"
 
+# --- Review follow-ups (merge commits, large path lists) -----------------------------------------
+IMG=clusters/mairie360/instances/staging/images.yaml
+git checkout -q main
+push main main:staging main:prod
+
+# A promotion merge (main into staging, after an image-updater commit) is not a divergence.
+git checkout -q -b promo staging 2>/dev/null || git checkout -q -B promo main
+git reset -q --hard main
+commit "$IMG" "chore: image-updater staging tags again"
+git checkout -q main
+commit charts/a.yaml "main 5"
+git checkout -q promo
+git merge -q --no-ff --no-edit main
+push main promo:staging main:prod
+passes "an ordinary promotion merge is allowed"
+
+# A forbidden edit hidden in a merge commit must be caught (git log --no-merges skipped it).
+git checkout -q -B evil main
+commit "$IMG" "chore: image-updater tags before the evil merge"
+git checkout -q main
+commit charts/a.yaml "main 6"
+git checkout -q evil
+git merge -q --no-ff --no-commit main
+echo "hand edit" >>clusters/mairie360/instances/staging/values.yaml
+git add clusters/mairie360/instances/staging/values.yaml
+git commit -qm "Merge main into staging (with a hand edit)"
+push evil:staging
+fails "a values.yaml edit introduced by a staging-only merge commit"
+says "Merge main into staging (with a hand edit)" "lists the merge commit"
+
+# A commit with many non-image paths: grep must read the whole list (no early exit under pipefail).
+git checkout -q -B many main
+for i in $(seq 1 400); do mkdir -p charts/many; echo "$i" >"charts/many/file-$i.yaml"; done
+git add charts/many && git commit -qm "fix: hundreds of files on staging only"
+push many:staging main:prod
+fails "a staging-only commit changing hundreds of non-image paths"
+
+# prod holding only a merge commit of its own is listed (promote-mode and the check).
+git checkout -q -B prod-merge main
+git checkout -q -b side main
+commit clusters/_base/prod.yaml "side change"
+git checkout -q prod-merge
+git merge -q --no-ff -m "Merge side straight on prod" side
+push main:staging prod-merge:prod
+fails "prod holding a merge commit of its own"
+says "Merge side straight on prod" "the check lists the merge commit"
+git checkout -q main
+commit charts/a.yaml "main 7"
+out=$("$MODE" prod "$(git rev-parse main)" "$(git rev-parse prod-merge)" 2>&1 >/dev/null)
+ok "$(grep -qF "Merge side straight on prod" <<<"$out" && echo 0 || echo 1)" "promote-mode lists the target-only merge commit"
+
 out=$("$CHECK" "$TMP/missing.git" 2>&1); code=$?
 ok "$([ "$code" != 0 ] && echo 0 || echo 1)" "unreachable remote: fails"
 

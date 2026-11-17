@@ -42,14 +42,17 @@ report() {
 }
 
 # staging: ahead of main by argocd-image-updater commits only (MAIR-444).
-# Merge commits are former promotions, they only bring main in.
+# A promotion merge (main into staging) only brings main in: `--cc` lists the
+# files a merge changes against ALL its parents, so a clean merge shows none and
+# an edit hidden in a merge commit is still caught. grep reads the whole list
+# (no -q), or an early exit would make `pipefail` hide a forbidden change.
 others=""
 while read -r sha subject; do
   [ -n "$sha" ] || continue
-  if git diff-tree --no-commit-id --name-only -r "$sha" | grep -qvE "$IMAGES_RE"; then
+  if git diff-tree --cc --no-commit-id --name-only -r "$sha" | grep -vE "$IMAGES_RE" >/dev/null; then
     others+="${sha::7} $subject"$'\n'
   fi
-done < <(git log --no-merges --format='%H %s' refs/env-check/main..refs/env-check/staging)
+done < <(git log --format='%H %s' refs/env-check/main..refs/env-check/staging)
 if [ -n "$others" ]; then
   report staging main "${others%$'\n'}"
 else
@@ -60,6 +63,6 @@ fi
 if git merge-base --is-ancestor refs/env-check/prod refs/env-check/staging; then
   echo "OK    prod is an ancestor of staging"
 else
-  report prod staging "$(git log --no-merges --format='%h %s' refs/env-check/staging..refs/env-check/prod)"
+  report prod staging "$(git log --format='%h %s' refs/env-check/staging..refs/env-check/prod)"
 fi
 exit "$failed"
