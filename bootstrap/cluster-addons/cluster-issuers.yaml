@@ -1,12 +1,16 @@
 # cert-manager ClusterIssuers, applied to every INSTANCE cluster by
 # bootstrap/appsets/cluster-issuer-appset.yaml.
 #
-# The HTTP-01 solver defaults to the "nginx" class. This file is shared by
-# every instance while they move to Traefik one by one (MAIR-260), so the
-# chart's Ingresses override it with the annotation
-# acme.cert-manager.io/http01-ingress-ingressclassname: <their own class>;
-# this default only matters for an Ingress created outside the chart. Each
-# host must resolve publicly to that instance's IP before issuance.
+# The HTTP-01 solver defaults to the "traefik" class (MAIR-795): every
+# instance runs Traefik since MAIR-612 and ingress-nginx is retired upstream.
+# It was "nginx" until then, so a Certificate created without an override
+# annotation answered its challenges on a class no controller served and its
+# renewal stalled silently. The chart's Ingresses still set
+# acme.cert-manager.io/http01-ingress-ingressclassname: <their own class>,
+# so an instance left on nginx keeps working; this default only matters for a
+# Certificate without that annotation. scripts/lib/cert-solvers.sh
+# (CLUSTER_ISSUER_DEFAULT_SOLVER) must stay equal to it. Each host must
+# resolve publicly to that instance's IP before issuance.
 #
 # ORDRE DE MISE EN ROUTE : utiliser letsencrypt-staging tant que la chaîne
 # n'est pas validée (quota quasi illimité, certificats non reconnus par les
@@ -32,7 +36,7 @@ spec:
     solvers:
       - http01:
           ingress:
-            ingressClassName: nginx
+            ingressClassName: traefik
 ---
 # Let's Encrypt staging : quota large, certificats non fiables par le navigateur.
 # À utiliser pour valider une nouvelle stack sans épuiser le quota prod.
@@ -49,4 +53,4 @@ spec:
     solvers:
       - http01:
           ingress:
-            ingressClassName: nginx
+            ingressClassName: traefik
