@@ -6,9 +6,17 @@ name: Environment branches
 # one of them is missing. The "environment branches protection" ruleset
 # already refuses their deletion and force-pushes; this catches the cases it
 # does not (ruleset disabled or edited, branch renamed).
+#
+# MAIR-798: a fix pushed straight onto prod (2026-11-06) went unnoticed until
+# the next Promote failed. The `divergence` job checks, on every push to
+# staging or prod and on the same schedule, that staging is main plus
+# argocd-image-updater commits at most and that prod is an ancestor of
+# staging, and says how to bring other commits back to main.
 
 on:
   delete:
+  push:
+    branches: [staging, prod]
   schedule:
     - cron: "41 6 * * *"
   workflow_dispatch:
@@ -29,3 +37,17 @@ jobs:
 
       - name: Check the environment branches
         run: ./scripts/check-env-branches.sh
+
+  divergence:
+    name: staging and prod have not diverged
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the environment branches against main
+        run: ./scripts/check-env-divergence.sh
