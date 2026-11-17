@@ -37,7 +37,7 @@ global:
 
 backup:
   s3:
-    bucket: "ville-exemple-backup-prod"
+    bucket: "ville-exemple-backups-prod"
 
 keycloak:
   realm:

@@ -416,8 +416,9 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   the same way as the other per-instance secrets, but those AWS keys can't
   be generated — `scripts/seal-secrets.sh` only writes that Secret when
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are exported before calling
-  it or already sealed on the cluster (kept on re-runs), so a real bucket and key pair per instance is a manual, one-time infra
-  step (`charts/backup/README.md`) that this repo's values files enabling
+  it or already sealed on the cluster (kept on re-runs), so the bucket (`<org>-backups-<env>`, versioned and COMPLIANCE-locked
+  30 days, created by `mairie360/Infra`, MAIR-618) and its key pair come
+  from outside this repo (`charts/backup/README.md`) that this repo's values files enabling
   `backup.enabled` don't perform by themselves — until it's done, the
   CronJob's pod sits in `CreateContainerConfigError` like any Secret-less
   new resource (see Gotchas). `templates/restore-job.yaml` (disabled by

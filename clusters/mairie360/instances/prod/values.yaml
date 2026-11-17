@@ -51,7 +51,8 @@ global:
 
 backup:
   s3:
-    bucket: "mairie360-backup-prod"
+    # Versioned, COMPLIANCE-locked 30 days, created by mairie360/Infra (MAIR-618).
+    bucket: "mairie360-backups-prod"
 
 keycloak:
   realm:
