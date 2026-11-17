@@ -17,6 +17,16 @@
 # ============================================================================
 
 global:
+  # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
+  # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
+  # ansible from the vault (/mairie360/staging/cockpit-token, issued by Infra's
+  # scripts/issue-cockpit-tokens.sh).
+  # TO TURN ON (true) in the same commit as the endpoints below, once the
+  # Infra apply created the data sources: the chart refuses to render an
+  # enabled collector without them.
+  observability:
+    enabled: false
+    apis: ["core-api"]
   # Legal pages (MAIR-292): identity of the mairie to complete; retention and
   # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
   legal:
@@ -100,6 +110,17 @@ liquibase:
 # CLAUDE.md Gotchas). Schedule and retention are applied by Argo CD on the
 # next sync. keycloak.enabled also dumps <release>-keycloak-db into the same
 # repository (KEYCLOAK_DB_PASSWORD, no extra secret to seal).
+# MAIR-620: push URLs of this instance's Cockpit data sources, from
+#   scripts/tf.sh orgs/mairie360 output -json instances | jq '.staging.cockpit_endpoints'
+# in mairie360/Infra. Not secret. TO FILL after the Infra apply: the chart
+# refuses to render with empty endpoints, and
+# tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
+# Cockpit data source URL.
+observability:
+  cockpit:
+    metricsEndpoint: ""
+    tracesEndpoint: ""
+
 backup:
   enabled: true
   schedule: "0 3 * * *"

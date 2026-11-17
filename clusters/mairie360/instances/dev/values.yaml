@@ -70,14 +70,16 @@ global:
     # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
     # Requires the Cilium CNI installed by the Ansible role k8s_node.
     ciliumL7Visibility: true
-  # MAIR-131 (POC): OpenTelemetry Collector -> Scaleway Cockpit, core-api only.
-  # Turn on once the two Cockpit data sources below exist and
-  # <release>-cockpit-secret is sealed (COCKPIT_TOKEN exported when running
-  # scripts/seal-secrets.sh): with empty endpoints the chart refuses to render.
-  # Commented out: the chart default is already `enabled: false`.
-  # observability:
-  #   enabled: false
-  #   apis: ["core-api"]
+  # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
+  # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
+  # ansible from the vault (/mairie360/dev/cockpit-token, issued by Infra's
+  # scripts/issue-cockpit-tokens.sh).
+  # TO TURN ON (true) in the same commit as the endpoints below, once the
+  # Infra apply created the data sources: the chart refuses to render an
+  # enabled collector without them.
+  observability:
+    enabled: false
+    apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
@@ -170,15 +172,16 @@ keycloak:
       size: "1Gi"
       storageClass: "local-path"
 
-# Cockpit push URLs of the dev data sources (Cockpit console > Data sources).
-# Not secret: the token lives in <release>-cockpit-secret.
-# Commented out until Cockpit is enabled (chart default: empty endpoints).
-# observability:
-#   cockpit:
-#     # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
-#     metricsEndpoint: ""
-#     # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
-#     tracesEndpoint: ""
+# MAIR-620: push URLs of this instance's Cockpit data sources, from
+#   scripts/tf.sh orgs/mairie360 output -json instances | jq '.dev.cockpit_endpoints'
+# in mairie360/Infra. Not secret. TO FILL after the Infra apply: the chart
+# refuses to render with empty endpoints, and
+# tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
+# Cockpit data source URL.
+observability:
+  cockpit:
+    metricsEndpoint: ""
+    tracesEndpoint: ""
 
 APIs:
   resources:
