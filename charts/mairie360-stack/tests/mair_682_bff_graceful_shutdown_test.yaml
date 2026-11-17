@@ -1,0 +1,32 @@
+suite: graceful shutdown and zero-downtime rollout of the BFFs (MAIR-682)
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/BFFs/templates/deployment.yaml]
+tests:
+  - it: MAIR-682 every BFF waits for its endpoints to drain before SIGTERM
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 5
+
+  - it: MAIR-682 the grace period covers the preStop wait and the 10 s drain
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: MAIR-682 a rollout starts the new pod before stopping the old one
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate.maxSurge
+          value: 1
+      - equal:
+          path: spec.strategy.rollingUpdate.maxUnavailable
+          value: 0
+
+  - it: MAIR-682 the preStop wait can be turned off
+    set:
+      BFFs.preStopSleepSeconds: 0
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].lifecycle
