@@ -132,6 +132,14 @@ jobs:
       - name: Check image tags exist
         run: ./scripts/check-image-tags.sh
 
+      # Release manifests (MAIR-1006): releases/<version>.yaml freezes the
+      # commit of each service repo's main for one platform release. Format,
+      # dev tags, and every sha existing on its repo's main.
+      - name: Check the release manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/release-manifest.py check --remote
+
       # Every Secret (and key) the pods reference is sealed in the instance's
       # secrets.yaml (MAIR-414). Warnings only here: a secrets.yaml is sealed
       # on the machine, after the values change that needs it. The Promote
