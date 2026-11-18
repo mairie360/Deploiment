@@ -23,7 +23,7 @@ tests:
           pattern: 'resource\.attributes\["k8s\.namespace\.name"\] != nil and'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'receivers: \[otlp, kubeletstats\]'
+          pattern: 'receivers: \[otlp, kubeletstats[,\]]'
 
   - it: still needs no host mount nor privilege
     templates: [charts/observability/templates/deployment.yaml]
