@@ -456,8 +456,8 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   auto-sync envs) and run the restore Job. Its drill log is updated after each
   drill.
   With `global.observability.enabled`, every successful run pushes
-  `mairie360_backup_last_success_timestamp_seconds` to the instance's collector
- ; `mairie360/Infra` alerts (`BackupMissed`) after 7 h without one (backups run
+  `mairie360_backup_last_success_timestamp_seconds` to the instance's collector;
+  `mairie360/Infra` alerts (`BackupMissed`) after 7 h without one (backups run
   every 6 h, `keepHourly: 8`).
   A failed report never fails the backup.
   `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
