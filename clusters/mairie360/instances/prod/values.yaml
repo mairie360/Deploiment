@@ -46,7 +46,10 @@ global:
   # of prod verifies EdDSA. Empty = the services keep verifying the HS256
   # tokens of JWT_SECRET only; the chart refuses signing without a public key.
   jwt:
-    publicKey: ""
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEAAyTSlrKFajbVzZCemyxZoYQllyjBkwIwiKbKtWVqIPk=
+      -----END PUBLIC KEY-----
     signing:
       enabled: false
   # MAIR-612: this machine runs Traefik (ADR 0001), like dev and staging. Must

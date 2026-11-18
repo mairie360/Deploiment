@@ -637,7 +637,7 @@ if [ "$ROTATE" = "--rotate-signing-key" ]; then
   echo "           -l 'app.kubernetes.io/component in (api,bff)'); do"
   echo "         kubectl --context $CTX -n $NS rollout status \"\$d\" || break; done"
   echo "  2. Then commit $OUT and sync; restart core-api"
-  echo "     (kubectl -n $NS rollout restart deploy/${RELEASE}-core-api): it signs with the new key."
+  echo "     (kubectl --context $CTX -n $NS rollout restart deploy/${RELEASE}-core-api): it signs with the new key."
   echo "  3. After JWT_TIMEOUT, drop the old block from global.jwt.publicKey."
   echo "New public key:"
   printf '%s\n' "$JWTPUB" | sed 's/^/      /'
