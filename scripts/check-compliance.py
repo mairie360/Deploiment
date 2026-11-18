@@ -336,10 +336,17 @@ def check_org(org, report, rendered):
     if not register.get("processings"):
         report.error(f"compliance/{org}/register.yaml", "processings must not be empty")
 
-    for i, d in enumerate(data["deadlines.yaml"].get("deadlines") or []):
+    deadlines = data["deadlines.yaml"].get("deadlines") or []
+    for i, d in enumerate(deadlines):
         label = f"compliance/{org}/deadlines.yaml deadlines[{i}]"
         if not d.get("id") or not d.get("task") or months_days(d.get("every")) is None:
             report.error(label, "needs id, task and every ('<n> day(s)|month(s)|year(s)')")
+    # The RTO of service-levels.yaml is a promise: a timed rebuild drill measures it every quarter.
+    drill = next((d for d in deadlines if d.get("id") == "rebuild-drill"), None)
+    every = months_days((drill or {}).get("every"))
+    if drill is None or every is None or every > (3, 0):
+        report.error(f"compliance/{org}/deadlines.yaml",
+                     "a rebuild-drill deadline at least every 3 months is required (it measures the RTO of service-levels.yaml)")
 
     accepted_path = os.path.join(base, "accepted-gaps.yaml")
     accepted = {}
