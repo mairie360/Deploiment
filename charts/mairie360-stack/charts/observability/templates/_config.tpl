@@ -40,6 +40,34 @@ receivers:
           static_configs:
             - targets: [{{ printf "%s:8080" (include "observability.ksmName" .) | quote }}]
   {{- end }}
+  {{- if .Values.postgresExporter.enabled }}
+  # Connections and size of the instance's Postgres (MAIR-626).
+  prometheus/database:
+    config:
+      scrape_configs:
+        - job_name: postgres-exporter
+          scrape_interval: {{ .Values.postgresExporter.scrapeInterval | quote }}
+          static_configs:
+            - targets: [{{ printf "%s:9187" (include "observability.pgExporterName" .) | quote }}]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: {{ .Values.postgresExporter.keepMetrics | replace "$" "$$" | quote }}
+              action: keep
+  {{- end }}
+  {{- if .Values.certManager.enabled }}
+  # Certificates of the instance machine (MAIR-626).
+  prometheus/cert-manager:
+    config:
+      scrape_configs:
+        - job_name: cert-manager
+          scrape_interval: {{ .Values.certManager.scrapeInterval | quote }}
+          static_configs:
+            - targets: [{{ .Values.certManager.target | quote }}]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: {{ .Values.certManager.keepMetrics | replace "$" "$$" | quote }}
+              action: keep
+  {{- end }}
   {{- if .Values.kubeletStats.enabled }}
   kubeletstats:
     collection_interval: {{ .Values.kubeletStats.collectionInterval | quote }}
@@ -191,7 +219,7 @@ service:
       exporters: [otlphttp/cockpit-logs]
     {{- end }}
     metrics:
-      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}{{ if .Values.kubeStateMetrics.enabled }}, prometheus/cluster{{ end }}]
+      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}{{ if .Values.kubeStateMetrics.enabled }}, prometheus/cluster{{ end }}{{ if .Values.postgresExporter.enabled }}, prometheus/database{{ end }}{{ if .Values.certManager.enabled }}, prometheus/cert-manager{{ end }}]
       processors: [memory_limiter, filter/namespace, resource, transform/resource-labels, batch]
       exporters: [otlphttp/cockpit-metrics]
     {{- if .Values.usage.enabled }}

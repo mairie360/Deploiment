@@ -43,3 +43,28 @@ app.kubernetes.io/component: metrics-exporter
 app.kubernetes.io/part-of: mairie360
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
+
+{{/* postgres_exporter (MAIR-626). */}}
+{{- define "observability.pgExporterName" -}}
+{{- printf "%s-postgres-exporter" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "observability.pgExporterSelectorLabels" -}}
+app.kubernetes.io/name: postgres-exporter
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "observability.pgExporterLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "observability.pgExporterSelectorLabels" . }}
+app.kubernetes.io/component: metrics-exporter
+app.kubernetes.io/part-of: mairie360
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{/* Same Secret as the database and the backup CronJob. */}}
+{{- define "observability.databaseSecretName" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $db := $g.database | default dict -}}
+{{- $db.secretName | default (printf "%s-database-secret" .Release.Name) -}}
+{{- end -}}
