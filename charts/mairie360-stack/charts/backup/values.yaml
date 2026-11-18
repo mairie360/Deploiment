@@ -29,7 +29,9 @@ restic:
     tag: "0.18.1"
 
 # Standard cron expression, evaluated in the cluster's timezone (UTC).
-schedule: "0 3 * * *"
+# Every 6 h (MAIR-630): at most 6 h of writes lost (RPO, docs/*/disaster-recovery.md).
+# restic deduplicates, so each run only uploads what changed in the dump.
+schedule: "0 */6 * * *"
 concurrencyPolicy: Forbid
 successfulJobsHistoryLimit: 3
 failedJobsHistoryLimit: 3
@@ -48,6 +50,8 @@ s3:
   region: ""
 
 retention:
+  # The last 8 runs (2 days at one run every 6 h), then one per day / week / month.
+  keepHourly: 8
   keepDaily: 7
   keepWeekly: 4
   keepMonthly: 6

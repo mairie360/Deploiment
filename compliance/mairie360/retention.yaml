@@ -34,6 +34,7 @@ archived_accounts_anonymization: {period: "1 year", validated: null}
 
 # Encrypted database backups (restic forget, chart value backup.retention).
 backups:
+  keep_hourly: 8
   keep_daily: 7
   keep_weekly: 4
   keep_monthly: 6

@@ -66,6 +66,10 @@ class CheckComplianceTest(unittest.TestCase):
         self.edit("retention.yaml", "keep_daily: 7", "keep_daily: 30")
         self.assertIn("keep daily is 7, retention.yaml decides 30", " ".join(self.run_check().errors))
 
+    def test_mair_630_hourly_backup_retention_not_applied_fails(self):
+        self.edit("retention.yaml", "keep_hourly: 8", "keep_hourly: 4")
+        self.assertIn("keep hourly is 8, retention.yaml decides 4", " ".join(self.run_check().errors))
+
     def test_an_undeclared_external_host_fails(self):
         self.edit("subprocessors.yaml", "hosts: [s3.fr-par.scw.cloud, api.scaleway.com]", "hosts: [api.scaleway.com]")
         self.assertIn("external host s3.fr-par.scw.cloud is not a declared subprocessor", " ".join(self.run_check().errors))
