@@ -85,7 +85,7 @@ traefik:
   # (docs/adr/0001-replace-ingress-nginx.md) reads them.
   accessLog:
     enabled: true
-  # MAIR-628: Prometheus metrics (requests per entrypoint and service, by
+  # Prometheus metrics (requests per entrypoint and service, by
   # status code) on a ClusterIP Service traefik-metrics:9100, scraped by the
   # instance's OTEL collector (Deploiment charts/observability) for the 5xx
   # alert of mairie360/Infra. Never exposed outside the cluster.
