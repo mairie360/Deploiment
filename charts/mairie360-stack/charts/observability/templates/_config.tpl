@@ -41,7 +41,7 @@ receivers:
             - targets: [{{ printf "%s:8080" (include "observability.ksmName" .) | quote }}]
   {{- end }}
   {{- if .Values.postgresExporter.enabled }}
-  # Connections and size of the instance's Postgres (MAIR-626).
+  # Connections and size of the instance's Postgres.
   prometheus/database:
     config:
       scrape_configs:
@@ -55,7 +55,7 @@ receivers:
               action: keep
   {{- end }}
   {{- if .Values.certManager.enabled }}
-  # Certificates of the instance machine (MAIR-626).
+  # Certificates of the instance machine.
   prometheus/cert-manager:
     config:
       scrape_configs:

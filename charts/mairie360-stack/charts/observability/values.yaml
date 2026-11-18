@@ -171,7 +171,7 @@ kubeStateMetrics:
     requests: { memory: "32Mi", cpu: "10m" }
     limits: { memory: "128Mi", cpu: "100m" }
 
-# postgres_exporter (MAIR-626): connections, max_connections and database size
+# postgres_exporter: connections, max_connections and database size
 # of the instance's Postgres, scraped by the collector. A Deployment of its
 # own rather than a sidecar, so turning it on never restarts the database. It
 # logs in with the database Secret (<release>-database-secret, same as the
@@ -191,7 +191,7 @@ postgresExporter:
     requests: { memory: "24Mi", cpu: "10m" }
     limits: { memory: "96Mi", cpu: "100m" }
 
-# cert-manager of the instance machine (MAIR-626), in its own namespace:
+# cert-manager of the instance machine, in its own namespace:
 # expiry and readiness of every certificate of the machine (= of this
 # instance). The add-on is installed by bootstrap/addons/cert-manager.
 certManager:
