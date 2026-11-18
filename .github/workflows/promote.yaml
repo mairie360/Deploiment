@@ -10,7 +10,9 @@ name: Promote
 #
 #   target=staging  ref must be on `main`     (default: main's head)
 #   target=prod     ref must be `staging`'s head, and scripts/verify.sh must
-#                   pass against the staging instance (job verify-staging)
+#                   pass against the staging instance (job verify-staging),
+#                   and the fronts' global RGAA rate must reach the minimum
+#                   (job rgaa-global, scripts/rgaa-global.py)
 #
 # That covers both the instances (chart, values, secrets) and bootstrap/
 # (cert-manager, sealed-secrets, ingress controller, ClusterIssuers): the
@@ -273,15 +275,41 @@ jobs:
           ./scripts/verify.sh "$CONTEXT" staging "$DOMAIN"
           echo "scripts/verify.sh passed on staging (\`$DOMAIN\`, commit \`${{ needs.resolve.outputs.sha }}\`)." >> "$GITHUB_STEP_SUMMARY"
 
+  # Official RGAA rate of the fronts prod would run (a criterion invalid on one front is
+  # invalid for the platform), from the rgaa-report.json each front's prod release carries
+  # (attached by mairie360/CICD promote-prod). Lists the failing criteria in the summary and refuses prod below
+  # the minimum. A front released without a report is listed and left out of the rate.
+  rgaa-global:
+    name: Platform RGAA rate
+    needs: resolve
+    if: inputs.target == 'prod' && !inputs.rollback && needs.resolve.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the promoted commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.promoted }}
+          persist-credentials: false
+
+      - name: Global RGAA rate of the prod fronts
+        env:
+          # The fronts' repositories are public: the run's token reads their releases.
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/rgaa-global.py gate --values clusters/_base/prod.yaml --summary "$GITHUB_STEP_SUMMARY"
+
   promote:
     name: Advance the branch
-    needs: [resolve, secrets, validate, verify-staging]
+    needs: [resolve, secrets, validate, verify-staging, rgaa-global]
     # prod (unless rolling back) needs verify-staging to have passed; a
     # skipped verification only counts for staging and rollbacks.
     if: >-
       !cancelled() && needs.resolve.outputs.changed == 'true'
       && needs.validate.result != 'failure'
       && needs.secrets.result != 'failure'
+      && needs.rgaa-global.result != 'failure'
       && (needs.verify-staging.result == 'success'
           || (needs.verify-staging.result == 'skipped' && (inputs.target != 'prod' || inputs.rollback)))
     runs-on: ubuntu-latest
