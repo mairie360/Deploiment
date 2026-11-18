@@ -37,9 +37,19 @@ writableDirs:
     mountPath: /tmp
     sizeLimit: 64Mi
 
+# The new pod is ready before the old one stops: with one replica, maxSurge 0
+# stopped the only pod first and every rollout dropped requests. Costs one more
+# BFF pod (memory limit) during the rollout.
 strategy:
-  maxSurge: 0
-  maxUnavailable: 1
+  maxSurge: 1
+  maxUnavailable: 0
+
+# Graceful shutdown: the pod first waits `preStopSleepSeconds` (Traefik and
+# the Service endpoints stop routing to it), then gets SIGTERM; the BFF
+# (bffs-lib `gracefulShutdown`, under tini) drains its requests, ends its SSE
+# streams and exits within 10 s, well inside the grace period.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
 
 # BFFs that get JWT_SECRET. MAIR-414 limited it to BFF_user, the only one
 # signing tokens; since MAIR-474 every BFF verifies the session itself

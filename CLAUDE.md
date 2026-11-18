@@ -1031,8 +1031,12 @@ and maintaining a parallel Kind topology is what produced the earlier
   port-forward (MAIR-414, see the Keycloak section), or, for the instance
   realm, behind core-api's temporary access (MAIR-610).
 - **`maxSurge: 0` with `replicaCount: 1` means downtime on every deploy** (old
-  pod killed before the new one is ready). Deliberate on a small VM; it is not a
-  rolling update.
+  pod killed before the new one is ready). Deliberate on a small VM for the APIs
+  and the fronts; it is not a rolling update. The BFFs use `maxSurge: 1` /
+  `maxUnavailable: 0` (one more BFF pod during a rollout), a native
+  `preStop.sleep` of `preStopSleepSeconds` (5 s, so the endpoints stop routing
+  to the pod first) and `terminationGracePeriodSeconds: 30`; the BFF drains its
+  requests on SIGTERM (bffs-lib `gracefulShutdown`, under tini).
 - **`replicaCount: 2` on Redis would give two independent caches**, not a
   replicated one. Leave it at 1.
 - Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): the

@@ -4,6 +4,10 @@ description: Umbrella chart Mairie360 — Postgres, Redis, migrations, Keycloak,
 type: application
 version: 0.6.0
 appVersion: "0.6.0"
+# The BFFs use the native preStop `sleep` lifecycle action (graceful shutdown), on by default from
+# Kubernetes 1.30; the instances run k3s 1.35 (Devops/ansible `k3s_version`). Only the umbrella
+# chart's kubeVersion is enforced, a subchart's is not.
+kubeVersion: ">=1.30.0-0"
 
 dependencies:
   - name: database
