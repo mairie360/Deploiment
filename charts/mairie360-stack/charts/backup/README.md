@@ -54,12 +54,13 @@ version before running restic.
    ```yaml
    backup:
      enabled: true
-     schedule: "0 3 * * *"          # cron, evaluated in UTC
+     schedule: "0 */6 * * *"        # cron, evaluated in UTC (every 6 h)
      s3:
        endpoint: "https://s3.<region>.example.com"
        bucket: "<org>-backups-<env>"   # created by mairie360/Infra
        region: "<region>"
      retention:
+       keepHourly: 8                # the last 8 runs = 2 days
        keepDaily: 7
        keepWeekly: 4
        keepMonthly: 6
@@ -177,7 +178,7 @@ access_logs_default_pkey`, found by the backup/restore e2e test, MAIR-240).
 Everything in schema `public` is replaced; only Liquibase edits it, so
 nothing outside the dump is lost, but everything written after the snapshot is.
 
-**What a restore cannot give back.** Backups run once a day: up to 24 hours of
+**What a restore cannot give back.** Backups run every 6 hours: up to 6 hours of
 writes are lost, and the chart has no point-in-time recovery or failover.
 Keycloak's database and Redis (the JWT revocation list) are not restored by
 this Job.

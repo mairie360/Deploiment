@@ -132,8 +132,9 @@ liquibase:
 # repository (KEYCLOAK_DB_PASSWORD, no extra secret to seal).
 backup:
   enabled: true
-  schedule: "0 3 * * *"
+  schedule: "0 */6 * * *"
   retention:
+    keepHourly: 8
     keepDaily: 7
     keepWeekly: 4
     keepMonthly: 6
