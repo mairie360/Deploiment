@@ -1,0 +1,37 @@
+# MAIR-624: the collector reports the node's own CPU, memory and disk (kubeletstats
+# `node` group), so the disk / memory alerts of mairie360/Infra have a series to read.
+suite: node metrics (MAIR-624)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+tests:
+  - it: collects the node group next to pods and containers
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'kubeletstats:\n(.*\n)*\s+metric_groups: \[node, pod, container\]'
+
+  - it: keeps the node series through the namespace filter (they carry no namespace)
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'resource\.attributes\["k8s\.namespace\.name"\] != nil and'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'receivers: \[otlp, kubeletstats\]'
+
+  - it: still needs no host mount nor privilege
+    templates: [charts/observability/templates/deployment.yaml]
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.hostPath)]
+      - isNull:
+          path: spec.template.spec.hostNetwork
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
