@@ -34,6 +34,7 @@ global:
       connection_logs: "1 year"
       access_logs: "3 years"
       users_audit_log: "10 years"
+    serviceLevels: { rpo: "6 hours", rto: "2 hours" }
     subprocessors:
       - { name: Scaleway, location: "France (fr-par)", purpose: "hébergement des sauvegardes chiffrées de la base et des pièces jointes des formations (stockage objet)" }
       - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }

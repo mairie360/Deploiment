@@ -36,6 +36,7 @@ class CheckComplianceTest(unittest.TestCase):
         check.ROOT = self.root
         # Only prod is rendered here (once, setUpClass).
         self.edit("retention.yaml", "applies_to: [dev, staging, prod]", "applies_to: [prod]")
+        self.edit("service-levels.yaml", "applies_to: [dev, staging, prod]", "applies_to: [prod]")
 
     def tearDown(self):
         shutil.rmtree(self.root)
@@ -69,6 +70,30 @@ class CheckComplianceTest(unittest.TestCase):
     def test_mair_630_hourly_backup_retention_not_applied_fails(self):
         self.edit("retention.yaml", "keep_hourly: 8", "keep_hourly: 4")
         self.assertIn("keep hourly is 8, retention.yaml decides 4", " ".join(self.run_check().errors))
+
+    def test_mair_629_backups_rarer_than_the_rpo_fail(self):
+        self.edit("service-levels.yaml", 'rpo: {period: "6 hours"', 'rpo: {period: "4 hours"')
+        self.assertIn("backup.schedule '0 */6 * * *' leaves 6 h between two backups, service-levels.yaml decides an RPO of 4 h",
+                      " ".join(self.run_check().errors))
+
+    def test_mair_629_the_legal_pages_must_show_the_recovery_objectives(self):
+        self.edit("service-levels.yaml", 'rto: {period: "2 hours"', 'rto: {period: "4 hours"')
+        self.assertIn("global.legal.serviceLevels.rto is 2 hours, service-levels.yaml decides 4 hours",
+                      " ".join(self.run_check().errors))
+
+    def test_mair_629_a_missing_or_malformed_objective_fails(self):
+        self.edit("service-levels.yaml", 'rpo: {period: "6 hours"', 'rpo: {period: "6 h"')
+        self.assertIn("rpo.period must be '<n> hour(s)'", " ".join(self.run_check().errors))
+        os.remove(os.path.join(self.root, "compliance", "mairie360", "service-levels.yaml"))
+        self.assertIn("service-levels.yaml is missing", " ".join(self.run_check().errors))
+
+    def test_mair_629_backup_gap_of_a_schedule(self):
+        self.assertEqual(check.backup_gap_hours("0 */6 * * *"), 6)
+        self.assertEqual(check.backup_gap_hours("0 3 * * *"), 24)
+        self.assertEqual(check.backup_gap_hours("0 1,13,15 * * *"), 12)
+        self.assertEqual(check.backup_gap_hours("15 * * * *"), 1)
+        self.assertIsNone(check.backup_gap_hours("0 3 * * 0"), "weekly: not a daily schedule")
+        self.assertIsNone(check.backup_gap_hours("0 1-5 * * *"))
 
     def test_an_undeclared_external_host_fails(self):
         self.edit("subprocessors.yaml", "hosts: [smtp.resend.com, api.resend.com]", "hosts: [api.resend.com]")
