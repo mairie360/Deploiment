@@ -147,6 +147,7 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
       key: JWT_SECRET
 {{- include "apis.jwtKeysEnv" . }}
 {{- include "apis.totpKeyEnv" . }}
+{{- include "apis.webauthnEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
 {{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
@@ -357,5 +358,25 @@ never replaces it: a new key makes every enrolled secret unreadable.
       name: {{ include "apis.appSecretName" .root }}
       key: TOTP_ENCRYPTION_KEY
       optional: true
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-810: the WebAuthn relying party of core-api (passkeys). The `rpId` is the
+instance domain and the origins are the two fronts that touch passkeys: the
+login front signs in with them, the settings front registers them (an origin
+must be on the `rpId` domain, and a passkey is only usable with the `rpId` it
+was created for, so changing global.domain strands every registered passkey).
+Rendered for core-api only, whenever global.domain is set; without it core-api
+answers 503 on the passkey routes and the administrator cannot allow them.
+`instances.core-api.env` still wins when it names the same variables.
+*/}}
+{{- define "apis.webauthnEnv" -}}
+{{- $domain := ((.root.Values.global).domain) | default "" }}
+{{- if and (eq .name "core-api") $domain }}
+- name: WEBAUTHN_RP_ID
+  value: {{ $domain | quote }}
+- name: WEBAUTHN_RP_ORIGIN
+  value: {{ printf "https://login.%s,https://settings.%s" $domain $domain | quote }}
 {{- end }}
 {{- end -}}

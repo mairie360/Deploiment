@@ -1,0 +1,35 @@
+suite: WebAuthn relying party of core-api (MAIR-810)
+# core-api serves passkeys when it knows its relying party: the instance domain
+# and the login and settings fronts, derived from global.domain.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/APIs/templates/deployment.yaml]
+tests:
+  - it: core-api gets the relying party of the instance
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: WEBAUTHN_RP_ID, value: "dev.mairie360-eip.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: WEBAUTHN_RP_ORIGIN, value: "https://login.dev.mairie360-eip.fr,https://settings.dev.mairie360-eip.fr" }
+
+  - it: the other APIs get none
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: WEBAUTHN_RP_ID, value: "dev.mairie360-eip.fr" }
+
+  - it: the relying party follows the domain of the instance
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    set:
+      global.domain: mairie360.ville-exemple.fr
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: WEBAUTHN_RP_ID, value: "mairie360.ville-exemple.fr" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: WEBAUTHN_RP_ORIGIN, value: "https://login.mairie360.ville-exemple.fr,https://settings.mairie360.ville-exemple.fr" }
