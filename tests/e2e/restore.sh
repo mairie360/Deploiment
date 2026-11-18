@@ -4,6 +4,7 @@
 #
 # 1. writes a few rows in a table of the Mairie360 database,
 # 2. runs the backup CronJob once (restic -> the S3 endpoint of s3.yaml),
+#    then the weekly restore test on it (throwaway Postgres),
 # 3. damages the database: rows deleted, rows added that are not in the backup,
 # 4. runs the restore Job rendered from the chart (backup.restore.enabled):
 #    first aimed at the wrong database and at an unknown snapshot (it must
@@ -106,6 +107,24 @@ $K -n "$NAMESPACE" create job e2e-backup-run --from="cronjob/$RELEASE-backup"
 if ! $K -n "$NAMESPACE" wait job/e2e-backup-run --for=condition=complete --timeout=5m; then
   $K -n "$NAMESPACE" logs job/e2e-backup-run --all-containers --tail=60 || true
   fail "the backup Job did not complete"
+fi
+
+# The weekly restore test loads that backup into its own throwaway
+# Postgres, finds every user of the database, and leaves the database alone.
+step "Run the weekly restore test once"
+$K -n "$NAMESPACE" delete job e2e-restore-test-run --ignore-not-found >/dev/null
+$K -n "$NAMESPACE" create job e2e-restore-test-run --from="cronjob/$RELEASE-backup-restore-test"
+if ! $K -n "$NAMESPACE" wait job/e2e-restore-test-run --for=condition=complete --timeout=5m; then
+  $K -n "$NAMESPACE" logs job/e2e-restore-test-run --all-containers --tail=60 || true
+  fail "the restore test Job did not complete"
+fi
+$K -n "$NAMESPACE" logs job/e2e-restore-test-run -c restore-test \
+  | grep -q "restore test passed: $EXPECTED_USERS users" \
+  || fail "the restore test did not find the $EXPECTED_USERS users of the backup"
+[ "$(probe_rows)" = "$EXPECTED_PROBE" ] || fail "the restore test changed the instance's database"
+if $K -n "$NAMESPACE" get job e2e-restore-test-run -o jsonpath='{.spec.template.spec.containers[*].env[*].name}' \
+  | grep -qw PGPASSWORD; then
+  fail "the restore test got the database password"
 fi
 
 step "Damage the database"
