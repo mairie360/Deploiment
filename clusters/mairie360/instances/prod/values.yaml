@@ -51,7 +51,7 @@ global:
       MCowBQYDK2VwAyEAAyTSlrKFajbVzZCemyxZoYQllyjBkwIwiKbKtWVqIPk=
       -----END PUBLIC KEY-----
     signing:
-      enabled: true
+      enabled: false
   # MAIR-612: this machine runs Traefik (ADR 0001), like dev and staging. Must
   # match ansible's `ingress_controller` for the host; the other prod
   # instances keep the base's nginx until their machine switches.

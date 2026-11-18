@@ -129,6 +129,11 @@ if grep -qF -- "$(printf '%s\n' "$pub2" | sed -n 2p)" "$WORK/out" && grep -q 'Co
 else
   fail "rollout steps or new public key missing: $(cat "$WORK/out")"
 fi
+if grep -qE 'kubectl --context [^ ]+ -n [^ ]+ rollout restart deploy/[^ ]*-core-api' "$WORK/out"; then
+  ok "the core-api restart names the kube context (a wrong current context would restart nothing)"
+else
+  fail "the core-api restart hint has no --context: $(grep -h "restart" "$WORK/out" | head -3)"
+fi
 if grep -q 'PRIVATE KEY' "$WORK/out"; then fail "the private key leaks to the output"; else ok "the private key is never printed"; fi
 # Back to the key the cluster holds for the next checks.
 run
