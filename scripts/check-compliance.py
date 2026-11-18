@@ -2,7 +2,7 @@
 """GDPR decisions vs configuration (MAIR-294, epic MAIR-284).
 
 compliance/<org>/ holds the decisions of a mairie: register.yaml (processing record),
-retention.yaml (periods), subprocessors.yaml, access.yaml, deadlines.yaml. For every instance of
+retention.yaml (periods), subprocessors.yaml, access.yaml, deadlines.yaml, service-levels.yaml. For every instance of
 the org that retention.yaml applies to, this script renders the umbrella chart with the
 instance's values (scripts/instance-values.sh, like CI and the instances AppSet) and fails when the
 configuration does not follow the decisions:
@@ -12,8 +12,9 @@ configuration does not follow the decisions:
 - every external host of the rendered manifests (URLs, *_HOST variables, SMTP hosts) is a
   declared subprocessor, every egress CIDR belongs to one;
 - the register is complete (purpose, legal basis, data, retention, known subprocessors);
-- the legal pages of the fronts (LEGAL_CONFIG, global.legal, MAIR-292) show these periods and
-  subprocessors;
+- the legal pages of the fronts (LEGAL_CONFIG, global.legal) show these periods,
+  subprocessors and recovery objectives;
+- service-levels.yaml (RPO / RTO): the backup CronJob runs at least once per RPO;
 - technical logs at most their maximum (1 year), files well formed;
 - infrastructure of the prod instances (MAIR-293): backups on with a bucket, egress restricted.
   An infrastructure gap fails unless compliance/<org>/accepted-gaps.yaml accepts it with its
@@ -38,7 +39,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PERIOD = re.compile(r"^(\d+) (day|days|month|months|year|years)$")
 URL_HOST = re.compile(r"(?:s3:)?https?://([A-Za-z0-9.-]+)")
 REGISTRIES = {"ghcr.io", "docker.io", "quay.io", "registry.k8s.io", "gcr.io", "mcr.microsoft.com"}
-FILES = ["register.yaml", "retention.yaml", "subprocessors.yaml", "access.yaml", "deadlines.yaml"]
+FILES = ["register.yaml", "retention.yaml", "subprocessors.yaml", "access.yaml", "deadlines.yaml", "service-levels.yaml"]
+HOURS = re.compile(r"^(\d+) hours?$")
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -196,6 +198,38 @@ def infrastructure_gaps(docs):
     return gaps
 
 
+def hours(period):
+    match = HOURS.match(str(period or ""))
+    return int(match.group(1)) if match else None
+
+
+def backup_gap_hours(schedule):
+    """Longest gap, in hours, between two runs of a daily cron schedule ('M H * * *'), or None."""
+    fields = str(schedule or "").split()
+    if len(fields) != 5 or fields[2:] != ["*", "*", "*"] or not fields[0].isdigit():
+        return None
+    hour = fields[1]
+    if hour == "*":
+        return 1
+    if re.fullmatch(r"\*/\d+", hour):
+        step = int(hour[2:])
+        runs = list(range(0, 24, step))
+    elif re.fullmatch(r"\d+(,\d+)*", hour):
+        runs = sorted({int(h) for h in hour.split(",")})
+    else:
+        return None
+    if not runs or runs[-1] > 23:
+        return None
+    return max(b - a for a, b in zip(runs, runs[1:] + [runs[0] + 24]))
+
+
+def cronjob_schedule(docs, suffix):
+    for doc in docs:
+        if doc.get("kind") == "CronJob" and doc["metadata"]["name"].endswith(suffix):
+            return doc["spec"].get("schedule")
+    return None
+
+
 def legal_config(docs):
     for name, value in env_vars(docs):
         if name == "LEGAL_CONFIG":
@@ -203,7 +237,7 @@ def legal_config(docs):
     return None
 
 
-def check_legal(label, docs, retention, subs, report):
+def check_legal(label, docs, retention, subs, levels, report):
     """The legal pages (MAIR-292) show the periods and subprocessors decided here."""
     raw = legal_config(docs)
     if raw is None:
@@ -222,6 +256,11 @@ def check_legal(label, docs, retention, subs, report):
             report.error(label, f"global.legal.retention.{key} is {shown.get(key)}, retention.yaml decides {period}")
     for key in sorted(set(shown) - set(decided)):
         report.error(label, f"global.legal.retention.{key} is not decided in retention.yaml")
+    shown_levels = legal.get("serviceLevels") or {}
+    for key in ("rpo", "rto"):
+        decided_period = (levels.get(key) or {}).get("period")
+        if hours(shown_levels.get(key)) != hours(decided_period):
+            report.error(label, f"global.legal.serviceLevels.{key} is {shown_levels.get(key)}, service-levels.yaml decides {decided_period}")
     want = sorted((s.get("name"), s.get("location"), s.get("purpose_fr")) for s in subs.get("subprocessors") or [])
     got = sorted((s.get("name"), s.get("location"), s.get("purpose")) for s in legal.get("subprocessors") or [])
     if want != got:
@@ -246,7 +285,15 @@ def check_org(org, report, rendered):
     if len(data) < len(FILES):
         return
     retention, subs, register = data["retention.yaml"], data["subprocessors.yaml"], data["register.yaml"]
+    levels = data["service-levels.yaml"]
     where = f"compliance/{org}/retention.yaml"
+
+    for key in ("rpo", "rto"):
+        if hours((levels.get(key) or {}).get("period")) is None:
+            report.error(f"compliance/{org}/service-levels.yaml", f"{key}.period must be '<n> hour(s)'")
+        report.unvalidated(f"compliance/{org}/service-levels.yaml {key}", levels.get(key))
+    if set(levels.get("applies_to") or []) != set(retention.get("applies_to") or []):
+        report.error(f"compliance/{org}/service-levels.yaml", "applies_to must list the instances of retention.yaml")
 
     tech = retention.get("technical_logs") or {}
     period, maximum = months_days(tech.get("period")), months_days(tech.get("maximum"))
@@ -341,7 +388,14 @@ def check_org(org, report, rendered):
                 found = set(re.findall(rf"--keep-{flag} (\d+)", script))
                 if found != {str(backups.get(key_name))}:
                     report.error(label, f"backup.retention keep {flag} is {', '.join(sorted(found)) or 'unset'}, retention.yaml decides {backups.get(key_name)}")
-        check_legal(label, docs, retention, subs, report)
+        rpo = hours((levels.get("rpo") or {}).get("period"))
+        schedule = cronjob_schedule(docs, "-backup")
+        gap = backup_gap_hours(schedule)
+        if schedule is not None and gap is None:
+            report.error(label, f"backup.schedule {schedule!r} cannot be checked against the RPO (use 'M H * * *')")
+        elif gap is not None and rpo is not None and gap > rpo:
+            report.error(label, f"backup.schedule {schedule!r} leaves {gap} h between two backups, service-levels.yaml decides an RPO of {rpo} h")
+        check_legal(label, docs, retention, subs, levels, report)
         for host in external_hosts(docs):
             if not any(fnmatch.fnmatch(host, p.lower()) for p in patterns):
                 report.error(label, f"external host {host} is not a declared subprocessor (subprocessors.yaml)")
