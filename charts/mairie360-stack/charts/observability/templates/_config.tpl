@@ -31,7 +31,7 @@ receivers:
                 {{- end }}
   {{- end }}
   {{- if .Values.kubeStateMetrics.enabled }}
-  # State of the instance's workloads (MAIR-625), see kube-state-metrics.yaml.
+  # State of the instance's workloads, see kube-state-metrics.yaml.
   prometheus/cluster:
     config:
       scrape_configs:
