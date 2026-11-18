@@ -1,0 +1,158 @@
+{{- if and (include "observability.enabled" .) .Values.kubeStateMetrics.enabled }}
+{{- $ksm := .Values.kubeStateMetrics }}
+{{- $name := include "observability.ksmName" . }}
+# Kube-state-metrics, limited to this instance's namespace, scraped
+# by the collector (receiver prometheus/cluster). Its API server traffic is
+# outbound, unrestricted while global.networkPolicy.egressDefaultDeny is off.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+# Read-only on the watched resources of this namespace: no secret, no
+# configmap, nothing cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  {{- $core := list }}{{- $apps := list }}{{- $batch := list }}
+  {{- range $ksm.resources }}
+  {{- if has . (list "pods" "persistentvolumeclaims" "services") }}{{ $core = append $core . }}
+  {{- else if has . (list "deployments" "statefulsets" "replicasets" "daemonsets") }}{{ $apps = append $apps . }}
+  {{- else if has . (list "jobs" "cronjobs") }}{{ $batch = append $batch . }}
+  {{- else }}{{ fail (printf "observability.kubeStateMetrics.resources: no Role rule for %q" .) }}
+  {{- end }}
+  {{- end }}
+  {{- with $core }}
+  - apiGroups: [""]
+    resources: {{ toJson . }}
+    verbs: [list, watch]
+  {{- end }}
+  {{- with $apps }}
+  - apiGroups: [apps]
+    resources: {{ toJson . }}
+    verbs: [list, watch]
+  {{- end }}
+  {{- with $batch }}
+  - apiGroups: [batch]
+    resources: {{ toJson . }}
+    verbs: [list, watch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "observability.ksmSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.ksmLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      containers:
+        - name: kube-state-metrics
+          image: "{{ $ksm.image.repository }}:{{ $ksm.image.tag }}"
+          imagePullPolicy: {{ $ksm.image.pullPolicy }}
+          args:
+            - --namespaces={{ .Release.Namespace }}
+            - --resources={{ join "," $ksm.resources }}
+            - --metric-allowlist={{ join "," $ksm.metricAllowlist }}
+            - --port=8080
+            - --telemetry-port=8081
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - { name: metrics, containerPort: 8080 }
+            - { name: telemetry, containerPort: 8081 }
+          livenessProbe:
+            httpGet: { path: /livez, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: telemetry }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $ksm.podResources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    {{- include "observability.ksmSelectorLabels" . | nindent 4 }}
+  ports:
+    - { name: metrics, port: 8080, targetPort: metrics }
+{{- if ((.Values.global).networkPolicy).enabled }}
+---
+# Only the collector reads it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-allow-from-collector
+  labels:
+    {{- include "observability.ksmLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "observability.ksmSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "observability.selectorLabels" . | nindent 14 }}
+      ports:
+        - { protocol: TCP, port: 8080 }
+{{- end }}
+{{- end }}
