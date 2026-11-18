@@ -51,6 +51,23 @@ read every module's schema, which no single per-API role is granted. */}}
 {{- printf "s3:%s/%s" .Values.s3.endpoint .Values.s3.bucket -}}
 {{- end -}}
 
+{{/* The restic S3 repository, without any database credential. */}}
+{{- define "backup.resticEnv" -}}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: AWS_ACCESS_KEY_ID }
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: AWS_SECRET_ACCESS_KEY }
+- name: RESTIC_PASSWORD
+  valueFrom:
+    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: RESTIC_PASSWORD }
+- name: RESTIC_REPOSITORY
+  value: {{ include "backup.repository" . | quote }}
+- name: AWS_DEFAULT_REGION
+  value: {{ .Values.s3.region | quote }}
+{{- end -}}
+
 {{/* Env shared by the backup CronJob and the restore Job: Postgres
 connection (libpq reads PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE itself,
 so pg_dump/pg_restore need no flags for them) plus the restic S3 repo. */}}
@@ -68,19 +85,7 @@ so pg_dump/pg_restore need no flags for them) plus the restic S3 repo. */}}
 - name: PGDATABASE
   valueFrom:
     secretKeyRef: { name: {{ include "backup.dbSecretName" . }}, key: POSTGRES_DB }
-- name: AWS_ACCESS_KEY_ID
-  valueFrom:
-    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: AWS_ACCESS_KEY_ID }
-- name: AWS_SECRET_ACCESS_KEY
-  valueFrom:
-    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: AWS_SECRET_ACCESS_KEY }
-- name: RESTIC_PASSWORD
-  valueFrom:
-    secretKeyRef: { name: {{ include "backup.secretName" . }}, key: RESTIC_PASSWORD }
-- name: RESTIC_REPOSITORY
-  value: {{ include "backup.repository" . | quote }}
-- name: AWS_DEFAULT_REGION
-  value: {{ .Values.s3.region | quote }}
+{{ include "backup.resticEnv" . }}
 {{- if .Values.keycloak.enabled }}
 - name: BACKUP_KEYCLOAK
   value: "true"
@@ -224,4 +229,19 @@ the incident, and a wrong guess overwrites the database. List them with
 {{- fail "backup.restore.snapshotId is required and must be an exact snapshot id, not latest (list them: restic snapshots --host <db-name>)" -}}
 {{- end -}}
 {{- $id -}}
+{{- end -}}
+
+{{/* Pushes one OTLP gauge per "name=value" argument to the instance's
+collector. A failed push never fails the Job: the absence alert fires. */}}
+{{- define "backup.reportMetrics" -}}
+report() {
+  now=$(date +%s); points=""
+  for m in "$@"; do
+    points="${points:+$points,}{\"name\":\"${m%%=*}\",\"gauge\":{\"dataPoints\":[{\"asDouble\":${m#*=},\"timeUnixNano\":\"${now}000000000\"}]}}"
+  done
+  wget -q -T 10 -O /dev/null --header 'Content-Type: application/json' \
+    --post-data "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"backup\"}}]},\"scopeMetrics\":[{\"metrics\":[${points}]}]}]}" \
+    {{ printf "http://%s-otel-collector:4318/v1/metrics" .Release.Name | quote }} \
+    || echo "warning: metrics not reported to the collector, the absence alert will fire" >&2
+}
 {{- end -}}

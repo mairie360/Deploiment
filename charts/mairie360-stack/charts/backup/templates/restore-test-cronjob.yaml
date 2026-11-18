@@ -1,0 +1,87 @@
+{{- if and .Values.enabled .Values.restoreTest.enabled }}
+# Weekly restore test (values.yaml `restoreTest`): proves the newest scheduled
+# backup can be restored, and how long it takes, without touching the
+# instance's database. The pod gets the restic repository only, no database
+# credential; Postgres is a sidecar listening on 127.0.0.1.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "backup.fullname" . }}-restore-test
+  labels:
+    {{- include "backup.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ .Values.restoreTest.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.restoreTest.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "backup.podLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "backup.podSecurityContext" . | nindent 12 }}
+          {{- with .Values.global.imagePullSecret }}
+          imagePullSecrets:
+            - name: {{ . }}
+          {{- end }}
+          initContainers:
+            {{- include "backup.resticInit" . | nindent 12 }}
+            {{- include "backup.scratchDb" . | nindent 12 }}
+          containers:
+            - name: restore-test
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- include "backup.containerSecurityContext" . | nindent 16 }}
+              env:
+                # Name of the snapshot lineage (restic --host), not a connection.
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef: { name: {{ include "backup.dbSecretName" . }}, key: POSTGRES_DB }
+                - { name: PGHOST, value: "127.0.0.1" }
+                - { name: PGUSER, value: postgres }
+                {{- include "backup.resticEnv" . | nindent 16 }}
+                {{- include "backup.workEnv" . | nindent 16 }}
+              # The newest snapshot tagged `scheduled` (never a pre-restore
+              # one), restored as a file then loaded with --exit-on-error: any
+              # error in the dump fails the test. Sealed backups load the same
+              # way (their users are anonymized, still present).
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  {{- include "backup.reportMetrics" . | nindent 18 }}
+                  start=$(date +%s)
+                  restic snapshots --host "$DB_NAME" --tag scheduled latest
+                  restic restore --host "$DB_NAME" --tag scheduled latest --target /work
+                  createdb restoretest
+                  pg_restore --no-owner --no-acl --exit-on-error -d restoretest "/work/${DB_NAME}.dump"
+                  users=$(psql -At -d restoretest -c 'SELECT count(*) FROM public.users')
+                  [ "$users" -gt 0 ] || { echo "FAIL: restored public.users is empty" >&2; exit 1; }
+                  duration=$(( $(date +%s) - start ))
+                  echo "== restore test passed: ${users} users, ${duration} s"
+                  {{- if ((.Values.global).observability).enabled }}
+                  report "mairie360_restore_test_last_success_timestamp_seconds=$(date +%s)" \
+                         "mairie360_restore_test_duration_seconds=${duration}"
+                  {{- end }}
+              volumeMounts:
+                {{- include "backup.workMounts" . | nindent 16 }}
+                - { name: work, mountPath: /work }
+                - { name: pgrun, mountPath: /var/run/postgresql }
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+          volumes:
+            {{- include "backup.workVolumes" . | nindent 12 }}
+            - { name: scratch, emptyDir: { sizeLimit: {{ .Values.restoreTest.scratchSize }} } }
+            - { name: work, emptyDir: { sizeLimit: {{ .Values.restoreTest.workSize }} } }
+            - { name: pgrun, emptyDir: { sizeLimit: 16Mi } }
+{{- end }}

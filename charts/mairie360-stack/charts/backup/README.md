@@ -194,3 +194,20 @@ failed backup is also visible with:
 ```bash
 kubectl --context <ctx> -n mairie360-<env> get jobs -l app.kubernetes.io/component=backup
 ```
+
+### Weekly restore test
+
+The CronJob `<release>-backup-restore-test` (`restoreTest`, on with backups,
+Sundays 04:30 UTC) restores the newest snapshot tagged `scheduled` into a
+throwaway Postgres running in its own pod, with `pg_restore --exit-on-error`,
+and fails when `public.users` comes back empty. It never connects to the
+instance's database and does not get its credentials. With observability on it
+reports `mairie360_restore_test_last_success_timestamp_seconds` and
+`mairie360_restore_test_duration_seconds`; `mairie360/Infra` alerts when no
+test succeeded for 8 days and when the restore took longer than the RTO. Run
+it now:
+
+```bash
+kubectl --context <ctx> -n mairie360-<env> create job restore-test-now --from=cronjob/<release>-backup-restore-test
+kubectl --context <ctx> -n mairie360-<env> logs -f job/restore-test-now -c restore-test
+```
