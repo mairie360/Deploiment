@@ -82,7 +82,7 @@ tests:
           pattern: '- targets: \["cert-manager\.cert-manager\.svc:9402"\]\n\s+metric_relabel_configs:\n\s+- source_labels: \[__name__\]\n\s+regex: "certmanager_certificate_expiration_timestamp_seconds'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster, prometheus/database, prometheus/cert-manager\]'
+          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster, prometheus/database, prometheus/cert-manager[,\]]'
 
   - it: both can be turned off
     set:
