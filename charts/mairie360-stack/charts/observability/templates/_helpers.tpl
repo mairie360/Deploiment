@@ -24,3 +24,22 @@ APIs chart, see charts/mairie360-stack/values.yaml global.observability). */}}
 {{- define "observability.enabled" -}}
 {{- if ((.Values.global).observability).enabled }}true{{ end -}}
 {{- end -}}
+
+{{/* kube-state-metrics (MAIR-625). Its own component label, so the
+policies that select the collector (component=telemetry) never match it. */}}
+{{- define "observability.ksmName" -}}
+{{- printf "%s-kube-state-metrics" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "observability.ksmSelectorLabels" -}}
+app.kubernetes.io/name: kube-state-metrics
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "observability.ksmLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "observability.ksmSelectorLabels" . }}
+app.kubernetes.io/component: metrics-exporter
+app.kubernetes.io/part-of: mairie360
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
