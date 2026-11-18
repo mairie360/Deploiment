@@ -225,3 +225,13 @@ certManager:
   target: "cert-manager.cert-manager.svc:9402"
   scrapeInterval: "5m"
   keepMetrics: 'certmanager_certificate_expiration_timestamp_seconds|certmanager_certificate_ready_status|certmanager_certificate_renewal_timestamp_seconds'
+
+# Traefik of the instance machine (MAIR-628): requests per entrypoint and per
+# service, by status code, for the 5xx alert of mairie360/Infra. Service
+# traefik-metrics, created by bootstrap/addons/traefik. Only scraped when the
+# instance runs Traefik (global.ingressController).
+ingressMetrics:
+  enabled: true
+  target: "traefik-metrics.traefik.svc:9100"
+  scrapeInterval: "30s"
+  keepMetrics: 'traefik_entrypoint_requests_total|traefik_service_requests_total'
