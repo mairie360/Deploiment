@@ -131,7 +131,7 @@ spec:
                   {{- if ((.Values.global).observability).enabled }}
                   # MAIR-622: report the success to the instance's collector,
                   # hence to Cockpit, where BackupMissed (mairie360/Infra
-                  # alerts/instance/backups.yml) fires after 7 h without one (MAIR-630).
+                  # alerts/instance/backups.yml) fires after 7 h without one.
                   # Reached only when everything above succeeded (set -e). A
                   # failed report never fails the backup: the alert fires.
                   now=$(date +%s)

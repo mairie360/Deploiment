@@ -29,7 +29,7 @@ restic:
     tag: "0.18.1"
 
 # Standard cron expression, evaluated in the cluster's timezone (UTC).
-# Every 6 h (MAIR-630): at most 6 h of writes lost (RPO, docs/*/disaster-recovery.md).
+# Every 6 h: at most 6 h of writes lost (RPO, docs/*/disaster-recovery.md).
 # restic deduplicates, so each run only uploads what changed in the dump.
 schedule: "0 */6 * * *"
 concurrencyPolicy: Forbid
