@@ -54,7 +54,7 @@ version before running restic.
    ```yaml
    backup:
      enabled: true
-     schedule: "0 */6 * * *"        # cron, evaluated in UTC (every 6 h, MAIR-630)
+     schedule: "0 */6 * * *"        # cron, evaluated in UTC (every 6 h)
      s3:
        endpoint: "https://s3.<region>.example.com"
        bucket: "<org>-backups-<env>"   # created by mairie360/Infra
