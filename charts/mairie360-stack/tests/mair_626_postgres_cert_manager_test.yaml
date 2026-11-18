@@ -1,0 +1,100 @@
+# MAIR-626: the instance collector scrapes postgres_exporter (connections vs
+# max_connections, database size) and cert-manager (certificate expiry), so
+# the Postgres and certificate alerts of mairie360/Infra have their series.
+suite: postgres_exporter and cert-manager scrape (MAIR-626)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+release:
+  name: staging
+  namespace: mairie360-staging
+tests:
+  - it: postgres_exporter logs in with the database Secret, never with inlined credentials
+    templates: [charts/observability/templates/postgres-exporter.yaml]
+    documentSelector: { path: kind, value: Deployment }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATA_SOURCE_PASS
+            valueFrom:
+              secretKeyRef: { name: staging-database-secret, key: POSTGRES_PASSWORD }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATA_SOURCE_URI
+            value: staging-database:5432/$(POSTGRES_DB)?sslmode=disable
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+
+  - it: only the collector may scrape postgres_exporter
+    templates: [charts/observability/templates/postgres-exporter.yaml]
+    documentSelector: { path: kind, value: NetworkPolicy }
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: otel-collector
+            app.kubernetes.io/instance: staging
+      - equal:
+          path: spec.ingress[0].ports
+          value: [{ protocol: TCP, port: 9187 }]
+
+  - it: the database admits postgres_exporter on 5432 with observability on
+    templates: [charts/database/templates/network-policy.yaml]
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: postgres-exporter
+                app.kubernetes.io/component: metrics-exporter
+
+  - it: the database does not admit it with observability off
+    set:
+      global.observability.enabled: false
+    templates: [charts/database/templates/network-policy.yaml]
+    asserts:
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: postgres-exporter
+                app.kubernetes.io/component: metrics-exporter
+
+  - it: the collector scrapes postgres_exporter and cert-manager and keeps only the listed series
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- targets: \["staging-postgres-exporter:9187"\]\n\s+metric_relabel_configs:\n\s+- source_labels: \[__name__\]\n\s+regex: "pg_up\|pg_stat_database_numbackends\|pg_settings_max_connections'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- targets: \["cert-manager\.cert-manager\.svc:9402"\]\n\s+metric_relabel_configs:\n\s+- source_labels: \[__name__\]\n\s+regex: "certmanager_certificate_expiration_timestamp_seconds'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster, prometheus/database, prometheus/cert-manager\]'
+
+  - it: both can be turned off
+    set:
+      observability.postgresExporter.enabled: false
+      observability.certManager.enabled: false
+    templates:
+      - charts/observability/templates/postgres-exporter.yaml
+      - charts/observability/templates/configmap.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+        template: charts/observability/templates/postgres-exporter.yaml
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'prometheus/(database|cert-manager)'
+        template: charts/observability/templates/configmap.yaml

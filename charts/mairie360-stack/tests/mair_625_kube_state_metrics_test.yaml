@@ -80,7 +80,7 @@ tests:
           pattern: 'prometheus/cluster:\n(.*\n)*\s+- targets: \["staging-kube-state-metrics:8080"\]'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster\]'
+          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster[,\]]'
 
   - it: renders nothing when turned off
     set:
