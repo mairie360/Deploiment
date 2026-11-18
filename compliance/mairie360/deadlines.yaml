@@ -11,6 +11,10 @@ deadlines:
     task: restore test of the latest backup on a throwaway instance (charts/backup/README.md)
     every: "3 months"
     last_done: null
+  - id: rebuild-drill
+    task: timed rebuild of the dev instance from scratch on a new machine (Git, Terraform, Ansible, backup), measured against the RTO of service-levels.yaml (docs/en/disaster-recovery.md, Quarterly rebuild drill)
+    every: "3 months"
+    last_done: null
   - id: dpia-review
     task: review of the DPIA (data protection impact assessment) with the mairie's DPO
     every: "1 year"
