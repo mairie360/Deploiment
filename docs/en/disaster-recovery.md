@@ -11,14 +11,20 @@ secrets), `scripts/verify.sh` (acceptance test of an instance).
 
 | | Target | Where it comes from |
 | --- | --- | --- |
-| **RPO**, data that can be lost | **24 hours** of writes in the Mairie360 database | One backup a day (`backup.schedule`, `0 3 * * *` UTC). No WAL archiving, no point-in-time recovery, no replica. |
-| **RTO**, database restored on a working machine | **1 hour** | Scenario A below. |
-| **RTO**, lost instance machine rebuilt | **4 hours** | Scenario B: new machine, phases 1 to 3, Argo CD sync, restore, checks. Let's Encrypt certificates and DNS propagation are part of it. |
+| **RPO**, data that can be lost | **6 hours** of writes in the Mairie360 database | One backup every 6 hours (`backup.schedule`, `0 */6 * * *` UTC); `mairie360/Infra` alerts (`BackupMissed`) after 7 hours without one. No WAL archiving, no point-in-time recovery, no replica. |
+| **RTO**, database restored on a working machine | **1 hour** | Scenario A below. Measured every week by the restore test (`backup.restoreTest`), which alerts (`RestoreTooSlow`) above 1 hour and when it has not succeeded for 8 days (`RestoreTestMissed`). |
+| **RTO**, lost instance machine rebuilt | **2 hours** | Scenario B: new machine, phases 1 to 3, Argo CD sync, restore, checks. Let's Encrypt certificates and DNS propagation are part of it. |
 | **RTO**, lost Argo CD machine | **2 hours** | Scenario C: the instances keep running meanwhile, only deployments stop. |
 
 Never recovered: Redis (session revocation list and caches: users sign in again), the
 files of the e-learning Object Storage bucket are not covered by these backups (they live
 in Scaleway Object Storage, outside the machine), and anything written after the snapshot.
+
+The RPO and the instance RTO are the ones promised to the mairie: they are decided in
+`compliance/<org>/service-levels.yaml`, shown on the instance's legal pages
+(`global.legal.serviceLevels`) and checked by `scripts/check-compliance.py` (a backup schedule
+leaving more than the RPO between two backups, or legal pages showing other values, fail CI).
+Change all three together.
 
 Review these targets after each drill (see "Drill log" at the end).
 
@@ -135,7 +141,7 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
 
 6. **Check**: `./scripts/verify.sh <ctx> <env> <domain>`, sign in on the Login front, open
    a project and a calendar. Run the backup CronJob once by hand so that the next snapshot
-   is not 24 hours away:
+   is not 6 hours away:
 
    ```bash
    kubectl --context <ctx> -n $NS create job --from=cronjob/<env>-backup <env>-backup-after-restore
@@ -236,4 +242,5 @@ A drill replays the risky steps on throwaway clusters, never on a real instance.
 | 2026-11-16 | `scripts/list-snapshots.sh` on a kind cluster with the rendered dev CronJob and a dummy `dev-backup-secret` (`restic version`, then `restic snapshots` against the unreachable dev bucket), plus `tests/scripts/mair_244_list_snapshots_test.sh` | The pod starts with the CronJob's image, keys and labels, prints restic's output and is deleted afterwards; no secret value is passed on the command line. |
 
 The database part (backup then restore on a real cluster) is replayed by the e2e test of
-the backup chart (`tests/e2e/restore.sh`, MAIR-240).
+the backup chart (`tests/e2e/restore.sh`), and on every instance each week by the restore
+test (`charts/backup` README, "Weekly restore test").

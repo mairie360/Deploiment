@@ -1,0 +1,14 @@
+# Recovery objectives promised to the mairie, checked by scripts/check-compliance.py against the
+# instances of `applies_to` and repeated on their legal pages (global.legal.serviceLevels).
+# Format: "<n> hour(s)". Runbook: docs/en/disaster-recovery.md. A decision without `validated`
+# is a proposal of Mairie 360, reported as pending until the mairie validates it.
+version: 1
+applies_to: [dev, staging, prod]
+
+# RPO: at most this much of the writes to the database can be lost. The backup CronJob must run
+# at least this often (backup.schedule).
+rpo: {period: "6 hours", validated: null}
+
+# RTO: the instance is back, on a new machine if needed, within this time (scenario B of the
+# runbook). The weekly restore test alerts when the database restore alone takes more than half.
+rto: {period: "2 hours", validated: null}
