@@ -1,7 +1,7 @@
 {{- if and (include "observability.enabled" .) .Values.kubeStateMetrics.enabled }}
 {{- $ksm := .Values.kubeStateMetrics }}
 {{- $name := include "observability.ksmName" . }}
-# MAIR-625: kube-state-metrics, limited to this instance's namespace, scraped
+# Kube-state-metrics, limited to this instance's namespace, scraped
 # by the collector (receiver prometheus/cluster). Its API server traffic is
 # outbound, unrestricted while global.networkPolicy.egressDefaultDeny is off.
 apiVersion: v1

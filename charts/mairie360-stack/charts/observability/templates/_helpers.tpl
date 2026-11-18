@@ -25,7 +25,7 @@ APIs chart, see charts/mairie360-stack/values.yaml global.observability). */}}
 {{- if ((.Values.global).observability).enabled }}true{{ end -}}
 {{- end -}}
 
-{{/* kube-state-metrics (MAIR-625). Its own component label, so the
+{{/* kube-state-metrics. Its own component label, so the
 policies that select the collector (component=telemetry) never match it. */}}
 {{- define "observability.ksmName" -}}
 {{- printf "%s-kube-state-metrics" .Release.Name | trunc 63 | trimSuffix "-" -}}

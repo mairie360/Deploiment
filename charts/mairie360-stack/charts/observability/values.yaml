@@ -136,7 +136,7 @@ usage:
     # Label of this mairie in Mairie 360's statistics (no personal data: an organisation).
     mairie: ""
 
-# kube-state-metrics (MAIR-625): state of the instance's own workloads, read
+# kube-state-metrics: state of the instance's own workloads, read
 # from the API server and scraped by the collector. Restarts, why a container
 # last stopped (OOMKilled...), why it waits (CrashLoopBackOff...), the last
 # success of each CronJob, failed Jobs and missing replicas. Namespaced: it
