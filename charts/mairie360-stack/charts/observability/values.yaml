@@ -200,7 +200,7 @@ certManager:
   scrapeInterval: "5m"
   keepMetrics: 'certmanager_certificate_expiration_timestamp_seconds|certmanager_certificate_ready_status|certmanager_certificate_renewal_timestamp_seconds'
 
-# Traefik of the instance machine (MAIR-628): requests per entrypoint and per
+# Traefik of the instance machine: requests per entrypoint and per
 # service, by status code, for the 5xx alert of mairie360/Infra. Service
 # traefik-metrics, created by bootstrap/addons/traefik. Only scraped when the
 # instance runs Traefik (global.ingressController).

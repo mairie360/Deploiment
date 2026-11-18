@@ -69,7 +69,7 @@ receivers:
               action: keep
   {{- end }}
   {{- if include "observability.ingressMetrics" . }}
-  # Requests by status code at the ingress (MAIR-628).
+  # Requests by status code at the ingress.
   prometheus/ingress:
     config:
       scrape_configs:

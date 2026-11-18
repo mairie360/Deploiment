@@ -69,7 +69,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- $db.secretName | default (printf "%s-database-secret" .Release.Name) -}}
 {{- end -}}
 
-{{/* Traefik is scraped only on a Traefik instance (MAIR-628); ingress-nginx
+{{/* Traefik is scraped only on a Traefik instance; ingress-nginx
 has no metrics Service here. */}}
 {{- define "observability.ingressMetrics" -}}
 {{- if and .Values.ingressMetrics.enabled (eq (((.Values.global).ingressController) | default "nginx") "traefik") }}true{{ end -}}
