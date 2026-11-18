@@ -242,7 +242,45 @@ Le `secrets.yaml` commité de l'instance ne sert plus à rien. Ce qui compte enc
 4. Ranger la nouvelle clé de scellement et le mot de passe admin dans le coffre. Tous les
    utilisateurs doivent se reconnecter (nouvelles clés JWT).
 
+## Exercice trimestriel de reconstruction
+
+Prouve le RTO d'instance (2 heures, `compliance/<org>/service-levels.yaml`) sur une vraie
+machine : **dev** est reconstruite de zéro avec le scénario B, chronométrée, chaque
+trimestre (échéance `rebuild-drill` de `compliance/<org>/deadlines.yaml`, exigée par
+`scripts/check-compliance.py`). Dev ne contient aucune donnée de mairie et se synchronise
+seule ; prévenir l'équipe avant, elle est indisponible pendant l'exercice.
+
+1. **Avant T0** : une sauvegarde de dev de moins de 6 heures (`scripts/list-snapshots.sh`),
+   les fichiers du coffre de dev sous la main (clé de scellement, `RESTIC_PASSWORD`), la
+   modification Terraform de la nouvelle machine relue dans `mairie360/Infra` (plan sur sa
+   PR, apply avec l'équipe). Noter le nombre d'utilisateurs et de projets de dev.
+2. **T0, la perte** : **éteindre** la machine dev dans la console Scaleway (ne pas la
+   supprimer : c'est le retour arrière si l'exercice échoue). Lancer le chrono :
+
+   ```bash
+   drill() { echo "$(date -u +%FT%TZ) $*" | tee -a ~/rebuild-drill-$(date -u +%F).log; }
+   drill "T0 dev machine off"
+   ```
+
+3. **Reconstruire** : scénario B, étapes 1 à 9, avec `drill "<étape>"` après chaque étape
+   (machine créée, DNS, phases 1-2, clé de scellement, phase 3, secrets synchronisés, stack
+   démarrée, données restaurées, verify.yml).
+4. **T1, retour** : `./scripts/verify.sh` passe, la connexion sur le front Login marche,
+   les nombres d'utilisateurs et de projets sont ceux notés à l'étape 1. `drill "T1 back"`.
+   T1 - T0 est le RTO mesuré.
+5. **Clore** : supprimer l'ancienne machine (Terraform, `mairie360/Infra`), puis dans **une
+   PR** : une ligne dans le journal ci-dessous (date, T1 - T0, les étapes les plus lentes,
+   ce qui a coincé), le `last_done` de `rebuild-drill` mis à la date dans
+   `compliance/<org>/deadlines.yaml`, et les corrections de ce runbook. Au-delà de 2 heures :
+   un ticket Jira pour l'étape la plus lente, et revoir le RTO avec l'équipe
+   (`service-levels.yaml`, il est dans le contrat).
+
+Si l'exercice échoue, rallumer l'ancienne machine et remettre `ansible_host` et le DNS
+dessus : dev est comme à T0.
+
 ## Journal des exercices
+
+Les exercices de reconstruction notent leur temps mesuré (T1 - T0) dans le résultat.
 
 Un exercice rejoue les étapes risquées sur des clusters jetables, jamais sur une vraie instance.
 

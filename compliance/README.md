@@ -11,7 +11,7 @@ that Mairie 360, its processor, applies. Mairie 360 proposes each entry; the mai
 | `subprocessors.yaml` | external services the instance sends data to | every external host of the rendered manifests (URLs, `*_HOST`, SMTP) and every egress CIDR |
 | `access.yaml` | people with access to the instance and its machines | Devops/ansible `verify.yml` (MAIR-293) |
 | `accepted-gaps.yaml` | infrastructure gaps of the prod instances accepted for now, each with its reason (MAIR-293) | the prod renders: egress denied by default, backups on with a bucket; an unaccepted gap fails |
-| `deadlines.yaml` | recurring compliance tasks (access review, restore test, DPIA, breach exercise) | scheduled n8n workflows open a Jira ticket per overdue deadline (MAIR-295) |
+| `deadlines.yaml` | recurring compliance tasks (access review, restore test, quarterly rebuild drill, DPIA, breach exercise) | scheduled n8n workflows open a Jira ticket per overdue deadline; `scripts/check-compliance.py` requires a `rebuild-drill` at least every 3 months |
 | `service-levels.yaml` | recovery objectives promised to the mairie: RPO and RTO (`"<n> hour(s)"`), runbook `docs/*/disaster-recovery.md` | `scripts/check-compliance.py`: the backup CronJob runs at least once per RPO, the legal pages show both (`global.legal.serviceLevels`) |
 
 The legal pages of the fronts (MAIR-292) show the retention periods and the subprocessors from

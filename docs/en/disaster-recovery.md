@@ -232,7 +232,44 @@ The committed `secrets.yaml` of the instance is now useless. What still matters 
 4. Store the new sealing key and admin password in the vault. Every user must sign in
    again (new JWT keys).
 
+## Quarterly rebuild drill
+
+Proves the instance RTO (2 hours, `compliance/<org>/service-levels.yaml`) on a real machine:
+**dev** is rebuilt from scratch with scenario B, timed, every quarter (deadline
+`rebuild-drill` of `compliance/<org>/deadlines.yaml`, required by
+`scripts/check-compliance.py`). Dev holds no mairie data and auto-syncs; tell the team
+first, it is down during the drill.
+
+1. **Before T0**: a backup of dev less than 6 hours old (`scripts/list-snapshots.sh`), the
+   vault files of dev at hand (sealing key, `RESTIC_PASSWORD`), the new machine's Terraform
+   change reviewed in `mairie360/Infra` (plan on its PR, apply with the team). Write down
+   the number of users and projects of dev.
+2. **T0, the loss**: power the dev machine **off** in the Scaleway console (do not delete
+   it: it is the way back if the drill fails). Start the clock:
+
+   ```bash
+   drill() { echo "$(date -u +%FT%TZ) $*" | tee -a ~/rebuild-drill-$(date -u +%F).log; }
+   drill "T0 dev machine off"
+   ```
+
+3. **Rebuild**: scenario B, steps 1 to 9, with `drill "<step>"` after each step (machine
+   created, DNS, phases 1-2, sealing key, phase 3, secrets synced, stack up, data restored,
+   verify.yml).
+4. **T1, back**: `./scripts/verify.sh` passes, you can sign in on the Login front, the
+   numbers of users and projects are the ones written down at step 1. `drill "T1 back"`.
+   T1 - T0 is the measured RTO.
+5. **Close**: delete the old machine (Terraform, `mairie360/Infra`), then in **one PR**: a
+   row in the drill log below (date, T1 - T0, the slowest steps, what went wrong),
+   `last_done` of `rebuild-drill` set to the date in `compliance/<org>/deadlines.yaml`, and
+   the fixes of this runbook. Above 2 hours: a Jira ticket for the slowest step, and review
+   the RTO with the team (`service-levels.yaml`, it is in the contract).
+
+If the drill fails, power the old machine back on and point `ansible_host` and the DNS back
+to it: dev is as it was at T0.
+
 ## Drill log
+
+Rebuild drills record their measured time (T1 - T0) in the result.
 
 A drill replays the risky steps on throwaway clusters, never on a real instance.
 
