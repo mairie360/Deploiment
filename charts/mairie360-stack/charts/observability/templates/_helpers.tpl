@@ -44,7 +44,7 @@ app.kubernetes.io/part-of: mairie360
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{/* postgres_exporter (MAIR-626). */}}
+{{/* postgres_exporter. */}}
 {{- define "observability.pgExporterName" -}}
 {{- printf "%s-postgres-exporter" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
