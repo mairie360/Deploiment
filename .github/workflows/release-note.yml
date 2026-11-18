@@ -1,0 +1,55 @@
+name: Release note
+
+# Publishes the accessible note of a platform release (releases/<version>.yaml) as the
+# GitHub release `platform-v<version>`: global RGAA rate of the prod fronts in usage terms, legal
+# status, failing criteria, fronts without a measure (scripts/rgaa-global.py note). Run it once
+# the release is in prod; a rerun updates the note. No commit is created.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Platform release (releases/<version>.yaml)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  note:
+    name: Publish the release note
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Write the note
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be X.Y.Z, got '$VERSION'"
+            exit 1
+          fi
+          ./scripts/rgaa-global.py note "$VERSION" --values clusters/_base/prod.yaml --out "$RUNNER_TEMP/note.md"
+          cat "$RUNNER_TEMP/note.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag="platform-v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/note.md"
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Mairie 360 $VERSION" --notes-file "$RUNNER_TEMP/note.md" --latest=false
+          fi

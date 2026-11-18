@@ -121,6 +121,21 @@ runs `scripts/verify.sh` against staging on the self-hosted runner of the
 Argo CD machine, see Gotchas). `.github/actionlint.yaml` declares that
 runner's label.
 
+## Platform RGAA rate (`scripts/rgaa-global.py`)
+
+`gate` (job `rgaa-global` of `Promote`, target prod, not on a rollback; `promote` needs it not
+failed) reads the fronts of `clusters/_base/prod.yaml` at the promoted commit (`FRONTS` maps each
+image to its repo: add a new front there or the gate fails with exit 2), downloads the
+`rgaa-report.json` asset of each front's release `v<tag>` (attached by mairie360/CICD promote-prod; the front
+repos are public, the run's token is enough) and computes the official global rate (a criterion
+invalid on one front is invalid for the platform; validated only when validated on every front
+that declares it; validated / decided, rounded down). The summary lists the failing criteria per
+front, pages and elements; below `--min` (50) it exits 1. A front without a report is listed and
+left out; no report at all → warning, pass. `note <version>` writes the platform release note
+(French, `releases/<version>.yaml`), checked by `check_note` (heading levels, one title, table
+headers, link text, emoji); `.github/workflows/release-note.yml` publishes it as the release
+`platform-v<version>`. Tests: `tests/rgaa/` (CI, fake `gh`). Docs: `docs/en|fr/rgaa-global-rate.md`.
+
 ## GDPR decisions (`compliance/`, MAIR-294)
 
 `compliance/<org>/` holds a mairie's GDPR decisions (`register.yaml`, `retention.yaml`,

@@ -24,3 +24,19 @@ repos:
   is never rewritten; only `semver` is filled in as repos reach prod.
 - CI (`cicd.yaml`) runs `scripts/release-manifest.py check --remote`: format, `dev_tag` matching the
   sha, file name matching the version, and every sha existing on its repo's `main`.
+
+## Accessibility of a release
+
+- `Promote` to prod runs `scripts/rgaa-global.py gate` (job `rgaa-global`): for each front pinned in
+  `clusters/_base/prod.yaml`, it downloads the `rgaa-report.json` asset of the front's release
+  `v<tag>` (attached by the CICD promote-prod) and computes the official global rate:
+  a criterion invalid on one front is invalid for the platform; rate = validated / (validated +
+  invalidated), rounded down. The job summary lists every failing criterion with its front, pages
+  and elements; below 50 % (`--min`) prod does not move. A front released without a report is
+  listed and left out; with no report at all the gate warns and passes.
+- Once the release is in prod, run the `Release note` workflow (`release-note.yml`, input
+  `version`): it publishes `scripts/rgaa-global.py note <version>` as the GitHub release
+  `platform-v<version>` (French, for the municipalities: rate in usage terms, legal status, failing
+  criteria, fronts not measured). The script refuses a note that is not accessible itself (heading
+  levels, one title, table headers, explicit link text, no emoji). No commit is created.
+- Fixing the failing criteria happens in the fronts, one ticket per fix.
