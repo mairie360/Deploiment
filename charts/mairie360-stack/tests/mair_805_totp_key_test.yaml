@@ -1,0 +1,70 @@
+# MAIR-805: core-api seals the second-factor secrets with TOTP_ENCRYPTION_KEY,
+# read from the app Secret. Only core-api gets it, and it is optional so an
+# instance sealed before MAIR-805 keeps starting (core-api answers 503 on the
+# second-factor routes).
+suite: mair-805 totp encryption key
+tests:
+  - it: "MAIR-805: core-api reads TOTP_ENCRYPTION_KEY from the app Secret, optional"
+    templates: [charts/APIs/templates/deployment.yaml]
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOTP_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: TOTP_ENCRYPTION_KEY, optional: true }
+
+  - it: "MAIR-805: no other API gets TOTP_ENCRYPTION_KEY"
+    templates: [charts/APIs/templates/deployment.yaml]
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-project-api
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOTP_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: TOTP_ENCRYPTION_KEY, optional: true }
+
+  - it: "MAIR-805: the chart-created app Secret carries the key when given (local cluster)"
+    templates: [templates/app-secrets.yaml]
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-app-secrets
+    set:
+      secrets.create: true
+      secrets.jwtSecret: "test-only"
+      secrets.s3AccessKey: "SCWTESTACCESS"
+      secrets.s3SecretKey: "test-secret"
+      secrets.totpEncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    asserts:
+      - equal: { path: stringData.TOTP_ENCRYPTION_KEY, value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" }
+
+  - it: "MAIR-805: no key in the chart-created Secret when none is given"
+    templates: [templates/app-secrets.yaml]
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-app-secrets
+    set:
+      secrets.create: true
+      secrets.jwtSecret: "test-only"
+      secrets.s3AccessKey: "SCWTESTACCESS"
+      secrets.s3SecretKey: "test-secret"
+    asserts:
+      - notExists: { path: stringData.TOTP_ENCRYPTION_KEY }

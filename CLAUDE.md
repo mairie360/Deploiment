@@ -1084,6 +1084,17 @@ and maintaining a parallel Kind topology is what produced the earlier
   core-api refuses to start when its private key matches no block of
   `JWT_PUBLIC_KEY`. The chart has no override of the Secret name: it is
   always `<release>-jwt-signing-secret`, the one the script seals.
+- **`TOTP_ENCRYPTION_KEY` is never rotated (MAIR-805).** core-api seals the TOTP
+  secrets of its users with it (AES-256-GCM, base64 of 32 bytes). It lives in
+  `<release>-app-secrets`, is generated once by `scripts/seal-secrets.sh`, kept
+  from the cluster on every re-run and by `--rotate`, and read by core-api alone
+  (`apis.totpKeyEnv`, `optional`: an instance sealed before MAIR-805 keeps
+  starting and core-api answers 503 on the second-factor routes). Losing or
+  changing it makes every enrolled second factor unreadable and locks the
+  protected accounts out (an admin reset `DELETE /admin/users/{id}/2fa` is then
+  the only way back): keep a copy outside the cluster like the sealing key, and
+  restore it with `TOTP_ENCRYPTION_KEY=… seal-secrets.sh`.
+  `tests/mair_805_totp_key_test.yaml`, `tests/scripts/mair_805_totp_key_test.sh`.
 - **`--rotate` on `scripts/seal-secrets.sh` regenerates `RESTIC_PASSWORD`
   too**, same as `JWT_SECRET`/`POSTGRES_PASSWORD`/ACL passwords — but restic
   derives its master key from that one password, and nothing here runs the
