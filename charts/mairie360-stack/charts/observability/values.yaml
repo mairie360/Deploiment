@@ -39,12 +39,16 @@ secret:
   create: false
 token: ""
 
-# Pod CPU/RAM, read from the kubelet's /stats/summary of the node the
-# collector runs on. One Deployment is enough because every instance is a
-# single-node k3s cluster; a multi-node instance would need a DaemonSet.
+# Node and pod CPU/RAM/disk, read from the kubelet's /stats/summary of the
+# node the collector runs on. One Deployment is enough because every instance
+# is a single-node k3s cluster; a multi-node instance would need a DaemonSet.
 kubeletStats:
   enabled: true
   collectionInterval: "30s"
+  # `node` gives the machine itself (k8s.node.cpu.*, k8s.node.memory.*,
+  # k8s.node.filesystem.* = the disk holding the PVCs and images) without
+  # mounting the host's /proc and / into the pod (hostmetrics receiver).
+  metricGroups: [node, pod, container]
   # k3s serves the kubelet API with a self-signed certificate that does not
   # cover the node IP.
   insecureSkipVerify: true
