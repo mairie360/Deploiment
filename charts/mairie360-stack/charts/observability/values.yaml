@@ -170,3 +170,32 @@ kubeStateMetrics:
   podResources:
     requests: { memory: "32Mi", cpu: "10m" }
     limits: { memory: "128Mi", cpu: "100m" }
+
+# postgres_exporter: connections, max_connections and database size
+# of the instance's Postgres, scraped by the collector. A Deployment of its
+# own rather than a sidecar, so turning it on never restarts the database. It
+# logs in with the database Secret (<release>-database-secret, same as the
+# backup CronJob) and the database NetworkPolicy admits it on 5432 while
+# global.observability is on.
+postgresExporter:
+  enabled: true
+  image:
+    repository: quay.io/prometheuscommunity/postgres-exporter
+    tag: "v0.20.1"
+    pullPolicy: IfNotPresent
+  scrapeInterval: "60s"
+  # Series kept by the collector (regex on the metric name); everything else
+  # the exporter serves is dropped before Cockpit.
+  keepMetrics: 'pg_up|pg_stat_database_numbackends|pg_settings_max_connections|pg_settings_superuser_reserved_connections|pg_database_size_bytes|pg_stat_database_deadlocks|pg_stat_database_xact_(commit|rollback)'
+  podResources:
+    requests: { memory: "24Mi", cpu: "10m" }
+    limits: { memory: "96Mi", cpu: "100m" }
+
+# cert-manager of the instance machine, in its own namespace:
+# expiry and readiness of every certificate of the machine (= of this
+# instance). The add-on is installed by bootstrap/addons/cert-manager.
+certManager:
+  enabled: true
+  target: "cert-manager.cert-manager.svc:9402"
+  scrapeInterval: "5m"
+  keepMetrics: 'certmanager_certificate_expiration_timestamp_seconds|certmanager_certificate_ready_status|certmanager_certificate_renewal_timestamp_seconds'
