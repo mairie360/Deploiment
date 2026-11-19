@@ -65,6 +65,20 @@ dbPool:
   maxConnections: 10
   idleTimeoutSecs: 600
 
+# Per-user rate limit of the business APIs (API_lib `rate_limit_middleware`),
+# rendered as RATE_LIMIT_PER_SECOND / RATE_LIMIT_BURST for the APIs listed in
+# `rateLimitInstances`. These are the lib's defaults; `rateLimit.perInstance.<name>`
+# or `instances.<name>.rateLimit` override a key for one API (per second 0 turns
+# the limiter off). `trustForwarded` (RATE_LIMIT_TRUST_FORWARDED, unset by default) is only
+# for an API reached by anonymous callers through exactly one trusted proxy. Counters live in memory, per pod: with n replicas a user may
+# send up to n times the budget.
+rateLimitInstances: ["project-api", "calendar-api", "message-api", "elearning-api"]
+rateLimit:
+  perSecond: 20
+  burst: 50
+  perInstance:
+    elearning-api: { perSecond: 50, burst: 100 }
+
 # Environment variables shared by every API (on top of the ones the chart
 # injects: DB_*, DB_POOL_*, REDIS_*, JWT_SECRET, KEYCLOAK_*).
 commonEnv:
@@ -83,5 +97,6 @@ commonEnv:
 #       replicaCount: 1
 #       resources: {}          # optional, defaults to `resources` above
 #       dbPool: {}             # optional, key by key over `dbPool` above
+#       rateLimit: {}          # optional, key by key over `rateLimit` above (business APIs)
 #       env: []                # optional, goes through tpl
 instances: {}
