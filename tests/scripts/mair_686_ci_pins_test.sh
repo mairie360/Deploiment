@@ -29,7 +29,7 @@ check "no plugin installed without verification" '! grep -n -- "--verify=false" 
 for f in "$WORKFLOWS"/*.y*ml; do
   downloads=$(grep -cE '^[[:space:]]*curl .*-[a-zA-Z]*o[[:space:]]' "$f")
   checks=$(grep -cE 'sha256sum -c -' "$f")
-  check "$(basename "$f"): $downloads download(s), each checked against a SHA256" '[ "$downloads" -eq "$checks" ]'
+  check "$(basename "$f"): $downloads download(s), each checked against a SHA256" "[ $downloads -eq $checks ]"
 done
 for name in KUBECONFORM HELM_UNITTEST KIND CILIUM_CLI CHAINSAW; do
   check "$name: SHA256 written in the workflow" \
