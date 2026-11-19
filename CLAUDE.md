@@ -158,7 +158,8 @@ decisions without `validated: {date, by}` are warnings
 `fronts.shellInfo` (`charts/Fronts/templates/_helpers.tpl`) gives every front (Messages V2 reads both, Login
 `APP_VERSION`, the others get them ahead of their V2 shell) `COMMUNE_NAME` from `global.commune.name` (« Commune de … » in the side band of
 Messages V2; omitted when empty, then no name is shown) and `APP_VERSION` = the instance's image tag (footer
-version). Both are read at request time; an instance `env` entry of the same name wins.
+version). Both are read at request time; an explicit value wins: a `commonEnv` or instance `env` entry of
+the same name is kept and the generated one is not rendered.
 `tests/mair_844_shell_info_test.yaml` pins it. `global.commune` is declared in `values.schema.json`.
 
 ## Usage telemetry (`observability.usage`, MAIR-501)

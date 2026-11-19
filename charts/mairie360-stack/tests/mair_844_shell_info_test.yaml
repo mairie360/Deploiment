@@ -59,6 +59,30 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: APP_VERSION, value: "dev-3f53055" }
 
+  - it: MAIR-844 a commonEnv entry wins too and is not duplicated
+    set:
+      global.commune.name: "Testville"
+      Fronts.commonEnv:
+        - { name: NODE_ENV, value: "production" }
+        - { name: APP_VERSION, value: "2.0.0" }
+        - { name: COMMUNE_NAME, value: "Autreville" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "2.0.0" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "dev-3f53055" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Autreville" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Testville" }
+
   - it: MAIR-844 every other front gets both too (ahead of its V2 shell)
     set:
       global.commune.name: "Testville"

@@ -102,11 +102,14 @@ Shell information (MAIR-844), for every front: COMMUNE_NAME (global.commune.name
 « Commune de … » in the side band, omitted when empty) and APP_VERSION (the image
 tag, shown in the footer). Messages V2 reads both, Login APP_VERSION; the other
 fronts get them ahead of their V2 shell. Read at request time, so one image
-serves every commune. An instance `env` entry of the same name wins.
+serves every commune. An explicit value always wins over the generated one: a
+`commonEnv` entry or an instance `env` entry of the same name is kept and the
+generated entry is not rendered (no duplicate name in the container env).
 Takes { root, config }.
 */}}
 {{- define "fronts.shellInfo" -}}
 {{- $names := list -}}
+{{- range (.root.Values.commonEnv | default list) }}{{ $names = append $names .name }}{{ end -}}
 {{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
 {{- $commune := (((.root.Values.global | default dict).commune | default dict).name | default "") | trim -}}
 {{- $version := ((.config.image | default dict).tag | default "") | toString -}}
