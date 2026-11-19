@@ -98,3 +98,12 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: APP_VERSION }
           any: true
+
+  - it: MAIR-844 the mairie360 instances show « Mairie360 » as the commune
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Mairie360" }
