@@ -17,6 +17,11 @@
       "properties": {
         "apis": {},
         "bffs": {},
+        "commune": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "name": { "type": "string" } }
+        },
         "compliance": {},
         "database": {},
         "domain": {

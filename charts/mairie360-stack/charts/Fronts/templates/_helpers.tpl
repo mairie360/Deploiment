@@ -98,6 +98,30 @@ Takes { root, name }.
 {{- end -}}
 
 {{/*
+Shell information (MAIR-844), for the fronts of shellInfoInstances: COMMUNE_NAME
+(global.commune.name, « Commune de … » in the side band, omitted when empty)
+and APP_VERSION (the image tag, shown in the footer). Read at request time, so
+one image serves every commune. An instance `env` entry of the same name wins.
+Takes { root, name, config }.
+*/}}
+{{- define "fronts.shellInfo" -}}
+{{- if has .name (.root.Values.shellInfoInstances | default list) -}}
+{{- $names := list -}}
+{{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
+{{- $commune := (((.root.Values.global | default dict).commune | default dict).name | default "") | trim -}}
+{{- $version := ((.config.image | default dict).tag | default "") | toString -}}
+{{- if and $commune (not (has "COMMUNE_NAME" $names)) }}
+- name: COMMUNE_NAME
+  value: {{ $commune | quote }}
+{{- end }}
+{{- if and $version (not (has "APP_VERSION" $names)) }}
+- name: APP_VERSION
+  value: {{ $version | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 MAIR-153: Keycloak sign-in of the fronts in keycloakLoginInstances (only
 login-front). KEYCLOAK_REALM_URL is the public realm URL the browser is sent
 to (same host and realm as Core's KEYCLOAK_ISSUER); KEYCLOAK_CLIENT_ID is the

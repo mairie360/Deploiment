@@ -153,6 +153,14 @@ subprocessors; `tests/gdpr_prod_test.yaml` pins backups, retention and default-d
 decisions without `validated: {date, by}` are warnings
 (`--strict` makes them fail). A period changes in the decision file and in the values together.
 
+## Shell information of the fronts (MAIR-844)
+
+`fronts.shellInfo` (`charts/Fronts/templates/_helpers.tpl`) gives the fronts of `Fronts.shellInfoInstances`
+(message-front, login-front) `COMMUNE_NAME` from `global.commune.name` (« Commune de … » in the side band of
+Messages V2; omitted when empty, then no name is shown) and `APP_VERSION` = the instance's image tag (footer
+version). Both are read at request time; an instance `env` entry of the same name wins.
+`tests/mair_844_shell_info_test.yaml` pins it. `global.commune` is declared in `values.schema.json`.
+
 ## Usage telemetry (`observability.usage`, MAIR-501)
 
 The collector keeps only `observability.spanAttributesAllowlist` on every span
