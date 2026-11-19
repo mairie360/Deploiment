@@ -149,6 +149,7 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
 {{- include "apis.totpKeyEnv" . }}
 {{- include "apis.webauthnEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
+{{- include "apis.rateLimitEnv" . }}
 {{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
 {{- include "apis.complianceEnv" . }}
@@ -182,6 +183,35 @@ sum(replicas x maxConnections) well below it.
 {{- if hasKey $pool "idleTimeoutSecs" }}
 - name: DB_POOL_IDLE_TIMEOUT_SECS
   value: {{ $pool.idleTimeoutSecs | toString | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Per-user rate limit of the business APIs listed in rateLimitInstances (API_lib
+`RateLimiter::from_env`). `rateLimit` of the chart, overridden key by key by
+`rateLimit.perInstance.<name>` then `instances.<name>.rateLimit` (a perSecond of
+0 turns the limiter off). A key missing everywhere is not rendered and the API
+keeps the lib's default. The counters are per pod.
+*/}}
+{{- define "apis.rateLimitEnv" -}}
+{{- if has .name (.root.Values.rateLimitInstances | default list) }}
+{{- $limit := deepCopy (omit (.root.Values.rateLimit | default dict) "perInstance") }}
+{{- $perInstance := index ((.root.Values.rateLimit | default dict).perInstance | default dict) .name | default dict }}
+{{- range $key, $value := $perInstance }}
+{{- $_ := set $limit $key $value }}
+{{- end }}
+{{- $instance := index (.root.Values.instances | default dict) .name | default dict }}
+{{- range $key, $value := $instance.rateLimit | default dict }}
+{{- $_ := set $limit $key $value }}
+{{- end }}
+{{- if hasKey $limit "perSecond" }}
+- name: RATE_LIMIT_PER_SECOND
+  value: {{ $limit.perSecond | toString | quote }}
+{{- end }}
+{{- if hasKey $limit "burst" }}
+- name: RATE_LIMIT_BURST
+  value: {{ $limit.burst | toString | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 

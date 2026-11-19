@@ -1,0 +1,53 @@
+suite: per-user rate limit of the business APIs (dev)
+# API_lib `RateLimiter::from_env` reads RATE_LIMIT_PER_SECOND and RATE_LIMIT_BURST; the chart sets
+# them for the four business APIs, elearning-api keeping its own higher budget.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/APIs/templates/deployment.yaml]
+tests:
+  - it: project, calendar and message share the common budget
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_PER_SECOND, value: "20" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_BURST, value: "50" }
+
+  - it: calendar-api and message-api get the same budget
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-calendar-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_PER_SECOND, value: "20" }
+
+  - it: elearning-api keeps its own higher budget
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-elearning-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_PER_SECOND, value: "50" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_BURST, value: "100" }
+
+  - it: one API overrides a key through its instance, 0 included
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-project-api }
+    set:
+      APIs.instances.project-api.rateLimit: { perSecond: 0 }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_PER_SECOND, value: "0" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_BURST, value: "50" }
+
+  - it: core-api has no per-user limit variable (it limits its auth routes itself)
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_PER_SECOND }
+          any: true
