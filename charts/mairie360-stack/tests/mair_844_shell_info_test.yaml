@@ -1,0 +1,109 @@
+suite: shell information of the fronts (MAIR-844)
+# Messages V2 shows « Commune de <global.commune.name> » in its side band and
+# the image tag as the footer version; both are runtime env vars.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/Fronts/templates/deployment.yaml]
+tests:
+  - it: MAIR-844 message-front gets COMMUNE_NAME and the image tag as APP_VERSION
+    set:
+      global.commune.name: "  Testville "
+      Fronts.instances.message-front.image.tag: "dev-1234567"
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Testville" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "dev-1234567" }
+
+  - it: MAIR-844 an empty commune name sets no COMMUNE_NAME (the front shows no name)
+    set:
+      global.commune.name: ""
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME }
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION }
+          any: true
+
+  - it: MAIR-844 an instance env entry wins over the generated values
+    set:
+      global.commune.name: "Testville"
+      Fronts.instances.message-front.env:
+        - { name: COMMUNE_NAME, value: "Autreville" }
+        - { name: APP_VERSION, value: "1.2.3" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Autreville" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Testville" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "1.2.3" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "dev-3f53055" }
+
+  - it: MAIR-844 a commonEnv entry wins too and is not duplicated
+    set:
+      global.commune.name: "Testville"
+      Fronts.commonEnv:
+        - { name: NODE_ENV, value: "production" }
+        - { name: APP_VERSION, value: "2.0.0" }
+        - { name: COMMUNE_NAME, value: "Autreville" }
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "2.0.0" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION, value: "dev-3f53055" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Autreville" }
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Testville" }
+
+  - it: MAIR-844 every other front gets both too (ahead of its V2 shell)
+    set:
+      global.commune.name: "Testville"
+    documentSelector:
+      path: kind
+      value: Deployment
+      matchMany: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Testville" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: APP_VERSION }
+          any: true
+
+  - it: MAIR-844 the mairie360 instances show « Mairie360 » as the commune
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-message-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COMMUNE_NAME, value: "Mairie360" }

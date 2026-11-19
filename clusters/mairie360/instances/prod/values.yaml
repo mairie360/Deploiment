@@ -10,6 +10,8 @@
 # ============================================================================
 
 global:
+  # Shown as « Commune de Mairie360 » in the fronts' side band (MAIR-844, COMMUNE_NAME).
+  commune: { name: "Mairie360" }
   # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
   # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
   # ansible from the vault (/mairie360/prod/cockpit-token, issued by Infra's
