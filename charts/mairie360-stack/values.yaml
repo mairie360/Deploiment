@@ -209,8 +209,8 @@ global:
     subprocessors: []
 
   # Commune of the instance (MAIR-844): its name is shown as « Commune de
-  # <name> » in the side band of the fronts of Fronts.shellInfoInstances
-  # (COMMUNE_NAME, read at request time). Empty: no name shown.
+  # <name> » in the side band of the fronts (COMMUNE_NAME, given to every
+  # front, read at request time). Empty: no name shown.
   commune:
     name: ""
 

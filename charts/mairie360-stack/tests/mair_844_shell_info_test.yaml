@@ -59,28 +59,18 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: APP_VERSION, value: "dev-3f53055" }
 
-  - it: MAIR-844 login-front gets APP_VERSION too
-    documentSelector:
-      path: metadata.name
-      value: RELEASE-NAME-login-front
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content: { name: APP_VERSION }
-          any: true
-
-  - it: MAIR-844 the other fronts get neither
+  - it: MAIR-844 every other front gets both too (ahead of its V2 shell)
     set:
       global.commune.name: "Testville"
     documentSelector:
-      path: metadata.name
-      value: RELEASE-NAME-settings-front
+      path: kind
+      value: Deployment
+      matchMany: true
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
-          content: { name: COMMUNE_NAME }
-          any: true
-      - notContains:
+          content: { name: COMMUNE_NAME, value: "Testville" }
+      - contains:
           path: spec.template.spec.containers[0].env
           content: { name: APP_VERSION }
           any: true

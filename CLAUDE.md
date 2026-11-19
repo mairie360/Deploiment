@@ -155,8 +155,8 @@ decisions without `validated: {date, by}` are warnings
 
 ## Shell information of the fronts (MAIR-844)
 
-`fronts.shellInfo` (`charts/Fronts/templates/_helpers.tpl`) gives the fronts of `Fronts.shellInfoInstances`
-(message-front, login-front) `COMMUNE_NAME` from `global.commune.name` (« Commune de … » in the side band of
+`fronts.shellInfo` (`charts/Fronts/templates/_helpers.tpl`) gives every front (Messages V2 reads both, Login
+`APP_VERSION`, the others get them ahead of their V2 shell) `COMMUNE_NAME` from `global.commune.name` (« Commune de … » in the side band of
 Messages V2; omitted when empty, then no name is shown) and `APP_VERSION` = the instance's image tag (footer
 version). Both are read at request time; an instance `env` entry of the same name wins.
 `tests/mair_844_shell_info_test.yaml` pins it. `global.commune` is declared in `values.schema.json`.

@@ -74,13 +74,6 @@ keycloakLoginClientId: "core-api"
 legalConfigInstances:
   - login-front
 
-# Fronts that show the commune name and the version in the shell (MAIR-844,
-# fronts.shellInfo): COMMUNE_NAME from global.commune.name, APP_VERSION from
-# the image tag. Login reads APP_VERSION only.
-shellInfoInstances:
-  - message-front
-  - login-front
-
 # Set per environment:
 #   instances:
 #     login-front:
