@@ -51,3 +51,20 @@ tests:
           path: spec.template.spec.containers[0].env
           content: { name: RATE_LIMIT_PER_SECOND }
           any: true
+
+  - it: trustForwarded is rendered only when set, an explicit false included
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-calendar-api }
+    set:
+      APIs.instances.calendar-api.rateLimit: { trustForwarded: false }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_TRUST_FORWARDED, value: "false" }
+
+  - it: trustForwarded is not rendered by default
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-calendar-api }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: RATE_LIMIT_TRUST_FORWARDED }
+          any: true

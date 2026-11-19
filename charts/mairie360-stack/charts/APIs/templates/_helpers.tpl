@@ -190,8 +190,9 @@ sum(replicas x maxConnections) well below it.
 Per-user rate limit of the business APIs listed in rateLimitInstances (API_lib
 `RateLimiter::from_env`). `rateLimit` of the chart, overridden key by key by
 `rateLimit.perInstance.<name>` then `instances.<name>.rateLimit` (a perSecond of
-0 turns the limiter off). A key missing everywhere is not rendered and the API
-keeps the lib's default. The counters are per pod.
+0 turns the limiter off; trustForwarded, only behind one proxy that appends the
+address it saw, makes anonymous callers count per forwarded address). A key missing
+everywhere is not rendered and the API keeps the lib's default. The counters are per pod.
 */}}
 {{- define "apis.rateLimitEnv" -}}
 {{- if has .name (.root.Values.rateLimitInstances | default list) }}
@@ -211,6 +212,10 @@ keeps the lib's default. The counters are per pod.
 {{- if hasKey $limit "burst" }}
 - name: RATE_LIMIT_BURST
   value: {{ $limit.burst | toString | quote }}
+{{- end }}
+{{- if hasKey $limit "trustForwarded" }}
+- name: RATE_LIMIT_TRUST_FORWARDED
+  value: {{ $limit.trustForwarded | toString | quote }}
 {{- end }}
 {{- end }}
 {{- end -}}
