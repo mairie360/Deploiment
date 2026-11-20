@@ -7,8 +7,7 @@
 #   ./scripts/list-snapshots.sh mairie360-staging staging snapshots --host <db-name> --json
 #
 # Without restic arguments it runs `restic snapshots`: every lineage of the
-# repository (the Mairie360 database, `--host <POSTGRES_DB>`, and Keycloak's,
-# `--host keycloak-<db-name>`). Any read-only restic command works the same way
+# repository (the Mairie360 database, `--host <POSTGRES_DB>`). Any read-only restic command works the same way
 # (`ls <id>`, `stats`, `check`); never `forget` / `prune` from here.
 #
 # Starts a throwaway pod (deleted on every exit path) built from the instance's backup

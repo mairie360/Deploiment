@@ -157,7 +157,7 @@ Alternatives rejected:
   path and promote it, then reference it; otherwise the staging/prod
   Applications fail with "path does not exist" until it is promoted.
 - Promote to prod fails by itself when `verify.sh` fails on staging, e.g.
-  today on a `secrets.yaml` sealed before the Keycloak or admin keys existed.
+  today on a `secrets.yaml` sealed before the admin keys existed.
 - `verify.sh` checks Secret keys on the SealedSecrets (ciphertext length) and
   probes Redis with an unauthenticated `PING` from a throwaway pod, instead of
   reading Secrets and exec-ing into the Redis pod. Its two checks that need a

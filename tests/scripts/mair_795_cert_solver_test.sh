@@ -5,7 +5,7 @@
 # or none, and falls back to the ClusterIssuer default (nginx until MAIR-795,
 # traefik since): on a machine of the other class its challenges answer 404
 # forever and the renewal stalls silently (prod fronts 2026-11-06, prod
-# Keycloak pinned on nginx).
+# auth host pinned on nginx).
 #
 # scripts/verify.sh step 12c must fail, naming the Certificate and both
 # classes, when a Certificate's class is not the one its Ingress asks for. The
@@ -69,11 +69,11 @@ check "...naming both classes and where the wrong one comes from" \
   "grep 'FAIL .*dev-fronts-tls' '$TMP/legacy.out' | grep -q \"'traefik' (default) but Ingress dev-fronts asks for 'nginx'\""
 check "...with the command that recreates it" "grep -q 'delete certificate dev-fronts-tls' '$TMP/legacy.out'"
 
-# 3. Prod Keycloak: an explicit nginx override copied while the machine was on nginx.
-fixture pinned "prod-keycloak-tls${TAB}prod-keycloak${TAB}nginx" -- "prod-keycloak${TAB}traefik"
+# 3. Prod auth host: an explicit nginx override copied while the machine was on nginx.
+fixture pinned "prod-auth-tls${TAB}prod-auth${TAB}nginx" -- "prod-auth${TAB}traefik"
 run pinned yes
 check "an explicit nginx override on a Traefik Ingress fails" \
-  "grep 'FAIL .*prod-keycloak-tls' '$TMP/pinned.out' | grep -q \"'nginx' (annotation) but Ingress prod-keycloak asks for 'traefik'\""
+  "grep 'FAIL .*prod-auth-tls' '$TMP/pinned.out' | grep -q \"'nginx' (annotation) but Ingress prod-auth asks for 'traefik'\""
 
 # 4. The incident (prod fronts 2026-11-06): no annotation on a Traefik
 #    Ingress. With the ClusterIssuers on traefik it is now the right class.

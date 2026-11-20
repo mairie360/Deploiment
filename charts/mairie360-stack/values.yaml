@@ -7,7 +7,7 @@
 # tailles, secrets.
 #
 # Règle : tout ce qui est sous `global:` est visible par les sous-charts
-# (APIs, BFFs, Fronts, database, redis, liquibase, keycloak). Le reste ne l'est pas.
+# (APIs, BFFs, Fronts, database, redis, liquibase). Le reste ne l'est pas.
 # =============================================================================
 
 global:
@@ -54,7 +54,7 @@ global:
     # elles sont appliquées.
     enabled: true
     # Interdit aussi le trafic SORTANT non autorisé. Désactivé par défaut
-    # car core-api et Keycloak (Resend, smtp.resend.com:587), elearning-api
+    # car core-api (Resend), elearning-api
     # (Scaleway Object Storage, s3.<region>.scw.cloud) et le CronJob backup
     # (bucket S3) ont besoin d'Internet ; à activer une fois ces destinations
     # déclarées dans `egressAllowCIDRs`.
@@ -97,19 +97,10 @@ global:
     # Secret with the erasure credentials, ONLY mounted in compliance-api,
     # every key optional (a connector without its credentials is "not
     # configured" and its erasure step is recorded as such):
-    #   KEYCLOAK_ADMIN_CLIENT_SECRET  service account with realm-management manage-users
     #   RESEND_API_KEY                full access key (removes audience contacts)
     #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  delete rights on s3.bucket
     # Default: <release>-compliance-secret (scripts/seal-secrets.sh).
     secretName: ""
-    keycloak:
-      # Confidential client of the realm with a service account. Keycloak only
-      # imports a realm once: create it in the admin console on a running
-      # instance.
-      adminClientId: "compliance"
-      # "" = the in-cluster Service (<release>-keycloak:8080, global.keycloak.realm)
-      adminUrl: ""
-      tokenUrl: ""
     resend:
       audienceId: ""
     s3:
@@ -208,24 +199,6 @@ global:
     # (purpose: its French `purpose_fr`).
     subprocessors: []
 
-  # Keycloak (MAIR-139): the instance's identity provider, charts/keycloak.
-  # Global because the BFFs/APIs will need the same issuer URL
-  # (https://<hostname>/realms/<realm>) as the browser.
-  keycloak:
-    # Public hostname, exposed by templates/keycloak-ingress.yaml.
-    # "" = auth.<global.domain>
-    hostname: ""
-    # Realm provisioned at first start (charts/keycloak/values.yaml `realm`).
-    realm: "mairie360"
-    # MAIR-609 / MAIR-610: the realm's admin console on the public host,
-    # behind a temporary access issued by core-api (Traefik ForwardAuth,
-    # templates/keycloak-console.yaml). Traefik instances only; needs a
-    # core-api image with MAIR-609. On, Keycloak no longer sets
-    # KC_HOSTNAME_ADMIN (charts/keycloak `adminUrl`): the master realm is then
-    # administered with kcadm in the pod, its console is not reachable.
-    consoleAccess:
-      enabled: false
-
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans
   # les BFFs et les fronts. Les conteneurs APIs écoutent tous sur 3000 ; un
@@ -284,9 +257,7 @@ secrets:
   totpEncryptionKey: ""
 
 # -----------------------------------------------------------------------------
-# Single Ingress for every enabled front (templates/ingress.yaml), and the
-# dedicated Keycloak Ingress (templates/keycloak-ingress.yaml): same class,
-# same ClusterIssuer, same annotations (+ keycloak.ingress.annotations).
+# Single Ingress for every enabled front (templates/ingress.yaml).
 # -----------------------------------------------------------------------------
 ingress:
   enabled: true
@@ -321,7 +292,7 @@ extraObjects: []
 # -----------------------------------------------------------------------------
 # Sous-charts. Les clés doivent correspondre EXACTEMENT aux noms des dossiers
 # dans charts/ (APIs, BFFs, Fronts, database, redis, liquibase, backup,
-# retention, keycloak).
+# retention).
 # Les `instances` sont renseignées par environnement.
 # -----------------------------------------------------------------------------
 database:
@@ -338,58 +309,6 @@ backup:
 # On by default: no external provisioning needed, see charts/retention/values.yaml.
 retention:
   enabled: true
-# Keycloak + its own Postgres (MAIR-139). Realm, clients and sizing in
-# charts/keycloak/values.yaml; <release>-keycloak-secret must be sealed
-# (scripts/seal-secrets.sh) like the other per-instance Secrets.
-keycloak:
-  enabled: true
-  ingress:
-    # Added to `ingress.annotations` on the Keycloak Ingress only. Keycloak's
-    # responses carry large headers (admin console, session cookies): nginx's
-    # default 4k proxy buffer answers 502 "upstream sent too big header".
-    annotations:
-      nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
-    # Paths routed to Keycloak on auth.<domain> (MAIR-414, MAIR-610): only
-    # what a browser needs in the instance realm. Everything else answers 404
-    # from the ingress: the master realm (super-admin sign-in), any other
-    # realm, the admin console (/admin), and the realm's OIDC endpoints that
-    # only servers call (userinfo, discovery, certs, introspection...). Core
-    # (sign-in code exchange, JWKS) and compliance-api use the in-cluster
-    # Service instead (KEYCLOAK_REALM_URL / KEYCLOAK_TOKEN_URL).
-    # An entry is a string (Prefix) or {path, pathType: Exact|Prefix}; `path`
-    # goes through `tpl`. The render refuses a Prefix path without a trailing
-    # "/" (Traefik matches Prefix as a plain string prefix) and any path
-    # reaching another realm, /admin, /metrics, /health or `userinfo`
-    # ("mairie360.keycloakIngressPaths" in templates/_helpers.tpl).
-    paths:
-      # Sign-in page of Login (MAIR-153) and of the account console.
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/auth'
-        pathType: Exact
-      # Code exchange of the account console, a public client running in the
-      # browser (PKCE). Login's own exchange is done by core-api in-cluster.
-      # Closes with the account console (MAIR-611).
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/token'
-        pathType: Exact
-      # Single sign-out (BFF_user, MAIR-143) and its confirmation page.
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/logout'
-        pathType: Exact
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/logout/'
-      # Session and third-party-cookie checks of keycloak-js (account console).
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/login-status-iframe.html'
-        pathType: Exact
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/login-status-iframe.html/'
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/protocol/openid-connect/3p-cookies/'
-      # Login form posts, required actions (OTP / WebAuthn enrolment), e-mail
-      # action links (password reset).
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/login-actions/'
-      # Account console (2FA enrolment MAIR-572, settings-front link MAIR-357)
-      # and its REST API. Public until MAIR-611 closes it.
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/account'
-        pathType: Exact
-      - path: '/realms/{{ include "mairie360.keycloakRealm" . }}/account/'
-      # Themes, scripts and translations of the pages above.
-      - /resources/
-
 # Collector settings; switched on by global.observability.enabled above.
 # See charts/observability/values.yaml.
 observability:

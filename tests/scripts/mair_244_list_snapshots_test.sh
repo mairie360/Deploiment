@@ -71,14 +71,14 @@ for e in c["env"]:
         assert e["valueFrom"]["secretKeyRef"]["name"] == "dev-backup-secret", e
         assert "value" not in e
 # No Postgres credential in a pod that only reads the bucket.
-assert not any(n.startswith("PG") or n.startswith("KEYCLOAK_") for n in names)
+assert not any(n.startswith("PG") for n in names)
 assert c["securityContext"]["readOnlyRootFilesystem"] is True
 PY
 
 # 2. Restic arguments are passed through.
 rm -f "$WORK/calls"
-"$SCRIPT" mairie360-dev dev snapshots --host keycloak-keycloak --json > /dev/null 2>&1
-grep -q -- "-c restic -- restic snapshots --host keycloak-keycloak --json --no-cache$" "$WORK/calls" \
+"$SCRIPT" mairie360-dev dev snapshots --host mairie360 --json > /dev/null 2>&1
+grep -q -- "-c restic -- restic snapshots --host mairie360 --json --no-cache$" "$WORK/calls" \
   && ok "restic arguments passed through" || fail "exec call: $(grep exec "$WORK/calls")"
 
 # 2b. A pod that never gets Ready: error, no restic, pod deleted anyway.
