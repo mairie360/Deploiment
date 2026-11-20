@@ -36,11 +36,13 @@ spec:
     - https://bitnami.github.io/sealed-secrets
     - https://traefik.github.io/charts
     - https://argoproj.github.io/argo-helm
+    - https://cloudnative-pg.github.io/charts
   destinations:
     - { server: "*", namespace: cert-manager }
     - { server: "*", namespace: ingress-nginx }
     - { server: "*", namespace: traefik }
     - { server: "*", namespace: kube-system }
+    - { server: "*", namespace: cnpg-system }
     - { server: https://kubernetes.default.svc, namespace: argocd }
   clusterResourceWhitelist:
     - { group: "*", kind: "*" }

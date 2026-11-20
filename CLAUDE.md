@@ -229,6 +229,7 @@ describes desired state.
 | `cluster-issuer-appset.yaml` | AppSet, clusters generator | applies `bootstrap/cluster-addons/` | instances only |
 | `ingress-nginx-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/ingress-nginx` (4.15.1, last release, retired upstream), default IngressClass | instances **not** labelled `mairie360.fr/ingress=traefik` |
 | `traefik-appset.yaml` | AppSet, clusters generator | `bootstrap/addons/traefik` (chart 41.6.0 = v3.7.13) | instances labelled `mairie360.fr/ingress=traefik` |
+| `cloudnative-pg-appset.yaml` | AppSet, clusters generator | `cloudnative-pg-<cluster>` from `bootstrap/addons/cloudnative-pg` (operator chart 0.29.2 + Barman Cloud plugin 0.9.0, namespace `cnpg-system`), used by `database.cnpg` | instances only |
 | `image-updater-app.yaml` | Application | `argocd-image-updater` 1.3.1, pinned in the manifest, follows `main` | in-cluster (Argo CD machine) |
 | `projects.yaml` | AppProjects (wave -1) | `mairie360-platform` (the rows above) and `mairie360-instances` (the instances AppSet, ansible) | Argo CD machine |
 
