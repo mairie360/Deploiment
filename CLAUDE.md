@@ -497,7 +497,7 @@ Umbrella `type: application` chart with 9 local subcharts (`file://` deps):
   **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
   TTL; `volatile-*` would even drop them first, they are the only keys with a
   TTL) and AOF is on (`config.appendonly`, survives container restarts;
-  `persistence.enabled` for new pods too). The APIs only read `REDIS_URL`,
+  `persistence.enabled` keeps it across new pods, on for staging and prod). The APIs only read `REDIS_URL`,
   so the APIs chart builds it as
   `redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@<release>-redis:6379`
   (Kubernetes expands `$(VAR)` from the variables listed before it).
@@ -855,10 +855,14 @@ and maintaining a parallel Kind topology is what produced the earlier
   requests on SIGTERM (bffs-lib `gracefulShutdown`, under tini).
 - **`replicaCount: 2` on Redis would give two independent caches**, not a
   replicated one. Leave it at 1.
-- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): the
-  AOF survives a container restart but not a new pod (config change, node
-  reboot), which empties the JWT revocation list: revoked tokens are then
-  accepted again by every API but Core until they expire (`JWT_TIMEOUT`).
+- Redis keeps `/data` on a PVC on staging and every prod instance
+  (`redis.persistence.enabled: true`, 1Gi `local-path`, set in `clusters/_base/prod.yaml` and the staging
+  values; `tests/mair_693_redis_persistence_test.yaml`), so the AOF and the JWT
+  revocation list survive a new pod (config change, node drain, chart update).
+  Dev stays on the chart default, an `emptyDir` (`persistence.enabled: false`): there a new pod empties
+  the list and revoked tokens are accepted again by every API but Core until they expire
+  (`JWT_TIMEOUT`). `local-path` is bound to the node, which is fine as an instance is one k3s node;
+  a lost machine still loses Redis (see the disaster recovery doc), users sign in again.
   Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
