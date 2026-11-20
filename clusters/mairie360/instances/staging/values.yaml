@@ -106,8 +106,7 @@ liquibase:
 # this change — until then the CronJob's pod sits in
 # CreateContainerConfigError, same as any new Secret (see the root
 # CLAUDE.md Gotchas). Schedule and retention are applied by Argo CD on the
-# next sync. keycloak.enabled also dumps <release>-keycloak-db into the same
-# repository (KEYCLOAK_DB_PASSWORD, no extra secret to seal).
+# next sync.
 # MAIR-620: push URLs of this instance's Cockpit data sources, from
 #   scripts/tf.sh orgs/mairie360 output -json instances | jq '.staging.cockpit_endpoints'
 # in mairie360/Infra. Not secret.
@@ -130,37 +129,6 @@ backup:
     # Versioned, COMPLIANCE-locked 30 days, created by mairie360/Infra (MAIR-618).
     bucket: "mairie360-backups-staging"
     region: "fr-par"
-  keycloak:
-    enabled: true
-
-# Keycloak (MAIR-139): the instance's identity provider, on
-# https://auth.<global.domain> (DNS record required, like the fronts). Realm
-# and clients: charts/mairie360-stack/charts/keycloak/values.yaml. Its own
-# Postgres is covered by the backup CronJob above (backup.keycloak.enabled,
-# MAIR-231). Requires <release>-keycloak-secret in secrets.yaml
-# (scripts/seal-secrets.sh).
-keycloak:
-  enabled: true
-  # 4 GB machine (3 vCPU, same as dev): cap the heap explicitly, otherwise the
-  # JVM sizes it from the 1Gi limit and the node runs out of memory while
-  # Keycloak builds its server image at start-up (2026-10-07: staging thrashed
-  # its page cache, every probe timed out). The build alone takes several
-  # minutes there, hence the longer start-up window (120 x 5s = 10 min).
-  extraEnv:
-    - name: JAVA_OPTS_KC_HEAP
-      value: "-Xms64m -Xmx512m"
-  startupProbe:
-    periodSeconds: 5
-    failureThreshold: 120
-  realm:
-    # Same Resend relay and verified domain as core-api's EMAIL_FROM above.
-    smtp:
-      from: "noreply@mairie360-eip.fr"
-      fromDisplayName: "Mairie360 (staging)"
-  db:
-    persistence:
-      size: "2Gi"
-      storageClass: "local-path"
 
 APIs:
   # MAIR-565: mirrors prod's warm pool at a lower maximum.

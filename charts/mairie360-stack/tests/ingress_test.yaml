@@ -153,54 +153,12 @@ tests:
       - failedTemplate:
           errorPattern: 'global.ingressController must be "nginx" or "traefik"'
 
-  # --- Keycloak (MAIR-139) follows the same controller as the fronts --------
-  - it: nginx keeps Keycloak on the nginx class with its proxy buffer annotation
-    templates: [templates/keycloak-ingress.yaml]
-    set:
-      global.ingressController: nginx
-    asserts:
-      - equal:
-          path: spec.ingressClassName
-          value: nginx
-      - isSubset:
-          path: metadata.annotations
-          content:
-            cert-manager.io/cluster-issuer: letsencrypt-prod
-            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-            nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
-
-  - it: traefik puts the Keycloak Ingress on the traefik class, HTTPS only
-    templates: [templates/keycloak-ingress.yaml]
+  # --- MAIR-814: Keycloak is gone, no auth.<domain> Ingress nor policy ------
+  - it: no Keycloak Ingress or NetworkPolicy is rendered for either controller
+    templates: [templates/ingress.yaml]
     set:
       global.ingressController: traefik
     asserts:
-      - equal:
-          path: spec.ingressClassName
-          value: traefik
-      - isSubset:
-          path: metadata.annotations
-          content:
-            cert-manager.io/cluster-issuer: letsencrypt-prod
-            acme.cert-manager.io/http01-ingress-ingressclassname: traefik
-            traefik.ingress.kubernetes.io/router.entrypoints: websecure
-            traefik.ingress.kubernetes.io/router.tls: "true"
-      - notExists:
-          path: metadata.annotations["nginx.ingress.kubernetes.io/force-ssl-redirect"]
-
-  - it: the Keycloak NetworkPolicy admits the namespace of the instance's controller
-    templates: [templates/keycloak-network-policy.yaml]
-    set:
-      global.ingressController: nginx
-    asserts:
-      - equal:
-          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
-          value: ingress-nginx
-
-  - it: the Keycloak NetworkPolicy follows traefik and global.ingressNamespace
-    templates: [templates/keycloak-network-policy.yaml]
-    set:
-      global.ingressController: traefik
-    asserts:
-      - equal:
-          path: spec.ingress[0].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
-          value: traefik
+      - notMatchRegex:
+          path: spec.rules[*].host
+          pattern: ^auth\.

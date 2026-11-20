@@ -150,7 +150,6 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
 {{- include "apis.webauthnEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
 {{- include "apis.rateLimitEnv" . }}
-{{- include "apis.keycloakEnv" . }}
 {{- include "apis.otelEnv" . }}
 {{- include "apis.complianceEnv" . }}
 {{- with .root.Values.commonEnv }}
@@ -221,35 +220,6 @@ everywhere is not rendered and the API keeps the lib's default. The counters are
 {{- end -}}
 
 {{/*
-MAIR-554: Keycloak settings of the APIs listed in keycloakClientInstances
-(API_lib / Core `KeycloakConfig::from_env`). Core reaches the realm through
-the in-cluster Service, but Keycloak writes its public hostname into the
-`iss` claim (KC_HOSTNAME), hence the separate KEYCLOAK_ISSUER. The secret is
-optional: with a <release>-keycloak-secret sealed before it, Core still
-starts, Keycloak sign-in works and only the account synchronisation stays off
-until scripts/seal-secrets.sh + scripts/keycloak-core-api-client.sh run.
-*/}}
-{{- define "apis.keycloakEnv" -}}
-{{- if has .name (.root.Values.keycloakClientInstances | default list) }}
-{{- $kc := ((.root.Values.global).keycloak) | default dict }}
-{{- $realm := $kc.realm | default "mairie360" }}
-{{- $host := $kc.hostname | default (printf "auth.%s" (required "global.domain is required (Keycloak issuer)" .root.Values.global.domain)) }}
-- name: KEYCLOAK_REALM_URL
-  value: {{ printf "http://%s-keycloak:8080/realms/%s" .root.Release.Name $realm | quote }}
-- name: KEYCLOAK_ISSUER
-  value: {{ printf "https://%s/realms/%s" $host $realm | quote }}
-- name: KEYCLOAK_CLIENT_ID
-  value: {{ .name | quote }}
-- name: KEYCLOAK_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ printf "%s-keycloak-secret" .root.Release.Name }}
-      key: {{ printf "%s_CLIENT_SECRET" (.name | upper | replace "-" "_") }}
-      optional: true
-{{- end }}
-{{- end -}}
-
-{{/*
 MAIR-131: OpenTelemetry SDK settings (standard OTEL_* variables) for the APIs
 listed in global.observability.apis, once global.observability.enabled turns
 on the collector of the observability subchart. Its Service name
@@ -275,8 +245,7 @@ OTEL_RESOURCE_ATTRIBUTES for the $(K8S_POD_NAME) expansion to work.
 
 {{/*
 MAIR-498: settings and erasure credentials of the compliance service, injected
-into compliance-api ONLY: no other API gets the Keycloak admin client, the
-Resend key or the S3 delete keys. Every secret key is optional: a connector
+into compliance-api ONLY: no other API gets the Resend key or the S3 delete keys. Every secret key is optional: a connector
 without its credentials stays "not configured" (Compliance_API CLAUDE.md).
 Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 */}}
@@ -288,9 +257,6 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 {{- define "apis.complianceEnv" -}}
 {{- $c := (.root.Values.global).compliance | default dict }}
 {{- if and $c.enabled (eq .name "compliance-api") }}
-{{- $kc := $c.keycloak | default dict }}
-{{- $realm := ((.root.Values.global).keycloak).realm | default "mairie360" }}
-{{- $kcBase := printf "http://%s-keycloak:8080" .root.Release.Name }}
 {{- $secret := include "apis.complianceSecretName" .root }}
 - name: SCAN_INTERVAL_SECONDS
   value: {{ $c.scanIntervalSeconds | default 21600 | quote }}
@@ -306,15 +272,6 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 - name: REDIS_ERASURE_PATTERNS
   value: {{ join "," . | quote }}
 {{- end }}
-- name: KEYCLOAK_ADMIN_URL
-  value: {{ $kc.adminUrl | default (printf "%s/admin/realms/%s" $kcBase $realm) | quote }}
-- name: KEYCLOAK_TOKEN_URL
-  value: {{ $kc.tokenUrl | default (printf "%s/realms/%s/protocol/openid-connect/token" $kcBase $realm) | quote }}
-- name: KEYCLOAK_ADMIN_CLIENT_ID
-  value: {{ $kc.adminClientId | default "compliance" | quote }}
-- name: KEYCLOAK_ADMIN_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef: { name: {{ $secret }}, key: KEYCLOAK_ADMIN_CLIENT_SECRET, optional: true }
 {{- with ($c.resend).audienceId }}
 - name: RESEND_AUDIENCE_ID
   value: {{ . | quote }}

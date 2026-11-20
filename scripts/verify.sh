@@ -57,8 +57,6 @@ set -uo pipefail
 CTX="${1:?usage: $0 <kube-context> <env> [domain]}"
 ENV="${2:?}"
 DOMAIN="${3:-}"
-# Realm provisioned by charts/keycloak (global.keycloak.realm).
-KEYCLOAK_REALM="${KEYCLOAK_REALM:-mairie360}"
 # One machine = one cluster = one mairie360-<env> namespace.
 NS="mairie360-${ENV}"
 RELEASE="${ENV}"
@@ -115,7 +113,7 @@ done
 [ -z "$EMPTY" ] && ok "every Service points at pods" || ko "Services without endpoints:$EMPTY"
 
 step 4 "The expected Secrets are unsealed and carry their keys"
-for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis" "${RELEASE}-keycloak-secret"; do
+for s in "${RELEASE}-app-secrets" "${RELEASE}-database-secret" "${RELEASE}-redis"; do
   SYNCED=$($K get sealedsecret "$s" -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)
   case "$SYNCED" in
     True) ok "$s unsealed" ;;
@@ -137,8 +135,6 @@ done
 
 key_set "${RELEASE}-database-secret" ADMIN_EMAIL \
   "the Liquibase Job refuses to migrate (MAIR-414, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
-key_set "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET \
-  "core-api cannot administer the realm (MAIR-554, scripts/seal-secrets.sh then scripts/keycloak-core-api-client.sh)"
 
 # Checks on the plaintext values themselves need a Secret read, which the
 # Promote workflow's runner does not have (MAIR-346, see the header). There
@@ -254,7 +250,7 @@ else
   ko "hubble-relay unavailable"
 fi
 
-step 11 "MAIR-119/MAIR-231: the latest backup Job succeeded (Mairie360 DB + Keycloak DB when enabled)"
+step 11 "MAIR-119/MAIR-231: the latest backup Job succeeded (Mairie360 DB)"
 if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
   LATEST=$($K get jobs -l app.kubernetes.io/component=backup \
              --sort-by=.status.startTime -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
@@ -262,40 +258,10 @@ if $K get cronjob "${RELEASE}-backup" >/dev/null 2>&1; then
     ok "backup CronJob present, no Job has run yet"
   else
     S=$($K get job "$LATEST" -o jsonpath='{.status.succeeded}' 2>/dev/null)
-    # A single Job dumps both databases in sequence (set -euo pipefail), so
-    # "succeeded" already covers the Keycloak dump when backup.keycloak.enabled.
     [ "${S:-0}" -ge 1 ] && ok "backup $LATEST succeeded" || ko "backup $LATEST failed or still running"
   fi
 else
   ok "backup not enabled for this instance"
-fi
-
-step 12 "MAIR-139: Keycloak serves the ${KEYCLOAK_REALM} realm"
-if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
-  if $K rollout status "deploy/${RELEASE}-keycloak" --timeout=10s >/dev/null 2>&1; then
-    ok "keycloak Deployment available"
-  else
-    ko "keycloak Deployment not available (kubectl logs deploy/${RELEASE}-keycloak)"
-  fi
-  # MAIR-610: keycloak-test is the in-namespace label the Keycloak
-  # NetworkPolicy admits for checks (besides the Keycloak-client APIs).
-  if probe keycloak "app.kubernetes.io/component=keycloak-test" \
-       curl -sf -m 10 "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
-       2>/dev/null | grep -q '"issuer":"https://'; then
-    ok "realm ${KEYCLOAK_REALM} imported, issuer on https"
-  else
-    ko "realm ${KEYCLOAK_REALM} not served to a keycloak-test pod (import failed, or NetworkPolicy)"
-  fi
-
-  step 12b "MAIR-610: a BFF pod does not reach Keycloak (only the ingress and the Keycloak-client APIs do)"
-  if probe keycloak-bff "app.kubernetes.io/component=bff" \
-       curl -s -m 5 -o /dev/null "http://${RELEASE}-keycloak:8080/realms/${KEYCLOAK_REALM}/" >/dev/null 2>&1; then
-    ko "a bff-labelled pod reaches Keycloak: NetworkPolicy not narrowed (MAIR-610)"
-  else
-    ok "bff-labelled pod refused"
-  fi
-else
-  ok "keycloak not enabled for this instance"
 fi
 
 # MAIR-795: cert-manager copies the Ingress's solver class onto a Certificate
@@ -334,8 +300,8 @@ else
 fi
 
 if [ -n "$DOMAIN" ]; then
-  step 13 "Trusted TLS certificate on https://login.${DOMAIN} and https://auth.${DOMAIN}"
-  for host in "login.${DOMAIN}" "auth.${DOMAIN}"; do
+  step 13 "Trusted TLS certificate on https://login.${DOMAIN}"
+  for host in "login.${DOMAIN}"; do
     ISSUER=$(echo | openssl s_client -connect "${host}:443" \
                -servername "${host}" 2>/dev/null \
              | openssl x509 -noout -issuer 2>/dev/null || true)
@@ -347,71 +313,11 @@ if [ -n "$DOMAIN" ]; then
     esac
   done
 
-  step 13b "MAIR-414/MAIR-610: auth.${DOMAIN} serves the sign-in pages and the account console, nothing else"
-  if $K get deploy "${RELEASE}-keycloak" >/dev/null 2>&1; then
-    AUTH="https://auth.${DOMAIN}"
-    REALM_URL="${AUTH}/realms/${KEYCLOAK_REALM}"
-    # Routed: Login's sign-in page (client core-api, MAIR-153) and the
-    # account console (2FA enrolment MAIR-572, settings-front link MAIR-357).
-    LOGIN_CALLBACK="https%3A%2F%2Flogin.${DOMAIN}%2Fapi%2Fauth%2Fkeycloak%2Fcallback"
-    SIGN_IN="${REALM_URL}/protocol/openid-connect/auth?client_id=core-api&response_type=code&scope=openid&redirect_uri=${LOGIN_CALLBACK}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
-    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$SIGN_IN" || true)
-    case "$CODE" in 200|302|303) ok "realm sign-in page served ($CODE)" ;; *) ko "realm sign-in page: code $CODE" ;; esac
-    CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${REALM_URL}/account/" || true)
-    case "$CODE" in 200|302|303) ok "account console served ($CODE)" ;; *) ko "account console: code $CODE" ;; esac
-    # Not routed: the 404 must come from the ingress controller itself, not
-    # from Keycloak (which answers 404 too on /metrics or /health when they
-    # reach port 8080). Traefik's body is "404 page not found", ingress-nginx's
-    # carries "<center>nginx</center>"; Keycloak's is neither.
-    for path in \
-      "/realms/master/protocol/openid-connect/auth?client_id=security-admin-console" \
-      "/realms/master/.well-known/openid-configuration" \
-      "/realms/master/account/" \
-      "/realms/${KEYCLOAK_REALM}/protocol/openid-connect/userinfo" \
-      "/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration" \
-      "/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs" \
-      "/admin/master/console/" \
-      "/admin/realms/master" \
-      "/admin/realms/${KEYCLOAK_REALM}x/users" \
-      "/metrics" \
-      "/health/ready"; do
-      OUT=$(curl -s -m 10 -w ' %{http_code}' "${AUTH}${path}" || true)
-      case "$OUT" in
-        "404 page not found"*" 404"|*"<center>nginx</center>"*" 404") ok "${path%%\?*} not routed (ingress 404)" ;;
-        *" 404") ko "${path%%\?*} reaches Keycloak (404 from Keycloak, not the ingress)" ;;
-        *) ko "${path%%\?*} reachable from the Internet: code ${OUT##* }" ;;
-      esac
-    done
-
-    # MAIR-609/MAIR-610: the realm's console, when the instance publishes it
-    # (global.keycloak.consoleAccess, Traefik), sits behind core-api's
-    # ForwardAuth: without the cookie of a temporary link, core-api answers
-    # 401 and Keycloak is never reached. Not published: the ingress's 404.
-    # A bogus link is refused by core-api itself.
-    step 13c "MAIR-609/MAIR-610: the realm's admin console needs core-api's temporary access"
-    for path in "/admin/${KEYCLOAK_REALM}/console/" "/admin/realms/${KEYCLOAK_REALM}/users"; do
-      OUT=$(curl -s -m 10 -w ' %{http_code}' "${AUTH}${path}" || true)
-      case "$OUT" in
-        "404 page not found"*" 404"|*"<center>nginx</center>"*" 404") ok "${path}: console not published on this instance (ingress 404)" ;;
-        *" 401") ok "${path}: refused without the console cookie (401)" ;;
-        *) ko "${path}: code ${OUT##* } without the console cookie, expected 401 or the ingress 404" ;;
-      esac
-    done
-    OUT=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "${AUTH}/admin-access?token=not-a-link" || true)
-    case "$OUT" in
-      401) ok "/admin-access refuses a bogus link (401)" ;;
-      404) ok "/admin-access not published on this instance (404)" ;;
-      *) ko "/admin-access?token=not-a-link: code ${OUT}, expected 401" ;;
-    esac
-  else
-    ok "keycloak not enabled for this instance"
-  fi
-
   step 14 "HTTP redirects to HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
   case "$CODE" in 301|302|308) ok "redirect $CODE" ;; *) ko "code $CODE" ;; esac
 
-  step 15 "Only the fronts and Keycloak are exposed (6443 must be on the VPN, not public)"
+  step 15 "Only the fronts are exposed (6443 must be on the VPN, not public)"
   IP=$(getent hosts "login.${DOMAIN}" | awk '{print $1}' | head -1)
   for p in 3000 4000 5432 6379 6443 8080 9000; do
     if timeout 3 bash -c "</dev/tcp/${IP}/${p}" 2>/dev/null; then

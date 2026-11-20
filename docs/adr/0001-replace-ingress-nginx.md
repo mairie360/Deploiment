@@ -26,8 +26,7 @@ removed; it is feature-frozen, and new work happens in the Gateway API.
 
 What we actually use from ingress-nginx is small:
 
-- host-based routing to the fronts and to Keycloak (`templates/ingress.yaml`,
-  `templates/keycloak-ingress.yaml`, `pathType: Prefix`);
+- host-based routing to the fronts (`templates/ingress.yaml`, `pathType: Prefix`);
 - TLS termination with cert-manager certificates;
 - three annotations: `proxy-body-size: 50m`, `ssl-redirect`,
   `force-ssl-redirect`; controller config `use-forwarded-headers`,

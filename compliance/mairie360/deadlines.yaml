@@ -4,7 +4,7 @@
 version: 1
 deadlines:
   - id: access-review
-    task: review of the people with access (compliance/<org>/access.yaml, SSH keys, Argo CD, Keycloak admins)
+    task: review of the people with access (compliance/<org>/access.yaml, SSH keys, Argo CD)
     every: "3 months"
     last_done: null
   - id: restore-test

@@ -49,7 +49,7 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
 
    ```bash
    ./scripts/list-snapshots.sh <kube-context> <env>
-   # one lineage only: --host <POSTGRES_DB> (Mairie360) or keycloak-<db> (Keycloak)
+   # one lineage only: --host <POSTGRES_DB>
    ./scripts/list-snapshots.sh <kube-context> <env> snapshots --host <POSTGRES_DB>
    ```
 
@@ -106,21 +106,7 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
    the failed Job (`kubectl --context <ctx> -n $NS delete job <env>-backup-restore`: a Job in
    `Failed` is not started again by a new `apply`) and create it again until it completes. Users erased since the snapshot stay anonymized.
 
-4. **Keycloak** (instances with `keycloak.enabled`, until it is removed, MAIR-804): its
-   database is a separate lineage that the Job does not restore. Restore it only if the
-   Keycloak database itself is lost:
-
-   ```bash
-   kubectl --context <ctx> -n $NS scale deploy <env>-keycloak --replicas=0
-   ./scripts/list-snapshots.sh <ctx> <env> dump <keycloak-snapshot-id> /keycloak.dump > keycloak.dump
-   pg_restore --list keycloak.dump > /dev/null   # the archive must be complete before anything is dropped
-   kubectl --context <ctx> -n $NS exec -i <env>-keycloak-db-0 -- \
-     pg_restore --clean --if-exists --no-owner --single-transaction -U keycloak -d keycloak < keycloak.dump
-   rm keycloak.dump
-   kubectl --context <ctx> -n $NS scale deploy <env>-keycloak --replicas=1
-   ```
-
-5. **Restart** everything you stopped, in reverse order:
+4. **Restart** everything you stopped, in reverse order:
 
    ```bash
    kubectl --context <ctx> -n $NS patch cronjob <env>-backup -p '{"spec":{"suspend":false}}'
@@ -133,7 +119,7 @@ Scaleway console (machines, DNS, the backup bucket), a `Deploiment` checkout nex
    Then sync the Application (Argo CD UI, or `argocd app sync <env> --core` on the Argo CD
    machine): it scales the APIs and BFFs back to the replicas of the values.
 
-6. **Check**: `./scripts/verify.sh <ctx> <env> <domain>`, sign in on the Login front, open
+5. **Check**: `./scripts/verify.sh <ctx> <env> <domain>`, sign in on the Login front, open
    a project and a calendar. Run the backup CronJob once by hand so that the next snapshot
    is not 24 hours away:
 

@@ -28,7 +28,6 @@
         "ingressController": {},
         "ingressNamespace": {},
         "jwt": {},
-        "keycloak": {},
         "legal": {},
         "monitoringNamespace": {},
         "networkPolicy": {
@@ -46,7 +45,6 @@
     },
     "image": {},
     "ingress": {},
-    "keycloak": {},
     "liquibase": {},
     "observability": {},
     "redis": {},
