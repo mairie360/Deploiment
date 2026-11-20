@@ -1,0 +1,54 @@
+# CloudNativePG operator + Barman Cloud plugin, on every INSTANCE machine.
+#
+# Version and values live in the wrapper chart bootstrap/addons/cloudnative-pg,
+# read at the machine's own revision (MAIR-346): this file only says where and
+# at which revision, it must stay free of versions, values, domains and IPs
+# (MAIR-157, shared by every group and every instance).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+spec:
+  goTemplate: true
+  # MAIR-710: deleting this ApplicationSet, or a cluster leaving its
+  # generator, removes the Application only, never the add-on on the instance
+  # (CRDs included: deleting the Cluster CRD would delete every database).
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  generators:
+    - clusters:
+        # Instance clusters only (label set by ansible, role
+        # k8s_instance_link): the Argo CD machine itself (in-cluster,
+        # unlabelled) runs no database.
+        selector:
+          matchLabels:
+            mairie360.fr/role: instance
+        values:
+          # Revision of this repo the machine follows: the annotation ansible
+          # writes on the Argo CD cluster Secret from deploiment_env_revisions
+          # (dev -> main, staging -> staging, prod -> prod), `main` when it
+          # is absent. Same expression in every bootstrap AppSet; see
+          # docs/adr/0002-environment-promotion.md.
+          revision: '{{ if .metadata.annotations }}{{ index .metadata.annotations "mairie360.fr/revision" | default "main" }}{{ else }}main{{ end }}'
+  template:
+    metadata:
+      name: 'cloudnative-pg-{{ .name }}'
+    spec:
+      project: mairie360-platform
+      source:
+        repoURL: https://github.com/mairie360/Deploiment.git
+        targetRevision: '{{ .values.revision }}'
+        path: bootstrap/addons/cloudnative-pg
+        helm:
+          releaseName: cloudnative-pg
+      destination:
+        server: '{{ .server }}'
+        namespace: cnpg-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
