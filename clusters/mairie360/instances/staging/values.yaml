@@ -250,30 +250,18 @@ Fronts:
       enabled: true
       port: 5000
       image: { repository: ghcr.io/mairie360/login-front, tag: "staging-7503ac1" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
     project-front:
       enabled: true
       port: 5001
       image: { repository: ghcr.io/mairie360/projects-front, tag: "staging-86e8d05" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
     calendar-front:
       enabled: true
       port: 5002
       image: { repository: ghcr.io/mairie360/calendar-front, tag: "staging-91a5fa6" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
     message-front:
       enabled: true
       port: 5003
       image: { repository: ghcr.io/mairie360/message-front, tag: "staging-2fdf0c4" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
     dashboard-front:
       enabled: true
       port: 5004
@@ -286,13 +274,7 @@ Fronts:
       enabled: true
       port: 5006
       image: { repository: ghcr.io/mairie360/elearning-front, tag: "staging-8a76bd6" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
     admin-front:
       enabled: true
       port: 5007
       image: { repository: ghcr.io/mairie360/administrator-front, tag: "staging-2eee764" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".staging.mairie360-eip.fr"
