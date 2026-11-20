@@ -10,8 +10,8 @@ metadata:
 {{- if .Values.kubeletStats.enabled }}
 ---
 # kubeletstats reads the kubelet's /stats/summary. `nodes/stats` is a
-# cluster-scoped resource, hence a ClusterRole; it grants read access to
-# resource usage only, not to pod specs or secrets. Named after the namespace
+# cluster-scoped resource, hence a ClusterRole; alone it grants read access to
+# resource usage only (see utilizationMetrics below for the pod specs). Named after the namespace
 # so two releases on one cluster would not collide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -25,6 +25,21 @@ rules:
   - apiGroups: [""]
     resources: ["nodes/stats"]
     verbs: ["get"]
+  {{- if .Values.kubeletStats.utilizationMetrics }}
+  # The request/limit utilization metrics need the pod specs (kubelet /pods).
+  - apiGroups: [""]
+    resources: ["nodes/pods"]
+    verbs: ["get"]
+  {{- if .Values.kubeletStats.grantNodesProxy }}
+  # Before Kubernetes 1.33 (KubeletFineGrainedAuthz) the kubelet only checks
+  # nodes/proxy for /pods. nodes/proxy is the whole kubelet API, exec into any
+  # pod of the node included: drop it (grantNodesProxy: false) once the
+  # machines run k3s >= 1.33.
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+  {{- end }}
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -71,19 +71,13 @@
 #                   neither, the script fails (MAIR-414): the Liquibase Job
 #                   refuses to run without it rather than seed the public
 #                   template admin account.
-#   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
-#                   to re-seal one regenerated in the admin console; otherwise
-#                   the value on the cluster is kept, or generated once.
-#   CORE_API_CLIENT_SECRET  same for the core-api client (MAIR-554). When
-#                   generated for a realm that already exists, run
-#                   scripts/keycloak-core-api-client.sh once synced.
 #   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
 #                   stored in <env>-cockpit-secret for the OpenTelemetry
 #                   Collector (MAIR-131, charts/observability). When unset, the
 #                   value already on the cluster is kept; with neither, that
 #                   Secret is not sealed (only needed with
 #                   global.observability.enabled).
-#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET / COMPLIANCE_RESEND_API_KEY /
+#   COMPLIANCE_RESEND_API_KEY /
 #   COMPLIANCE_S3_ACCESS_KEY_ID / COMPLIANCE_S3_SECRET_ACCESS_KEY  erasure
 #                   credentials of the compliance service (MAIR-498), stored in
 #                   <env>-compliance-secret, mounted in compliance-api only.
@@ -118,13 +112,8 @@
 # logged in and changed it, rotating the sealed value here would just make
 # it wrong — the Job would leave the live account untouched either way.
 # ADMIN_EMAIL is likewise never rotated, so both stay in lockstep with
-# whatever the admin last set. Same for <env>-keycloak-secret (MAIR-139):
-# Keycloak reads the bootstrap admin password on the first start of an empty
-# database only, its Postgres reads KEYCLOAK_DB_PASSWORD on first init only,
-# and the realm (hence bff-user's client secret) is imported once — rotating
-# the sealed values would change nothing live and only desynchronise them.
-# Rotate those in Keycloak itself (admin console / ALTER ROLE), then re-seal
-# with BFF_USER_CLIENT_SECRET / CORE_API_CLIENT_SECRET set. --rotate-roles ne régénère que les
+# whatever the admin last set.
+# --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -293,29 +282,6 @@ else
 fi
 is_argon2id "$APPADMINPWD" || APPADMINPWD="$(argon2id_hash "$APPADMINPWD")"
 
-# MAIR-139: Keycloak bootstrap admin, its Postgres role and bff-user's client
-# secret. Never rotated by --rotate (see the comment near the top): kept from
-# the cluster, generated once when absent.
-KCADMINPWD="$(prev "${RELEASE}-keycloak-secret" KEYCLOAK_ADMIN_PASSWORD)"
-[ -n "$KCADMINPWD" ] || { KCADMINPWD="$(gen)"; echo "  KEYCLOAK_ADMIN_PASSWORD : generated"; }
-KCDBPWD="$(prev "${RELEASE}-keycloak-secret" KEYCLOAK_DB_PASSWORD)"
-[ -n "$KCDBPWD" ] || { KCDBPWD="$(gen)"; echo "  KEYCLOAK_DB_PASSWORD    : generated"; }
-KCBFFSECRET="${BFF_USER_CLIENT_SECRET:-}"
-if [ -n "$KCBFFSECRET" ]; then
-  echo "  BFF_USER_CLIENT_SECRET  : from BFF_USER_CLIENT_SECRET"
-else
-  KCBFFSECRET="$(prev "${RELEASE}-keycloak-secret" BFF_USER_CLIENT_SECRET)"
-  [ -n "$KCBFFSECRET" ] || { KCBFFSECRET="$(gen)"; echo "  BFF_USER_CLIENT_SECRET  : generated"; }
-fi
-# MAIR-554: secret of the core-api client, same lifecycle as bff-user's.
-KCCORESECRET="${CORE_API_CLIENT_SECRET:-}"
-if [ -n "$KCCORESECRET" ]; then
-  echo "  CORE_API_CLIENT_SECRET  : from CORE_API_CLIENT_SECRET"
-else
-  KCCORESECRET="$(prev "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET)"
-  [ -n "$KCCORESECRET" ] || { KCCORESECRET="$(gen)"; echo "  CORE_API_CLIENT_SECRET  : generated (run scripts/keycloak-core-api-client.sh on a realm already imported)"; }
-fi
-
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
   key="${role}-password"
@@ -406,13 +372,12 @@ else
 fi
 
 # MAIR-498: erasure credentials of the compliance service, issued elsewhere
-# (Keycloak admin console, Resend, Object Storage): never generated, kept from
+# (Resend, Object Storage): never generated, kept from
 # the cluster when not supplied.
-COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
+COMPLIANCE_KEYS="RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
 compliance_args=()
 for key in $COMPLIANCE_KEYS; do
   case "$key" in
-    KEYCLOAK_ADMIN_CLIENT_SECRET) var=COMPLIANCE_KEYCLOAK_CLIENT_SECRET ;;
     *) var="COMPLIANCE_${key}" ;;
   esac
   val="${!var:-}"
@@ -541,14 +506,6 @@ kubectl create secret generic "${RELEASE}-redis" \
   --namespace "$NS" "${redis_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/redis.yaml"
 
-kubectl create secret generic "${RELEASE}-keycloak-secret" \
-  --namespace "$NS" \
-  --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KCADMINPWD" \
-  --from-literal=KEYCLOAK_DB_PASSWORD="$KCDBPWD" \
-  --from-literal=BFF_USER_CLIENT_SECRET="$KCBFFSECRET" \
-  --from-literal=CORE_API_CLIENT_SECRET="$KCCORESECRET" \
-  --dry-run=client -o yaml | seal > "$TMP/keycloak.yaml"
-
 if [ -n "$GHCR_TOKEN" ]; then
   kubectl create secret docker-registry ghcr-secret \
     --namespace "$NS" --docker-server=ghcr.io \
@@ -619,12 +576,10 @@ mkdir -p "$(dirname "$OUT")"
   echo "# Set the admin account's e-mail (MAIR-170, ADMIN_PASSWORD is generated once unless set,"
   echo "# sealed as its argon2id hash, MAIR-414):"
   echo "#   ADMIN_EMAIL=admin@example.org ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
-  echo "# Re-seal a bff-user client secret regenerated in the Keycloak admin console (MAIR-139):"
-  echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
   echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Set the erasure credentials of the compliance service (MAIR-498):"
-  echo "#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET=... COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "#   COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do

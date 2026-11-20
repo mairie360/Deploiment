@@ -1,6 +1,6 @@
 apiVersion: v2
 name: mairie360-stack
-description: Umbrella chart Mairie360 — Postgres, Redis, migrations, Keycloak, APIs, BFFs, Fronts, observability
+description: Umbrella chart Mairie360 — Postgres, Redis, migrations, APIs, BFFs, Fronts, observability
 type: application
 version: 0.6.0
 appVersion: "0.6.0"
@@ -19,8 +19,6 @@ dependencies:
   - name: backup
     version: "0.1.0"
   - name: retention
-    version: "0.1.0"
-  - name: keycloak
     version: "0.1.0"
   - name: observability
     version: "0.1.0"

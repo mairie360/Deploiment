@@ -72,27 +72,6 @@ version before running restic.
 Argo CD picks up the change on the next sync; there is no hook, so the
 CronJob is created/updated like any other resource.
 
-## Keycloak (MAIR-231)
-
-Set `backup.keycloak.enabled: true` on an instance where Keycloak is deployed
-(`keycloak.enabled: true`, the default everywhere) to add a second
-`pg_dump`/`restic backup` pass, right after the Mairie360 database, against
-Keycloak's own PostgreSQL (`<release>-keycloak-db`). It authenticates with
-`KEYCLOAK_DB_PASSWORD` from `<release>-keycloak-secret` (nothing new to seal)
-and lands in the **same** S3 repository, tagged with its own `--host
-keycloak-<db-name>` so it is a separate snapshot lineage from the Mairie360
-database's, with its own retention. `charts/keycloak/templates/network-policy.yaml`
-admits `app.kubernetes.io/component: backup` on `keycloak-db:5432` for this.
-
-Sibling subcharts don't see each other's values, so this is independent from
-the umbrella chart's `keycloak.enabled`: don't turn it on for an instance
-without Keycloak. The restore Job (`templates/restore-job.yaml`) is not
-wired up for the Keycloak dump yet — restoring it today means dumping the
-snapshot by hand (`restic dump --host keycloak-<db-name> <snapshot> ... |
-pg_restore` against `<release>-keycloak-db`), same connection details as
-`charts/keycloak/templates/db-statefulset.yaml`; the runbook
-(`docs/en/disaster-recovery.md`, scenario A step 4) gives the commands.
-
 ## Sealed backups: a key per user (MAIR-500)
 
 `backup.sealing.enabled` turns the backup into crypto-shredding: an erased user becomes unreadable
@@ -179,8 +158,7 @@ nothing outside the dump is lost, but everything written after the snapshot is.
 
 **What a restore cannot give back.** Backups run once a day: up to 24 hours of
 writes are lost, and the chart has no point-in-time recovery or failover.
-Keycloak's database and Redis (the JWT revocation list) are not restored by
-this Job.
+Redis (the JWT revocation list) is not restored by this Job.
 
 Delete the Job (`kubectl delete job <release>-backup-restore`) once done —
 `ttlSecondsAfterFinished` also cleans it up automatically after an hour.

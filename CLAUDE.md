@@ -10,8 +10,8 @@ code here — only Helm charts, per-environment values, and Argo CD bootstrap ma
 
 The platform is 5 backend APIs (Rust), 7 BFFs (Node), and 8 frontends (Node), plus
 PostgreSQL, Redis, a Liquibase migration job, a backup CronJob (MAIR-119/MAIR-231, on
-for every tracked instance), an optional OpenTelemetry Collector (MAIR-131 POC) and,
-since MAIR-139, one Keycloak (with its own PostgreSQL) per instance.
+for every tracked instance), and an optional OpenTelemetry Collector (MAIR-131 POC). There is no
+identity provider besides core-api (Keycloak was removed, MAIR-804).
 APIs: `core`, `project`, `calendar`, `message`, `elearning`. BFFs and fronts add
 `dashboard` and `settings`, which have no API of their own (MAIR-134, they
 replaced the never-built `email` / `files` services), plus `user`/`login` and an
@@ -88,7 +88,7 @@ tests/e2e/run.sh
 # By hand, from /opt/Deploiment on that machine:
 KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
 
-# Acceptance test of a deployed instance (KEYCLOAK_REALM=… if not mairie360).
+# Acceptance test of a deployed instance.
 # The Promote workflow runs it on staging before prod (MAIR-346); the RBAC it
 # needs is listed at the top of the script.
 ./scripts/verify.sh <kube-context> dev dev.mairie360-eip.fr
@@ -311,8 +311,8 @@ Ingress uses `pathType: Exact` (MAIR-228).
 
 ### The umbrella chart: `charts/mairie360-stack` (v0.6.x)
 
-Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
-`database`, `redis`, `liquibase`, `backup`, `retention`, `keycloak`,
+Umbrella `type: application` chart with 9 local subcharts (`file://` deps):
+`database`, `redis`, `liquibase`, `backup`, `retention`,
 `observability`, `APIs`, `BFFs`, `Fronts`.
 
 - **`APIs`, `BFFs`, `Fronts` are generic multi-instance charts.** Each iterates
@@ -404,9 +404,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   `templates/traefik-middlewares.yaml`, rendered only for traefik since the
   CRD does not exist on an nginx machine). `ingress.annotations` are added
   last and win. Instance values never carry controller annotations anymore.
-  `templates/keycloak-ingress.yaml` is the only other Ingress
-  (`auth.<global.domain>`, own TLS Secret): same `ingress.*` settings plus
-  `keycloak.ingress.annotations`. APIs/BFFs are never exposed.
+  APIs/BFFs are never exposed.
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
@@ -455,11 +453,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   and retention (`restic forget --prune`), so the dump itself never touches
   a disk on either side. Authenticates to the Mairie360 database as the
   same superuser as Liquibase (`<release>-database-secret`), because no
-  single per-API role can read every module's schema; when
-  `backup.keycloak.enabled` (also on everywhere Keycloak is deployed), the
-  same Job dumps `<release>-keycloak-db` right after, with its own
-  `KEYCLOAK_DB_PASSWORD` and its own `--host keycloak-<db-name>`, into the
-  **same** S3 repository as a separate snapshot lineage.
+  single per-API role can read every module's schema.
   `<release>-backup-secret`
   (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`RESTIC_PASSWORD`) is sealed
   the same way as the other per-instance secrets, but those AWS keys can't
@@ -474,8 +468,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   default, `restore.enabled`) is the disaster-recovery counterpart for the
   Mairie360 database (it replaces schema `public` and reloads the dump in one
   transaction, MAIR-240: `pg_restore --clean` fails on partitioned tables;
-  `tests/e2e/restore.sh` runs the whole backup → restore round trip) (Keycloak's dump is restored by hand, see
-  `charts/backup/README.md`): no Argo CD hook annotation, run by hand via
+  `tests/e2e/restore.sh` runs the whole backup → restore round trip) : no Argo CD hook annotation, run by hand via
   `helm template … | kubectl apply -f -` rather than left enabled in a
   tracked values file, or Argo CD would recreate it every sync.
   The disaster-recovery runbook (MAIR-244, `docs/en/disaster-recovery.md` +
@@ -525,7 +518,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   **`noeviction`** (any other policy can drop a `revoked:<sid>` before its
   TTL; `volatile-*` would even drop them first, they are the only keys with a
   TTL) and AOF is on (`config.appendonly`, survives container restarts;
-  `persistence.enabled` for new pods too). The APIs only read `REDIS_URL`,
+  `persistence.enabled` keeps it across new pods, on for staging and prod). The APIs only read `REDIS_URL`,
   so the APIs chart builds it as
   `redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@<release>-redis:6379`
   (Kubernetes expands `$(VAR)` from the variables listed before it).
@@ -543,7 +536,14 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   listed in `global.observability.apis` (only `core-api` for now), scrapes
   pod CPU/RAM from the node's kubelet (`kubeletstats`, ClusterRole on
   `nodes/stats`, filtered to the instance namespace) and pushes both to
-  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. One switch,
+  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. Cockpit drops
+  resource attributes, so `transform/resource-labels` copies
+  `observability.metricResourceLabels` (pod, container, namespace,
+  environment, service) onto every data point, or all pods share one series.
+  `kubeletStats.utilizationMetrics` adds usage as a share of requests and
+  limits; it reads the pod specs (`nodes/pods`), and on k3s < 1.33
+  `nodes/proxy` (`grantNodesProxy`, the whole kubelet API, accepted on
+  2026-11-20; drop it once the machines run >= 1.33). One switch,
   `global.observability.enabled`, renders the collector **and** makes the
   `APIs` chart inject `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
   `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and `OTEL_RESOURCE_ATTRIBUTES`
@@ -563,7 +563,7 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   creates everywhere), its Redis account (`%R~*` for the long-TTL scan, write
   on its own keys and `global.compliance.redis.erasurePatterns` only,
   `+scan +ttl`), its settings, and the erasure credentials of
-  `<release>-compliance-secret` (Keycloak admin client, Resend, S3, every key
+  `<release>-compliance-secret` (Resend, S3, every key
   optional, `scripts/seal-secrets.sh` `COMPLIANCE_*`), **injected into
   compliance-api only**. Its NetworkPolicy admits core-api alone: the BFF rule
   and the Cilium L7 rule of the APIs leave it out. The collector
@@ -573,201 +573,9 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   turns on the logs pipeline. Container stdout is not collected yet: only OTLP
   logs go through the masking. `tests/compliance_service_test.yaml`.
 - **Sync waves**: `-2` NetworkPolicies → `-1` Secrets/ConfigMaps/RBAC → `0`
-  data (Postgres, Redis, Keycloak's Postgres) → `1` migrations, the backup
-  CronJob, the retention CronJob and the collector → `2` APIs and Keycloak →
+  data (Postgres, Redis) → `1` migrations, the backup
+  CronJob, the retention CronJob and the collector → `2` APIs →
   `3` BFFs → `4` Fronts → `5` Ingresses.
-
-### Keycloak (MAIR-139, `charts/keycloak`)
-
-One Keycloak per instance, first brick of the SSO epic (MAIR-135). What the
-subchart renders, all named `<release>-keycloak*`:
-
-- **`<release>-keycloak`**: Deployment (1 replica, `Recreate`, `KC_CACHE=local`)
-  + Service on 8080. Runs `start --import-realm` in production mode behind
-  the ingress controller: `KC_HTTP_ENABLED=true`, `KC_PROXY_HEADERS=xforwarded`,
-  `KC_HOSTNAME=https://<global.keycloak.hostname or auth.<global.domain>>`
-  with `KC_HOSTNAME_STRICT=true`, so every URL it emits (issuer, redirects,
-  admin console) is the public one whatever host the request came in on —
-  a BFF calling the cluster Service sees the same issuer as the browser.
-  Health probes hit the management port (9000, `KC_HEALTH_ENABLED`), which
-  is never exposed. **The admin console is not exposed either (MAIR-414)**:
-  the Ingress routes only `keycloak.ingress.paths` (see **Public surface**
-  below), and `KC_HOSTNAME_ADMIN` (`keycloak.adminUrl`,
-  `http://localhost:8080`) serves it through
-  `kubectl -n mairie360-<env> port-forward svc/<env>-keycloak 8080:8080`,
-  unless the instance publishes the realm's console behind core-api
-  (**Realm console**, MAIR-610, below). Image pinned (`quay.io/keycloak/keycloak:26.x`): an
-  upgrade migrates Keycloak's schema and cannot be rolled back.
-- **`<release>-keycloak-db`**: its own PostgreSQL StatefulSet (stock
-  `postgres:17-alpine`, uid 70) + headless and client Services. Deliberately
-  **not** the Mairie360 database: Keycloak owns its schema, nothing of the
-  `Devops/Database` changelog applies, and the `database` NetworkPolicy
-  stays as is. Covered by the `backup` CronJob as a separate dump
-  (`backup.keycloak.enabled`, MAIR-231) — its own NetworkPolicy admits
-  `component: backup` on 5432 alongside Keycloak itself.
-- **`<release>-keycloak-realm`** ConfigMap, mounted at
-  `/opt/keycloak/data/import`: the `global.keycloak.realm` realm (`mairie360`)
-  with the five `Database` roles (`Admin`, `Maire`, `Responsable`, `User`,
-  `Guest`), three OIDC clients — `login-front` (public, authorization code +
-  PKCE S256), `bff-user` (confidential, service account) and, since
-  MAIR-554, `core-api` (confidential, PKCE S256, service account holding the
-  `realm-management` roles `manage-users`/`view-realm`/`manage-realm`, the
-  only client allowed to administer the realm) — all redirecting
-  to `https://login.<domain>/*` by default (`keycloak.realm.clients.*`), and
-  the Resend SMTP relay when `keycloak.realm.smtp.from` is set. **Keycloak
-  only imports a realm that does not exist yet**: after the first sync, edit
-  the realm in the admin console (it lives in Keycloak's DB), not in values.
-  The ConfigMap holds no secret: `"secret": "${BFF_USER_CLIENT_SECRET}"`,
-  `"secret": "${CORE_API_CLIENT_SECRET}"` and
-  `"password": "${SMTP_PASSWORD}"` are Keycloak placeholders resolved at
-  import from the container env (`secretKeyRef`), not Helm expressions.
-- **`<release>-keycloak-secret`**: `KEYCLOAK_ADMIN_PASSWORD` (bootstrap admin
-  `admin` of the master realm, read on the first start of an empty DB only),
-  `KEYCLOAK_DB_PASSWORD` (Postgres role, first init only),
-  `BFF_USER_CLIENT_SECRET`, `CORE_API_CLIENT_SECRET` (MAIR-554). Sealed by
-  `scripts/seal-secrets.sh` like the others, all generated; **never touched
-  by `--rotate`** for the same reason as `ADMIN_PASSWORD`: none of them is
-  re-read once Keycloak has started, so rotate in Keycloak itself, then
-  re-seal the client secret with `BFF_USER_CLIENT_SECRET=…` /
-  `CORE_API_CLIENT_SECRET=…`. `SMTP_PASSWORD` is read from
-  `<release>-app-secrets` (optional), same Resend key as core-api.
-- **Public surface (MAIR-610).** `auth.<domain>` routes only what a browser
-  needs in the instance realm `global.keycloak.realm` (`R`), from
-  `keycloak.ingress.paths` (umbrella `values.yaml`, each `path` through
-  `tpl`): Exact `/realms/R/protocol/openid-connect/{auth,token,logout,login-status-iframe.html}`,
-  Prefix `/realms/R/protocol/openid-connect/{logout/,login-status-iframe.html/,3p-cookies/}`,
-  Prefix `/realms/R/login-actions/`, Exact `/realms/R/account` + Prefix
-  `/realms/R/account/` (account console, MAIR-572 / MAIR-357) and Prefix
-  `/resources/`. Everything else is a 404 from the ingress: the `master`
-  realm (Keycloak's super-admin sign-in), any other realm, `/admin`,
-  `userinfo`, the discovery document, `certs`, introspection, and the
-  management endpoints (`/metrics`, `/health`, port 9000 anyway). Nothing
-  server-side needs them publicly: core-api (code exchange, JWKS, Admin API)
-  and compliance-api use the in-cluster Service. `token` stays public only
-  for the account console (public client, PKCE in the browser).
-  `"mairie360.keycloakIngressPaths"` (`templates/_helpers.tpl`) fails the
-  render on a Prefix path without a trailing `/` (Traefik matches Prefix as
-  a plain string prefix, so `/realms/R/account` would also route
-  `/realms/R/accountX`) and on any path reaching another realm, `/admin`,
-  `/metrics`, `/health` or `userinfo`, or a prefix above them (`/realms/`,
-  `/realms/R/`, `.../openid-connect/`); inside the realm it also accepts only
-  the browser routes above with their exact pathType (`$realmRoutes`), so a
-  Prefix `.../token/` (introspection), `certs` or the discovery document fail
-  too. Same Ingress for nginx and traefik.
-- **Network (MAIR-610)**: `templates/keycloak-network-policy.yaml` (umbrella,
-  same name as the subchart's former policy so Argo CD replaces it in place)
-  admits on 8080 the ingress-controller namespace, the APIs of
-  `APIs.keycloakClientInstances` (`core-api`) and, with
-  `global.compliance.enabled`, `compliance-api` (Keycloak admin client of
-  the erasure), selected by `app.kubernetes.io/name` + `component: api`,
-  plus the `helm test` pod (`component: keycloak-test`). **No BFF, no other
-  API, no front**: none calls Keycloak server-side (BFF_user only builds the
-  public sign-out URL). An API that starts calling Keycloak in-cluster must
-  be added to `APIs.keycloakClientInstances`, or it times out.
-  `keycloak-db` accepts `keycloak` and `backup` on 5432 and nothing else
-  (charts/keycloak).
-- **Tests**: `tests/keycloak_test.yaml`, `tests/keycloak_core_api_test.yaml`
-  and `tests/mair_610_keycloak_surface_test.yaml` (exact routed paths for
-  nginx and traefik, render guards, NetworkPolicy peers) (`helm unittest`),
-  the subchart's `helm test` pod (issuer of the discovery document from a
-  `keycloak-test` pod) and, in e2e, the real Keycloak image: the chainsaw
-  `data-access` test (from a pod labelled as core-api) gets a
-  `client_credentials` token for `bff-user` with the secret from the Secret
-  (proves the placeholder substitution), checks that `core-api`'s token
-  reads the Admin API and `bff-user`'s gets 403 (MAIR-554);
-  `network-policies` checks bff / api / project-api denied and core-api
-  allowed to Keycloak; `ingress` checks through Traefik that the master
-  realm, `userinfo`, discovery, `certs`, `/admin`, `/metrics`, `/health` and
-  a lookalike realm get Traefik's own 404 while the sign-in page and the
-  account console answer (MAIR-610).
-- `scripts/verify.sh` step 4 expects the Secret (and its
-  `CORE_API_CLIENT_SECRET` key, MAIR-554), step 12 checks the realm is
-  served (from a `keycloak-test` pod), step 12b that a `bff` pod is refused,
-  step 13 the `auth.` certificate, step 13b that the sign-in page and the
-  account console answer while the master realm, `userinfo`, discovery,
-  `certs`, `/admin`, `/metrics` and `/health` are the ingress controller's own
-  404, not Keycloak's (MAIR-414, MAIR-610), step 13c that the realm console
-  answers 401 without core-api's cookie (or the ingress 404 when not
-  published) and `/admin-access` refuses a bogus link (MAIR-609),
-  step 12c that every Certificate's HTTP-01 solver class is the one its
-  Ingress asks for (MAIR-795), step 15 that 8080/9000 are closed.
-- **Realm console (MAIR-609 / MAIR-610), `global.keycloak.consoleAccess.enabled`
-  (off by default, on for dev; Traefik only).** `templates/keycloak-console.yaml`
-  publishes the console of the instance realm on `auth.<domain>` behind a
-  Traefik ForwardAuth Middleware (`<fullname>-keycloak-console-auth`) that
-  asks core-api `GET /internal/keycloak-console/verify` with the `Cookie`
-  header only: Ingress `<fullname>-keycloak-console` routes Prefix
-  `/admin/R/console/`, Exact `/admin/realms/R`, Prefix `/admin/realms/R/`,
-  Exact `/admin/realms` and `/admin/serverinfo` (to confirm against the
-  console's calls on dev), and Ingress `<fullname>-keycloak-console-access`
-  routes Exact `/admin-access` to core-api (no ForwardAuth: core-api checks
-  the signed single-use link itself, then sets the HttpOnly
-  `__Secure-mairie360-kc-console` cookie, Path=/admin, 30 min). The journey:
-  an Admin asks BFF_user `POST /admin/keycloak/console-access` → link valid
-  120 s → `/admin-access` → cookie → `/admin/R/console/` → Keycloak's own
-  sign-in in the realm. Both Ingresses reuse `<fullname>-keycloak-tls`
-  without the cluster-issuer annotation (one Certificate per Secret).
-  `<release>-core-api-allow-from-ingress` admits the ingress namespace on
-  core-api's 3000. On, Keycloak gets no `KC_HOSTNAME_ADMIN` (the console
-  lives on the public host): the **master realm's console is then out of
-  reach, administer it with `kcadm` in the pod** (`scripts/keycloak-*.sh`).
-  nginx instances render none of it and keep `adminUrl` (fail closed). The
-  realm role `Admin` is a composite of `realm-management` `manage-users`,
-  `view-users`, `query-users`, `query-groups`, `view-events`
-  (`keycloak.realm.roles[].clientComposites`), nothing realm-wide; a realm
-  imported before MAIR-610 gets it from
-  `scripts/keycloak-admin-role.sh <context> <env>` (idempotent, additive,
-  reads the synced realm ConfigMap). Needs a core-api image with MAIR-609
-  (an older one answers 404 on both routes: closed). Tests:
-  `tests/mair_610_keycloak_console_test.yaml`,
-  `tests/scripts/mair_610_keycloak_admin_role_test.sh`, `scripts/verify.sh`
-  step 13c.
-- **Left for MAIR-611.** Closing the account console (and with it the public
-  `token`, `login-status-iframe.html` and `3p-cookies` paths) once 2FA
-  enrolment moves into the platform.
-- **Core API is wired (MAIR-554).** The APIs of `APIs.keycloakClientInstances`
-  (`core-api`) get `KEYCLOAK_REALM_URL` (in-cluster
-  `http://<release>-keycloak:8080/realms/<realm>`), `KEYCLOAK_ISSUER`
-  (`https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
-  the `iss` Keycloak writes), `KEYCLOAK_CLIENT_ID` (= the instance name) and
-  `KEYCLOAK_CLIENT_SECRET` (`<release>-keycloak-secret` key
-  `<NAME>_CLIENT_SECRET`, optional). Core uses that one client for the
-  sign-in code exchange (ID token audience), the account synchronisation
-  (MAIR-142) and the migration (MAIR-141): the front must redirect with
-  `client_id=core-api` (MAIR-153). A realm imported before MAIR-554 gets
-  the client from `scripts/keycloak-core-api-client.sh <context> <env>`
-  (idempotent, `kcadm` in the Keycloak pod, then restarts core-api), run
-  after `seal-secrets.sh` added `CORE_API_CLIENT_SECRET` and Argo CD synced
-  it. Not wired yet: the BFFs (BFF_user's single logout, MAIR-143) and the
-  other APIs.
-- **Login front is wired (MAIR-153).** The fronts of
-  `Fronts.keycloakLoginInstances` (`login-front`, and `settings-front` for
-  its link to the account console, MAIR-357) get `KEYCLOAK_REALM_URL`
-  (the public `https://<global.keycloak.hostname or auth.<domain>>/realms/<realm>`,
-  where the browser is sent) and `KEYCLOAK_CLIENT_ID`
-  (`Fronts.keycloakLoginClientId`, `core-api`), from `fronts.keycloakEnv`; an
-  instance `env` entry of the same name wins. With both set (and
-  `LOGIN_FRONT_URL`, injected for every front), Login shows
-  **Se connecter avec le compte unique** and returns on
-  `https://login.<domain>/api/auth/keycloak/callback`, already covered by
-  `core-api`'s `https://login.<domain>/*` redirect URI.
-  `tests/keycloak_login_front_test.yaml` pins it.
-- **Optional second factor (MAIR-572).** The realm signs in through the
-  imported `mairie360 browser` flow: password (REQUIRED), then, only for
-  users who configured one (`conditional-user-configured`), an OTP code or a
-  WebAuthn security key / passkey (ALTERNATIVE). Keycloak 26's built-in
-  `browser` flow keeps WebAuthn DISABLED, hence the custom flow; importing it
-  does not remove the built-in flows. Agents enrol from the account console
-  (`https://auth.<domain>/realms/<realm>/account`, routed explicitly since
-  MAIR-610); nobody is forced to (no default `CONFIGURE_TOTP` action), and
-  there is no SMS. `realm.otpPolicy` pins TOTP / HmacSHA1 / 6 digits / 30 s
-  (what every authenticator app supports), codes are single-use. A realm
-  imported before MAIR-572 gets the policy and the flow from
-  `scripts/keycloak-2fa.sh <context> <env>` (idempotent, reads the synced
-  `<release>-keycloak-realm` ConfigMap so it never diverges from the import,
-  keeps the credentials agents registered). Only Keycloak sign-ins are
-  protected: Login's password sign-in goes through Core without Keycloak.
-  `tests/keycloak_2fa_test.yaml` pins the flow and the policy.
 
 ### Network model
 
@@ -782,11 +590,7 @@ ingress-controller ─► fronts ─► bffs ─► apis ─► postgres
                                  └─────────────► redis   (MAIR-531)
               liquibase job ──────────────────► postgres
               backup CronJob ─────────────────► postgres
-              backup CronJob ─────────────────► keycloak-db   (MAIR-231)
               retention CronJob ──────────────► postgres      (MAIR-236)
-ingress-controller ─► keycloak ─► keycloak-db     (MAIR-139)
-  core-api [+ compliance-api] ─► keycloak         (MAIR-610, by app.kubernetes.io/name)
-ingress-controller ─► core-api :3000             (MAIR-610, /admin-access + ForwardAuth, consoleAccess only)
                         apis ──OTLP 4317/4318──► otel-collector (component: telemetry)
               backup CronJob ──OTLP 4318─────► otel-collector   (MAIR-622, success time)
 ```
@@ -794,7 +598,7 @@ ingress-controller ─► core-api :3000             (MAIR-610, /admin-access + 
 Toggle with `global.networkPolicy.enabled` (false on Kind — its default CNI
 ignores NetworkPolicies; true on k3s). `global.networkPolicy.egressDefaultDeny`
 also locks outbound traffic, but stays off until the external destinations of
-`core-api` and Keycloak (Resend, `smtp.resend.com:587`), `elearning-api` (Scaleway
+`core-api` (Resend, `smtp.resend.com:587`), `elearning-api` (Scaleway
 Object Storage), the backup CronJob (S3 bucket) and the otel collector (node kubelet
 :10250, Cockpit) are declared in `egressAllowCIDRs`.
 
@@ -920,7 +724,7 @@ clusters/<org>/instances/<env>/
 **`clusters/_base/prod.yaml` (MAIR-414)** holds the versions and settings of
 every prod instance (mairie360's and the clients'); an instance's
 `values.yaml` only sets `global.domain`, `global.emailFrom`,
-`global.elearningBucket`, its backup bucket and Keycloak's sender. Helm
+`global.elearningBucket`, and its backup bucket. Helm
 replaces lists instead of merging them, so anything instance-specific inside
 an `env` list is a `global.*` value the base reads through `tpl`, never a
 copied list. The instances AppSet (ansible) passes the base first
@@ -931,11 +735,7 @@ image tags therefore live in the base: bumping them moves every prod.
 
 `values.yaml` overrides only what changes; defaults live in
 `charts/mairie360-stack/values.yaml` and each subchart's `values.yaml`.
-`secrets.yaml` is consumed through the chart's `extraObjects`. The committed
-`secrets.yaml` files predate MAIR-139: `<release>-keycloak-secret` is only
-added the next time `scripts/seal-secrets.sh` runs on each instance (Ansible
-`playbooks/secrets.yml`), until then its two pods sit in
-`CreateContainerConfigError`, like any new Secret (see Gotchas).
+`secrets.yaml` is consumed through the chart's `extraObjects`.
 
 There is **no local/Kind values set**: the four machines include a real `dev`,
 and maintaining a parallel Kind topology is what produced the earlier
@@ -1062,19 +862,11 @@ and maintaining a parallel Kind topology is what produced the earlier
 - **Front image name mismatch**: the values key is `project-front` but the image
   is `ghcr.io/mairie360/projects-front` (plural). The image-updater alias follows
   the key, the `image-list` entry follows the image.
-- **HTTP-01 means one ACME challenge per host** — 8 fronts plus `auth.` for
-  Keycloak per environment here (two certificates: `<fullname>-fronts-tls`
-  and `<fullname>-keycloak-tls`). All 9 hostnames must resolve publicly to the
-  ingress before the certificate is issued, and the Let's Encrypt production
+- **HTTP-01 means one ACME challenge per host** — 8 fronts per environment
+  here (one certificate, `<fullname>-fronts-tls`). All 8 hostnames must
+  resolve publicly to the ingress before the certificate is issued, and the Let's Encrypt production
   quota (50 certs/domain/week) burns fast while debugging. Start on
   `letsencrypt-staging`.
-- **Keycloak imports its realm once.** Changing `keycloak.realm.*` after the
-  first sync does nothing on a running instance (the realm exists, Keycloak
-  skips the import): change it in the admin console, or delete the realm and
-  restart the pod. Same for the bootstrap admin password: sealed value read
-  on the first start only. Its admin console is only reachable through a
-  port-forward (MAIR-414, see the Keycloak section), or, for the instance
-  realm, behind core-api's temporary access (MAIR-610).
 - **`maxSurge: 0` with `replicaCount: 1` means downtime on every deploy** (old
   pod killed before the new one is ready). Deliberate on a small VM for the APIs
   and the fronts; it is not a rolling update. The BFFs use `maxSurge: 1` /
@@ -1084,10 +876,14 @@ and maintaining a parallel Kind topology is what produced the earlier
   requests on SIGTERM (bffs-lib `gracefulShutdown`, under tini).
 - **`replicaCount: 2` on Redis would give two independent caches**, not a
   replicated one. Leave it at 1.
-- Redis uses `emptyDir` by default (`redis.persistence.enabled: false`): the
-  AOF survives a container restart but not a new pod (config change, node
-  reboot), which empties the JWT revocation list: revoked tokens are then
-  accepted again by every API but Core until they expire (`JWT_TIMEOUT`).
+- Redis keeps `/data` on a PVC on staging and every prod instance
+  (`redis.persistence.enabled: true`, 1Gi `local-path`, set in `clusters/_base/prod.yaml` and the staging
+  values; `tests/mair_693_redis_persistence_test.yaml`), so the AOF and the JWT
+  revocation list survive a new pod (config change, node drain, chart update).
+  Dev stays on the chart default, an `emptyDir` (`persistence.enabled: false`): there a new pod empties
+  the list and revoked tokens are accepted again by every API but Core until they expire
+  (`JWT_TIMEOUT`). `local-path` is bound to the node, which is fine as an instance is one k3s node;
+  a lost machine still loses Redis (see the disaster recovery doc), users sign in again.
   Any change to the Redis ConfigMap restarts the pod (checksum annotation).
 - **`scripts/seal-secrets.sh`'s `REDIS_ROLES` and `DB_ROLES` lists are
   hand-maintained**, not read from the chart. `REDIS_ROLES` must be kept in
@@ -1154,11 +950,6 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 ## Known gaps (not addressed in this chart)
 
-- **Keycloak runs one replica with a local cache** (`KC_CACHE=local`):
-  scaling it needs Infinispan clustering, not just `replicas`. Its Postgres
-  is now backed up (`backup.keycloak.enabled`, MAIR-231), but the restore
-  Job only automates the Mairie360 database — restoring the Keycloak dump
-  is still a manual `restic dump | pg_restore` (`charts/backup/README.md`).
 - **No PITR until an instance is cut over, no failover.** Every instance
   still runs the single-replica StatefulSet: a lost volume means restoring
   the last daily dump (`backup`). CloudNativePG support is in the chart

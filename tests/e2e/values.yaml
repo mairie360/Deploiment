@@ -6,9 +6,9 @@
 # `/health` on the port given by WHOAMI_PORT_NUMBER. A failure here is always
 # a chart / Kubernetes problem, never an application bug.
 #
-# Postgres, Redis, the Liquibase migrations and Keycloak keep their real
-# images (all public, GHCR / quay.io): the data layer, the per-role accounts,
-# the migration ordering and the realm import are part of what is tested.
+# Postgres, Redis and the Liquibase migrations keep their real images (all
+# public, GHCR): the data layer, the per-role accounts and the migration
+# ordering are part of what is tested.
 #
 # Every password below is a throwaway value for a cluster that lives a few
 # minutes. The chart creates the Secrets itself (`*.secret.create: true`),
@@ -65,21 +65,6 @@ liquibase:
   # No ADMIN_* in the throwaway database secret: keep the template admin.
   adminAccount:
     required: false
-
-# MAIR-139: Keycloak keeps its real image too — the realm import (roles,
-# clients, the client secret substituted from the Secret) is part of what
-# the data-access test checks.
-keycloak:
-  secret:
-    create: true
-  env:
-    KEYCLOAK_ADMIN_PASSWORD: "e2e-keycloak-admin"
-    KEYCLOAK_DB_PASSWORD: "e2e-keycloak-db"
-    BFF_USER_CLIENT_SECRET: "e2e-bff-user-client-secret"
-    CORE_API_CLIENT_SECRET: "e2e-core-api-client-secret"
-  db:
-    persistence:
-      size: "1Gi"
 
 redis:
   secret:
@@ -157,6 +142,3 @@ backup:
     bucket: "e2e-backups"
     region: "us-east-1"
   schedule: "0 3 1 1 *"
-  # Keycloak's dump is a separate lineage restored by hand (charts/backup/README.md).
-  keycloak:
-    enabled: false

@@ -51,7 +51,7 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
 
    ```bash
    ./scripts/list-snapshots.sh <kube-context> <env>
-   # une seule lignée : --host <POSTGRES_DB> (Mairie360) ou keycloak-<db> (Keycloak)
+   # une seule lignée : --host <POSTGRES_DB>
    ./scripts/list-snapshots.sh <kube-context> <env> snapshots --host <POSTGRES_DB>
    ```
 
@@ -112,21 +112,7 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
    jusqu'à ce qu'il se termine. Les utilisateurs
    effacés depuis le snapshot restent anonymisés.
 
-4. **Keycloak** (instances avec `keycloak.enabled`, jusqu'à son retrait, MAIR-804) : sa
-   base est une lignée à part que le Job ne restaure pas. Ne la restaurer que si la base
-   Keycloak elle-même est perdue :
-
-   ```bash
-   kubectl --context <ctx> -n $NS scale deploy <env>-keycloak --replicas=0
-   ./scripts/list-snapshots.sh <ctx> <env> dump <keycloak-snapshot-id> /keycloak.dump > keycloak.dump
-   pg_restore --list keycloak.dump > /dev/null   # l'archive doit être complète avant de supprimer quoi que ce soit
-   kubectl --context <ctx> -n $NS exec -i <env>-keycloak-db-0 -- \
-     pg_restore --clean --if-exists --no-owner --single-transaction -U keycloak -d keycloak < keycloak.dump
-   rm keycloak.dump
-   kubectl --context <ctx> -n $NS scale deploy <env>-keycloak --replicas=1
-   ```
-
-5. **Redémarrer** tout ce qui a été arrêté, dans l'ordre inverse :
+4. **Redémarrer** tout ce qui a été arrêté, dans l'ordre inverse :
 
    ```bash
    kubectl --context <ctx> -n $NS patch cronjob <env>-backup -p '{"spec":{"suspend":false}}'
@@ -140,7 +126,7 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
    sur la machine Argo CD) : elle remet les APIs et les BFFs au nombre de réplicas des
    values.
 
-6. **Vérifier** : `./scripts/verify.sh <ctx> <env> <domaine>`, se connecter sur le front
+5. **Vérifier** : `./scripts/verify.sh <ctx> <env> <domaine>`, se connecter sur le front
    Login, ouvrir un projet et un calendrier. Lancer une fois le CronJob de sauvegarde à la
    main pour que le prochain snapshot ne soit pas dans 24 heures :
 

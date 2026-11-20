@@ -205,8 +205,8 @@ jobs:
         with:
           version: v4.3.2
 
-      # MAIR-414: staging and prod were promoted with backup and Keycloak
-      # enabled but neither Secret sealed, and without ADMIN_*: refuse to
+      # MAIR-414: staging and prod were promoted with backup enabled but its
+      # Secret not sealed, and without ADMIN_*: refuse to
       # move the branch until secrets.yaml provides everything the pods need.
       - name: Every referenced Secret is sealed
         env:

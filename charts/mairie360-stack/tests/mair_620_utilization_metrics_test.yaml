@@ -1,0 +1,63 @@
+# MAIR-620 (for MAIR-642): kubeletstats reports usage as a share of each
+# container's and pod's requests and limits. It reads the pod specs from the
+# kubelet's /pods: nodes/pods, plus nodes/proxy on k3s < 1.33 (accepted on
+# 2026-11-20, to drop with grantNodesProxy once the machines run >= 1.33).
+suite: mair-620 utilization metrics
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+  observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+tests:
+  - it: "MAIR-620: the eight request/limit utilization metrics are on"
+    templates: [charts/observability/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'k8s\.container\.cpu_request_utilization:\n\s+enabled: true'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'k8s\.container\.memory_limit_utilization:\n\s+enabled: true'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'k8s\.pod\.cpu_limit_utilization:\n\s+enabled: true'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'k8s\.pod\.memory_request_utilization:\n\s+enabled: true'
+
+  - it: "MAIR-620: the collector may read the pod specs (nodes/pods, nodes/proxy before k3s 1.33), still read-only"
+    templates: [charts/observability/templates/rbac.yaml]
+    documentSelector: { path: kind, value: ClusterRole }
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - { apiGroups: [""], resources: ["nodes/stats"], verbs: ["get"] }
+            - { apiGroups: [""], resources: ["nodes/pods"], verbs: ["get"] }
+            - { apiGroups: [""], resources: ["nodes/proxy"], verbs: ["get"] }
+
+  - it: "MAIR-620: without nodes/proxy once k3s >= 1.33"
+    templates: [charts/observability/templates/rbac.yaml]
+    set:
+      observability.kubeletStats.grantNodesProxy: false
+    documentSelector: { path: kind, value: ClusterRole }
+    asserts:
+      - notContains:
+          path: rules
+          content: { apiGroups: [""], resources: ["nodes/proxy"], verbs: ["get"] }
+
+  - it: "MAIR-620: utilization off, back to nodes/stats only and no extra metric"
+    set:
+      observability.kubeletStats.utilizationMetrics: false
+    asserts:
+      - template: charts/observability/templates/rbac.yaml
+        documentSelector: { path: kind, value: ClusterRole }
+        equal:
+          path: rules
+          value:
+            - { apiGroups: [""], resources: ["nodes/stats"], verbs: ["get"] }
+      - template: charts/observability/templates/configmap.yaml
+        notMatchRegex:
+          path: data["config.yaml"]
+          pattern: '_utilization'
