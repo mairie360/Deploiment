@@ -61,6 +61,17 @@ processors:
       - key: service.namespace
         value: "mairie360"
         action: insert
+  # Cockpit only keeps the attributes of a data point: the resource attributes
+  # (pod, container, namespace, environment, service) would be dropped and every
+  # pod merged into one series. Copied onto each point, after `resource`.
+  transform/resource-labels:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          {{- range .Values.metricResourceLabels }}
+          - {{ printf "set(datapoint.attributes[\"%s\"], resource.attributes[\"%s\"]) where resource.attributes[\"%s\"] != nil" . . . | toJson }}
+          {{- end }}
   batch: {}
   {{- if .Values.logMasking.enabled }}
   # MAIR-498: masking of personal data (values `logMasking`, a copy of
@@ -157,7 +168,7 @@ service:
     {{- end }}
     metrics:
       receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}]
-      processors: [memory_limiter, filter/namespace, resource, batch]
+      processors: [memory_limiter, filter/namespace, resource, transform/resource-labels, batch]
       exporters: [otlphttp/cockpit-metrics]
     {{- if .Values.usage.enabled }}
     metrics/usage:

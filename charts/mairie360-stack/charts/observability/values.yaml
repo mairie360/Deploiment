@@ -42,6 +42,15 @@ token: ""
 # Pod CPU/RAM, read from the kubelet's /stats/summary of the node the
 # collector runs on. One Deployment is enough because every instance is a
 # single-node k3s cluster; a multi-node instance would need a DaemonSet.
+# Resource attributes copied onto every data point of the metrics pipeline:
+# Cockpit drops resource attributes, so without them all pods share one series.
+metricResourceLabels:
+  - k8s.namespace.name
+  - k8s.pod.name
+  - k8s.container.name
+  - deployment.environment.name
+  - service.name
+
 kubeletStats:
   enabled: true
   collectionInterval: "30s"
