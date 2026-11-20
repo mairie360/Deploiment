@@ -301,17 +301,16 @@ fi
 
 if [ -n "$DOMAIN" ]; then
   step 13 "Trusted TLS certificate on https://login.${DOMAIN}"
-  for host in "login.${DOMAIN}"; do
-    ISSUER=$(echo | openssl s_client -connect "${host}:443" \
-               -servername "${host}" 2>/dev/null \
-             | openssl x509 -noout -issuer 2>/dev/null || true)
-    # STAGING first: its issuer ("(STAGING) Let's Encrypt") matches both.
-    case "$ISSUER" in
-      *STAGING*) ko "${host}: Let's Encrypt STAGING certificate (not trusted by browsers)" ;;
-      *"Let's Encrypt"*) ok "${host}: issued by Let's Encrypt" ;;
-      *) ko "${host}: unexpected certificate: ${ISSUER:-none}" ;;
-    esac
-  done
+  host="login.${DOMAIN}"
+  ISSUER=$(echo | openssl s_client -connect "${host}:443" \
+             -servername "${host}" 2>/dev/null \
+           | openssl x509 -noout -issuer 2>/dev/null || true)
+  # STAGING first: its issuer ("(STAGING) Let's Encrypt") matches both.
+  case "$ISSUER" in
+    *STAGING*) ko "${host}: Let's Encrypt STAGING certificate (not trusted by browsers)" ;;
+    *"Let's Encrypt"*) ok "${host}: issued by Let's Encrypt" ;;
+    *) ko "${host}: unexpected certificate: ${ISSUER:-none}" ;;
+  esac
 
   step 14 "HTTP redirects to HTTPS"
   CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://login.${DOMAIN}" || true)
