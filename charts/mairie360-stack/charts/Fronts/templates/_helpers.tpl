@@ -34,16 +34,22 @@ app.kubernetes.io/component: frontend
 
 {{/*
 Variables injectées dans TOUS les fronts :
+ - COOKIE_DOMAIN (MAIR-747), `.<global.domain>`: the session cookie shared by the
+   fronts; lib-components answers 503 on resume, refresh and logout without it
+   (NODE_ENV=production). Derived here so that no front can miss it: the instance
+   values must not declare it,
  - l'URL publique de chaque front (pour les liens inter-modules),
  - l'URL interne de chaque BFF (les fronts appellent les BFFs dans le cluster).
 */}}
 {{- define "fronts.commonEnv" -}}
+{{- $domain := .Values.global.domain }}
 - name: HOSTNAME
   value: "0.0.0.0"
+- name: COOKIE_DOMAIN
+  value: {{ printf ".%s" $domain | quote }}
 {{- with .Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}
-{{- $domain := .Values.global.domain }}
 {{- range $frontName, $frontConfig := .Values.instances }}
 {{- if $frontConfig.enabled }}
 - name: {{ $frontName | upper | replace "-" "_" }}_URL

@@ -69,7 +69,5 @@ legalConfigInstances:
 #       enabled: true
 #       port: 5000
 #       image: { repository: ghcr.io/mairie360/login-front, tag: "dev-abc1234" }
-#       env:
-#         - name: COOKIE_DOMAIN
-#           value: ".dev.mairie360-eip.fr"
+# COOKIE_DOMAIN is not set here: fronts.commonEnv derives `.<global.domain>` for every front (MAIR-747).
 instances: {}

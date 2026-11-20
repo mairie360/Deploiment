@@ -1,0 +1,62 @@
+suite: MAIR-747 COOKIE_DOMAIN of every front comes from global.domain (dev)
+# lib-components answers 503 on resume, refresh and logout without COOKIE_DOMAIN: it used to be copied
+# in each front's env list, and dashboard-front and settings-front were missed on dev and staging.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: all eight fronts get COOKIE_DOMAIN once, derived from the dev domain
+    templates: [charts/Fronts/templates/deployment.yaml]
+    asserts:
+      - hasDocuments: { count: 8 }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".dev.mairie360-eip.fr" }
+          count: 1
+
+  - it: dashboard-front and settings-front, the two that were missing, have it
+    templates: [charts/Fronts/templates/deployment.yaml]
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-dashboard-front
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".dev.mairie360-eip.fr" }
+          count: 1
+
+  - it: a front follows an overridden domain without a hardcoded host
+    templates: [charts/Fronts/templates/deployment.yaml]
+    set:
+      global.domain: other.example.test
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".other.example.test" }
+          count: 1
+---
+suite: MAIR-747 COOKIE_DOMAIN of every front comes from global.domain (staging)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+tests:
+  - it: all eight fronts get COOKIE_DOMAIN once, derived from the staging domain
+    templates: [charts/Fronts/templates/deployment.yaml]
+    asserts:
+      - hasDocuments: { count: 8 }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".staging.mairie360-eip.fr" }
+          count: 1
+---
+suite: MAIR-747 COOKIE_DOMAIN of every front comes from global.domain (prod)
+values:
+  - ../../../clusters/_base/prod.yaml
+  - ../../../clusters/mairie360/instances/prod/values.yaml
+tests:
+  - it: all eight fronts get COOKIE_DOMAIN once, derived from the prod domain
+    templates: [charts/Fronts/templates/deployment.yaml]
+    asserts:
+      - hasDocuments: { count: 8 }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: COOKIE_DOMAIN, value: ".prod.mairie360-eip.fr" }
+          count: 1

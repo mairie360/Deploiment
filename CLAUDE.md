@@ -746,6 +746,13 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 - **Subchart directory names are capitalized** (`APIs`, `BFFs`, `Fronts`) and must
   match the top-level values keys exactly.
+- **`COOKIE_DOMAIN` of the fronts is derived, never declared.** `fronts.commonEnv`
+  (`charts/Fronts/templates/_helpers.tpl`) gives every front `.<global.domain>`; an instance
+  `env:` list that declares it too would put it twice. `lib-components` answers 503 on the
+  session resume, refresh and logout routes without it (`NODE_ENV=production`), which is how
+  `dashboard-front` and `settings-front` lost their session on dev and staging. The BFF
+  `user-bff` still declares its own (`BFFs` chart). `tests/mair_747_cookie_domain_test.yaml`
+  checks the 8 fronts on dev, staging and prod.
 - **Each environment follows its own branch (ADR 0002).** The instances AppSet
   gives every Application a `targetRevision` from Ansible's
   `deploiment_env_revisions`: `dev` → `main`, `staging` → `staging`, `prod` →
