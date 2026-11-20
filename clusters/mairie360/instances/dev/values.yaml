@@ -74,11 +74,9 @@ global:
   # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
   # ansible from the vault (/mairie360/dev/cockpit-token, issued by Infra's
   # scripts/issue-cockpit-tokens.sh).
-  # TO TURN ON (true) in the same commit as the endpoints below, once the
-  # Infra apply created the data sources: the chart refuses to render an
-  # enabled collector without them.
+  # Needs the endpoints below: the chart refuses an enabled collector without them.
   observability:
-    enabled: false
+    enabled: true
     apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
@@ -174,14 +172,13 @@ keycloak:
 
 # MAIR-620: push URLs of this instance's Cockpit data sources, from
 #   scripts/tf.sh orgs/mairie360 output -json instances | jq '.dev.cockpit_endpoints'
-# in mairie360/Infra. Not secret. TO FILL after the Infra apply: the chart
-# refuses to render with empty endpoints, and
+# in mairie360/Infra. Not secret.
 # tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
 # Cockpit data source URL.
 observability:
   cockpit:
-    metricsEndpoint: ""
-    tracesEndpoint: ""
+    metricsEndpoint: "https://16cb3a89-241f-4ff2-b039-0bd5def28da2.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics"
+    tracesEndpoint: "https://b5c3564a-5e39-4aad-afda-aa88489980be.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces"
 
 APIs:
   resources:
