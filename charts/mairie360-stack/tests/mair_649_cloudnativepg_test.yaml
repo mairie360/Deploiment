@@ -263,3 +263,41 @@ tests:
     asserts:
       - equal: { path: type, value: kubernetes.io/basic-auth }
       - equal: { path: stringData, value: { username: postgres, password: test-only } }
+
+  # Review of MAIR-649: CloudNativePG refuses Cluster names over 50 characters.
+  - it: "MAIR-649: a 38-character release name keeps its 50-character generation 9 name"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    release: { name: a-very-long-release-name-for-a-mairie1 }
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.generation: 9
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: metadata.name, value: a-very-long-release-name-for-a-mairie1-database-g9 }
+
+  - it: "MAIR-649: generation 10 cuts the base, never the -g<n> suffix, and stays within 50"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    release: { name: a-very-long-release-name-for-a-mairie1 }
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.generation: 10
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: metadata.name, value: a-very-long-release-name-for-a-mairie1-databas-g10 }
+
+  - it: "MAIR-649: with the chart writing the database Secret, the Cluster creates its POSTGRES_DB"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.secret.create: true
+      database.env.POSTGRES_DB: local_db
+      database.env.POSTGRES_PASSWORD: test-only
+      database.rolePasswords:
+        core-api: a
+        project-api: b
+        calendar-api: c
+        message-api: d
+        elearning-api: e
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: spec.bootstrap.initdb.postInitSQL, value: ['CREATE DATABASE "local_db"'] }

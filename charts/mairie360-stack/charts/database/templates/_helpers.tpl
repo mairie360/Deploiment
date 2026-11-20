@@ -47,17 +47,28 @@ app.kubernetes.io/part-of: mairie360
 {{- printf "%s_PASSWORD" (include "database.roleName" . | upper) -}}
 {{- end -}}
 
-{{/* CloudNativePG Cluster of a generation: <release>-database-g<n>. */}}
+{{/* CloudNativePG Cluster of a generation: <release>-database-g<n>. CloudNativePG refuses
+names over 50 characters: the base is cut, the -g<n> suffix never is. */}}
 {{- define "database.cnpgClusterName" -}}
-{{- printf "%s-g%d" (include "database.fullname" .root) (int .generation) -}}
+{{- $suffix := printf "-g%d" (int .generation) -}}
+{{- $base := include "database.fullname" .root | trunc (int (sub 50 (len $suffix))) | trimSuffix "-" -}}
+{{- printf "%s%s" $base $suffix -}}
 {{- end -}}
 
 {{- define "database.cnpgCurrentCluster" -}}
 {{- include "database.cnpgClusterName" (dict "root" . "generation" .Values.cnpg.generation) -}}
 {{- end -}}
 
+{{/* The database the APIs read from <release>-database-secret: env.POSTGRES_DB when the chart
+writes that Secret, mairie_db_<release> (what scripts/seal-secrets.sh seals) otherwise. */}}
 {{- define "database.cnpgDatabaseName" -}}
-{{- .Values.cnpg.databaseName | default (printf "mairie_db_%s" .Release.Name) -}}
+{{- if .Values.cnpg.databaseName -}}
+{{- .Values.cnpg.databaseName -}}
+{{- else if .Values.secret.create -}}
+{{- .Values.env.POSTGRES_DB -}}
+{{- else -}}
+{{- printf "mairie_db_%s" .Release.Name -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "database.cnpgSuperuserSecret" -}}

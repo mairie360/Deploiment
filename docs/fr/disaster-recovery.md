@@ -11,7 +11,7 @@ secrets), `scripts/verify.sh` (recette d'une instance).
 
 | | Cible | D'où elle vient |
 | --- | --- | --- |
-| **RPO**, données qui peuvent être perdues | **24 heures** d'écritures dans la base Mairie360 | Une sauvegarde par jour (`backup.schedule`, `0 3 * * *` UTC). Pas d'archivage WAL, pas de restauration à un instant donné, pas de réplica. Une instance sur CloudNativePG (`database.engine: cnpg`) archive son WAL en continu : son RPO est le dernier segment WAL archivé, restaurable à n'importe quelle seconde des 35 derniers jours ([`cloudnativepg.md`](cloudnativepg.md)). |
+| **RPO**, données qui peuvent être perdues | **24 heures** d'écritures dans la base Mairie360 | Une sauvegarde par jour (`backup.schedule`, `0 3 * * *` UTC). Pas d'archivage WAL, pas de restauration à un instant donné, pas de réplica. Une instance sur CloudNativePG (`database.engine: cnpg`) avec `database.cnpg.backup.enabled: true` archive son WAL en continu : son RPO est le dernier segment WAL archivé, restaurable à n'importe quelle seconde entre le premier point de restauration de la génération et ce segment, sur 35 jours au plus ([`cloudnativepg.md`](cloudnativepg.md)). Sans cette sauvegarde, aucun WAL n'est archivé et le RPO reste le dump quotidien. |
 | **RTO**, base restaurée sur une machine qui fonctionne | **1 heure** | Scénario A ci-dessous. |
 | **RTO**, machine d'instance perdue puis reconstruite | **4 heures** | Scénario B : nouvelle machine, phases 1 à 3, synchronisation Argo CD, restauration, vérifications. Les certificats Let's Encrypt et la propagation DNS en font partie. |
 | **RTO**, machine Argo CD perdue | **2 heures** | Scénario C : les instances continuent de tourner, seuls les déploiements s'arrêtent. |

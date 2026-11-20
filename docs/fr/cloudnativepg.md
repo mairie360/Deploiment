@@ -7,8 +7,10 @@ Le sous-chart `database` peut faire tourner le PostgreSQL de Mairie360 de deux f
   corrompue revient au dernier dump : jusqu'à 24 heures d'écritures sont perdues.
 - **`cnpg`** : un `Cluster` [CloudNativePG](https://cloudnative-pg.io) dont le WAL est archivé
   en continu dans le bucket de sauvegarde de l'instance par le plugin Barman Cloud, avec une
-  sauvegarde de base chaque nuit. La base peut être restaurée à **n'importe quelle seconde** des
-  35 derniers jours.
+  sauvegarde de base chaque nuit. La base peut être restaurée à n'importe quelle seconde entre
+  son premier point de restauration (la première sauvegarde de base de la génération) et le
+  dernier segment WAL archivé, sur 35 jours au plus, tant que les sauvegardes et l'archivage
+  du WAL réussissent (condition `ContinuousArchiving` du Cluster).
 
 Version anglaise : [`docs/en/cloudnativepg.md`](../en/cloudnativepg.md). Le runbook général de
 reprise après sinistre est [`disaster-recovery.md`](disaster-recovery.md).
@@ -40,9 +42,12 @@ courante.
 
 ## Avant la première bascule d'une instance
 
-1. L'opérateur tourne sur la machine : l'AppSet `cloudnative-pg-appset.yaml` le déploie sur
-   chaque instance (il lit `bootstrap/addons/cloudnative-pg` à la révision de la machine,
-   l'addon doit donc avoir été promu dans cet environnement d'abord).
+1. L'opérateur tourne sur la machine. **En attente :** l'AppSet `cloudnative-pg-appset.yaml`
+   et ses entrées dans `projects.yaml` arrivent dans une PR suivante, mergée une fois celle-ci
+   arrivée en staging et en prod (un nouveau chemin d'addon doit exister sur chaque branche
+   d'environnement avant qu'un AppSet le référence). Tant que cette PR n'est pas mergée et
+   promue, aucune instance ne peut basculer. L'AppSet déploie ensuite l'opérateur sur chaque
+   instance, en lisant `bootstrap/addons/cloudnative-pg` à la révision de la machine.
 
    ```bash
    kubectl -n cnpg-system get deploy        # cnpg-cloudnative-pg et barman-cloud : Available
@@ -54,17 +59,39 @@ courante.
    ce Secret.
 3. Le bucket de sauvegarde et `<release>-backup-secret` existent (c'est déjà le cas sur chaque
    instance suivie).
+4. **Registres RGPD.** Activer `database.cnpg` ajoute une seconde copie de sauvegarde de la base
+   dans le bucket : WAL et sauvegardes de base, gardés 35 jours, non scellés par
+   `backup.sealing`, donc un effacement ne l'atteint qu'à son expiration. Avant la bascule,
+   l'inscrire dans `compliance/<org>/retention.yaml` et `compliance/<org>/register.yaml` (et
+   dans les durées des values si `scripts/check-compliance.py` le demande), dans la même PR que
+   le commit 1.
 
 ## Bascule d'une instance existante (StatefulSet → CloudNativePG)
 
 Prévoir une fenêtre de maintenance : les écritures s'arrêtent pendant la copie de la base.
 Compter quelques minutes pour une petite base.
 
-1. **Arrêter les écritures.** Désactiver l'auto-sync de l'Application de l'instance dans
-   Argo CD (sur dev et staging), puis :
+1. **Arrêter les écritures.** Si l'Application de l'instance se synchronise seule, arrêter
+   d'abord le contrôleur ApplicationSet (sur la machine Argo CD du groupe), sinon il remet la
+   politique de synchronisation en quelques secondes, comme à l'étape 2 de
+   [`disaster-recovery.md`](disaster-recovery.md) :
 
    ```bash
-   kubectl -n mairie360-<env> scale deploy -l app.kubernetes.io/component=api --replicas=0
+   sudo kubectl -n argocd scale deploy argocd-applicationset-controller --replicas=0
+   sudo kubectl -n argocd patch application <env> --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+   ```
+
+   Puis arrêter les APIs et suspendre le CronJob de rétention, qui écrit par le Service client
+   (sa purge tournerait sinon sur la source pendant la copie) :
+
+   ```bash
+   NS=mairie360-<env>
+   kubectl -n $NS scale deploy -l app.kubernetes.io/component=api --replicas=0
+   kubectl -n $NS get cronjob -o name | grep retention \
+     | xargs -r kubectl -n $NS patch -p '{"spec":{"suspend":true}}'
+   # Suspendre n'arrête pas un Job déjà lancé : attendre qu'aucun ne soit actif.
+   kubectl -n $NS get jobs -o json | jq -r '.items[] | select(.metadata.name | contains("retention"))
+     | select((.status.active // 0) > 0) | .metadata.name'
    ```
 
 2. **Commit 1, la copie.** Dans le `values.yaml` de l'instance :
@@ -97,16 +124,20 @@ Compter quelques minutes pour une petite base.
 
 3. **Commit 2, la bascule.** Ajouter `engine: cnpg` sous `database`. Synchroniser : le Job
    Liquibase tourne sur la nouvelle base (il réapplique les mots de passe des rôles des APIs),
-   le Service client atteint le nouveau primaire, Argo CD relance les APIs. Réactiver
-   l'auto-sync et lancer `scripts/verify.sh`.
+   le Service client atteint le nouveau primaire, Argo CD relance les APIs. Réactiver le
+   CronJob de rétention (`"suspend":false`) pour qu'il tourne sur la nouvelle base, remettre le
+   contrôleur ApplicationSet à 1 s'il a été arrêté (il remet la politique de synchronisation),
+   et lancer `scripts/verify.sh`.
 
    **Revenir en arrière** à ce stade, c'est remettre `engine: statefulset` : le StatefulSet est
    toujours là, mais tout ce qui a été écrit depuis la bascule n'est que dans le Cluster.
 
 4. **Commit 3, quelques jours plus tard.** `statefulset.enabled: false`. Garder
    `bootstrap: import` : l'opérateur ne le lit qu'à la création d'un Cluster, et l'enlever ne
-   ferait qu'afficher un écart. Le volume du StatefulSet est conservé ; le supprimer quand le
-   retour arrière n'est plus voulu :
+   ferait qu'afficher un écart. Ce n'est juste que tant que ce Cluster existe : après la perte
+   de la machine, voir **Machine reconstruite** ci-dessous avant la première synchronisation.
+   Le volume du StatefulSet est conservé ; le supprimer quand le retour arrière n'est plus
+   voulu :
 
    ```bash
    kubectl -n mairie360-<env> delete pvc data-<release>-database-0
@@ -155,6 +186,29 @@ Liquibase).
    ```
 
 Garder `bootstrap: recovery` dans les values ensuite, pour la même raison que `import`.
+
+## Machine reconstruite
+
+Après la perte d'une machine d'instance, le bucket garde l'archive WAL et les sauvegardes de
+base de la génération N, mais un cluster neuf créerait `<release>-database-g<N>` d'après les
+values : avec `bootstrap: import`, sa source (`<release>-database-hl`) n'existe plus une fois
+`statefulset.enabled: false`, et avec `initdb` il démarrerait vide. Avant la première
+synchronisation de l'instance (phase 3 d'ansible de [`disaster-recovery.md`](disaster-recovery.md),
+sans phase 4), committer une restauration dans une nouvelle génération :
+
+```yaml
+database:
+  cnpg:
+    generation: <N+1>
+    bootstrap: recovery
+    recovery:
+      fromGeneration: <N>
+      targetTime: ""        # rejoue tout le WAL archivé
+```
+
+L'opérateur doit déjà tourner sur la nouvelle machine (son AppSet). Suivre ensuite
+**Restauration à un instant donné** à partir de l'étape 4 (vérifier, synchroniser, `verify.sh`).
+La restauration du dump du runbook n'est nécessaire que si le bucket lui-même est perdu.
 Une restauration depuis une génération plus ancienne que N renseigne `recovery.fromGeneration`.
 
 Le dump restic (`backup.restore.*`, scénario A de `disaster-recovery.md`) fonctionne toujours

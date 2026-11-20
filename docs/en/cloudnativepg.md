@@ -7,7 +7,10 @@ The `database` subchart can run the Mairie360 PostgreSQL in two ways:
   the last dump: up to 24 hours of writes are lost.
 - **`cnpg`**: a [CloudNativePG](https://cloudnative-pg.io) `Cluster` whose WAL is archived
   continuously to the instance's backup bucket by the Barman Cloud plugin, with a base backup
-  every night. The database can be restored to **any second** of the last 35 days.
+  every night. The database can be restored to any second between its first recovery point
+  (the first base backup of the generation) and the last archived WAL segment, over at most
+  the last 35 days, as long as the backups and the WAL archiving succeed
+  (`ContinuousArchiving` condition of the Cluster).
 
 French version: [`docs/fr/cloudnativepg.md`](../fr/cloudnativepg.md). The general disaster
 recovery runbook is [`disaster-recovery.md`](disaster-recovery.md).
@@ -37,9 +40,12 @@ own. The client Service follows the current generation.
 
 ## Before the first cutover of an instance
 
-1. The operator runs on the machine: the AppSet `cloudnative-pg-appset.yaml` deploys it to every
-   instance (it reads `bootstrap/addons/cloudnative-pg` at the machine's revision, so the addon
-   must have been promoted to that environment first).
+1. The operator runs on the machine. **Pending:** the AppSet `cloudnative-pg-appset.yaml` and
+   its `projects.yaml` entries come in a follow-up PR, merged once this one has reached
+   staging and prod (a new addon path must exist on every environment branch before an AppSet
+   references it). Until that PR is merged and promoted, no instance can be cut over. The
+   AppSet then deploys the operator to every instance, reading `bootstrap/addons/cloudnative-pg`
+   at the machine's revision.
 
    ```bash
    kubectl -n cnpg-system get deploy        # cnpg-cloudnative-pg and barman-cloud: Available
@@ -51,17 +57,37 @@ own. The client Service follows the current generation.
    without that Secret.
 3. The backup bucket and `<release>-backup-secret` exist (they already do on every tracked
    instance).
+4. **GDPR records.** Enabling `database.cnpg` adds a second backup copy of the database to the
+   bucket: WAL and base backups, kept 35 days, not sealed by `backup.sealing`, so an erasure
+   only reaches it when it ages out. Before the cutover, list it in
+   `compliance/<org>/retention.yaml` and `compliance/<org>/register.yaml` (and in the values'
+   retention periods if `scripts/check-compliance.py` asks for it), in the same PR as commit 1.
 
 ## Cutover of an existing instance (StatefulSet → CloudNativePG)
 
 Plan a maintenance window: the writers stop while the database is copied. Expect a few minutes
 for a small database.
 
-1. **Stop the writers.** Disable auto-sync of the instance's Application in Argo CD (on dev and
-   staging), then:
+1. **Stop the writers.** If the instance's Application syncs on its own, stop the
+   ApplicationSet controller first (on the group's Argo CD machine), or it puts the sync policy
+   back within seconds, as in [`disaster-recovery.md`](disaster-recovery.md) step 2:
 
    ```bash
-   kubectl -n mairie360-<env> scale deploy -l app.kubernetes.io/component=api --replicas=0
+   sudo kubectl -n argocd scale deploy argocd-applicationset-controller --replicas=0
+   sudo kubectl -n argocd patch application <env> --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+   ```
+
+   Then stop the APIs and suspend the retention CronJob, which writes through the client
+   Service (its purge would otherwise run on the source during the copy):
+
+   ```bash
+   NS=mairie360-<env>
+   kubectl -n $NS scale deploy -l app.kubernetes.io/component=api --replicas=0
+   kubectl -n $NS get cronjob -o name | grep retention \
+     | xargs -r kubectl -n $NS patch -p '{"spec":{"suspend":true}}'
+   # Suspending does not stop a Job already running: wait until none is active.
+   kubectl -n $NS get jobs -o json | jq -r '.items[] | select(.metadata.name | contains("retention"))
+     | select((.status.active // 0) > 0) | .metadata.name'
    ```
 
 2. **Commit 1, the copy.** In the instance's `values.yaml`:
@@ -94,14 +120,17 @@ for a small database.
 
 3. **Commit 2, the switch.** Add `engine: cnpg` under `database`. Sync: the Liquibase Job runs
    against the new database (it re-applies the API roles' passwords), the client Service
-   reaches the new primary, Argo CD scales the APIs back. Re-enable auto-sync and run
-   `scripts/verify.sh`.
+   reaches the new primary, Argo CD scales the APIs back. Resume the retention CronJob
+   (`"suspend":false`), so it runs on the new database, scale the ApplicationSet controller
+   back to 1 if you stopped it (it puts the sync policy back), and run `scripts/verify.sh`.
 
    **Going back** at this point is setting `engine: statefulset` again: the StatefulSet is
    still there, but everything written since the switch is only in the Cluster.
 
 4. **Commit 3, a few days later.** `statefulset.enabled: false`. Keep `bootstrap: import`: the
    operator only reads it when it creates a Cluster, and removing it would only show a diff.
+   It is only right while that Cluster exists: after the loss of the machine, see
+   **Rebuilt machine** below before the first sync.
    The StatefulSet's volume is kept; delete it once you no longer want the way back:
 
    ```bash
@@ -151,6 +180,29 @@ Liquibase).
    ```
 
 Keep `bootstrap: recovery` in the values afterwards, for the same reason as `import`.
+
+## Rebuilt machine
+
+After the loss of an instance machine, the bucket still holds the WAL archive and the base
+backups of generation N, but a fresh cluster would create `<release>-database-g<N>` from the
+values: with `bootstrap: import` its source (`<release>-database-hl`) no longer exists once
+`statefulset.enabled: false`, and with `initdb` it would start empty. Before the instance's
+first sync (ansible phase 3 of [`disaster-recovery.md`](disaster-recovery.md), no phase 4),
+commit a recovery into a new generation:
+
+```yaml
+database:
+  cnpg:
+    generation: <N+1>
+    bootstrap: recovery
+    recovery:
+      fromGeneration: <N>
+      targetTime: ""        # replay every archived WAL
+```
+
+The operator must already run on the new machine (its AppSet). Then follow **Point-in-time
+recovery** from step 4 (check, sync, verify). The dump restore of the disaster-recovery
+runbook is only needed when the bucket itself is lost.
 A restore from an older generation than N sets `recovery.fromGeneration`.
 
 The restic dump (`backup.restore.*`, `disaster-recovery.md` scenario A) still works on a
