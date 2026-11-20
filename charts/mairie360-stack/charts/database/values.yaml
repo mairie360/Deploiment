@@ -74,7 +74,7 @@ initChown:
 # Image of the `helm test` pod (psql client).
 testImage:
   repository: postgres
-  tag: "18.7-alpine"
+  tag: "19.0-alpine"
 
 # CloudNativePG (needs the operator and its Barman Cloud plugin, installed on
 # every instance machine by bootstrap/appsets/cloudnative-pg-appset.yaml).
