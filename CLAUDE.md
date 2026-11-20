@@ -522,7 +522,14 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
   listed in `global.observability.apis` (only `core-api` for now), scrapes
   pod CPU/RAM from the node's kubelet (`kubeletstats`, ClusterRole on
   `nodes/stats`, filtered to the instance namespace) and pushes both to
-  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. One switch,
+  Scaleway Cockpit over OTLP/HTTP with an `X-TOKEN` header. Cockpit drops
+  resource attributes, so `transform/resource-labels` copies
+  `observability.metricResourceLabels` (pod, container, namespace,
+  environment, service) onto every data point, or all pods share one series.
+  `kubeletStats.utilizationMetrics` adds usage as a share of requests and
+  limits; it reads the pod specs (`nodes/pods`), and on k3s < 1.33
+  `nodes/proxy` (`grantNodesProxy`, the whole kubelet API, accepted on
+  2026-11-20; drop it once the machines run >= 1.33). One switch,
   `global.observability.enabled`, renders the collector **and** makes the
   `APIs` chart inject `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
   `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` and `OTEL_RESOURCE_ATTRIBUTES`

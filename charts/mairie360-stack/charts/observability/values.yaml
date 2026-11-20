@@ -57,6 +57,14 @@ kubeletStats:
   # k3s serves the kubelet API with a self-signed certificate that does not
   # cover the node IP.
   insecureSkipVerify: true
+  # Usage as a share of each container's and pod's requests and limits
+  # (k8s.{container,pod}.{cpu,memory}_{request,limit}_utilization), to size
+  # them on real numbers. Needs the pod specs: RBAC nodes/pods.
+  utilizationMetrics: true
+  # k3s < 1.33 authorizes the kubelet's /pods on nodes/proxy only: the whole
+  # kubelet API (exec into any pod of the node). Accepted on 2026-11-20 for
+  # these metrics; set false once the machines run k3s >= 1.33.
+  grantNodesProxy: true
 
 resources:
   requests: { memory: "64Mi", cpu: "20m" }

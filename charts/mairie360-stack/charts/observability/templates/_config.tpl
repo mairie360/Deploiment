@@ -37,6 +37,19 @@ receivers:
     endpoint: "https://${env:K8S_NODE_IP}:10250"
     insecure_skip_verify: {{ .Values.kubeletStats.insecureSkipVerify }}
     metric_groups: [pod, container]
+    {{- if .Values.kubeletStats.utilizationMetrics }}
+    metrics:
+      {{- range list "container" "pod" }}
+      {{- $kind := . }}
+      {{- range list "cpu" "memory" }}
+      {{- $res := . }}
+      {{- range list "request" "limit" }}
+      {{ printf "k8s.%s.%s_%s_utilization" $kind $res . }}:
+        enabled: true
+      {{- end }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
   {{- end }}
 
 processors:
