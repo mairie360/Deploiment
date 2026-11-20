@@ -1,0 +1,26 @@
+# Values of the cloudnative-pg and plugin-barman-cloud subcharts.
+#
+# Shared by every group and every instance: nothing here may name a domain, an
+# IP or a bucket (MAIR-157). The Cluster, its ObjectStore and its backups are
+# rendered per instance by charts/mairie360-stack/charts/database.
+cloudnative-pg:
+  # Short names: scripts and docs refer to deploy/cnpg-controller-manager.
+  fullnameOverride: cnpg
+  crds:
+    create: true
+  config:
+    # Watches every namespace: each instance machine runs one instance
+    # namespace (mairie360-<env>), plus throwaway restore clusters.
+    clusterWide: true
+  monitoring:
+    podMonitorEnabled: false
+  resources:
+    requests: { memory: 64Mi, cpu: 20m }
+    limits:   { memory: 256Mi }
+
+plugin-barman-cloud:
+  crds:
+    create: true
+  resources:
+    requests: { memory: 32Mi, cpu: 10m }
+    limits:   { memory: 128Mi }

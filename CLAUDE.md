@@ -410,6 +410,27 @@ Umbrella `type: application` chart with 10 local subcharts (`file://` deps):
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.
+  **CloudNativePG (`database.cnpg`, off by default).** The same subchart can
+  render a CloudNativePG `Cluster` `<release>-database-g<generation>` (official
+  `ghcr.io/cloudnative-pg/postgresql` bookworm image), an `ObjectStore` that
+  archives WAL and base backups to the instance's backup bucket under `cnpg/`
+  (Barman Cloud plugin, keys of `<release>-backup-secret`, retention `35d`,
+  longer than the bucket's 30-day COMPLIANCE lock or the plugin's deletions
+  fail) and a daily `ScheduledBackup`. `database.engine`
+  (`statefulset` | `cnpg`) picks what the client Service selects (by
+  `cnpg.io/cluster` + `instanceRole: primary`; the CNPG pods never carry the
+  StatefulSet's `app: database` label, so both can run side by side);
+  `statefulset.enabled` removes the StatefulSet (its PVC stays). The superuser
+  is `<release>-database-superuser` (basic-auth, same password, sealed by
+  `scripts/seal-secrets.sh`). Argo CD never prunes or deletes a Cluster
+  (`Prune=false,Delete=false`): a point-in-time restore bumps
+  `cnpg.generation` with `bootstrap: recovery` and the old generation is
+  deleted by hand. `bootstrap` (`initdb` | `import` from the StatefulSet |
+  `recovery`) is only read when a Cluster is created: keep it in the values
+  afterwards. The operator comes from `bootstrap/addons/cloudnative-pg`
+  (namespace `cnpg-system`). Cutover and PITR runbook:
+  `docs/en/cloudnativepg.md` (+ `docs/fr/`); tests
+  `tests/mair_649_cloudnativepg_test.yaml`.
 - **Postgres access is per-role (MAIR-114).** `<release>-database-secret`
   carries `POSTGRES_USER`/`POSTGRES_PASSWORD` (the `postgres` superuser,
   used only by the `wait-for-db` init container and the Liquibase job to run
@@ -1138,12 +1159,11 @@ and maintaining a parallel Kind topology is what produced the earlier
   is now backed up (`backup.keycloak.enabled`, MAIR-231), but the restore
   Job only automates the Mairie360 database — restoring the Keycloak dump
   is still a manual `restic dump | pg_restore` (`charts/backup/README.md`).
-- **No PITR, no failover.** `database` is still a plain single-replica
-  StatefulSet — the `backup` subchart (MAIR-119) covers point-in-time
-  snapshots to off-machine S3 storage with a documented restore procedure,
-  but a lost volume means restoring from the last backup, not zero data
-  loss, and there is no automatic failover. CloudNativePG is the intended
-  replacement for both.
+- **No PITR until an instance is cut over, no failover.** Every instance
+  still runs the single-replica StatefulSet: a lost volume means restoring
+  the last daily dump (`backup`). CloudNativePG support is in the chart
+  (`database.cnpg`, WAL archiving + PITR) but no instance has switched yet;
+  it runs one instance per Cluster, so there is still no automatic failover.
 - `runAsNonRoot: false` in every `containerSecurityContext`: the app images do
   not declare a non-root `USER`. Fix the Dockerfiles, then flip the flag and
   make the `trivy config` CI job blocking.

@@ -1,0 +1,265 @@
+# MAIR-649: the Mairie360 PostgreSQL can run as a CloudNativePG Cluster with
+# WAL archiving to the instance's backup bucket, for point-in-time recovery.
+# Off by default: the StatefulSet stays the engine until an instance is cut over.
+suite: mair-649 cloudnativepg
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+set:
+  database.cnpg.backup.s3.endpoint: https://s3.fr-par.scw.cloud
+  database.cnpg.backup.s3.bucket: mairie360-backups-dev
+tests:
+  - it: "MAIR-649: off by default, the StatefulSet serves the client Service"
+    templates:
+      - charts/database/templates/cnpg-cluster.yaml
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: "MAIR-649: off by default, the client Service still selects the StatefulSet's pod"
+    templates: [charts/database/templates/service.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-database }
+    asserts:
+      - equal: { path: spec.selector, value: { app: database } }
+      - equal: { path: "spec.ports[0].targetPort", value: 5432 }
+
+  - it: "MAIR-649: an empty instance gets the database Liquibase migrates, owned by postgres"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: metadata.name, value: RELEASE-NAME-database-g1 }
+      - equal: { path: spec.instances, value: 1 }
+      - matchRegex: { path: spec.imageName, pattern: '^ghcr\.io/cloudnative-pg/postgresql:18\.\d+-\d{12}-standard-bookworm$' }
+      - equal: { path: spec.bootstrap.initdb.postInitSQL, value: ['CREATE DATABASE "mairie_db_RELEASE-NAME"'] }
+      - isNull: { path: spec.bootstrap.initdb.import }
+      - isNull: { path: spec.externalClusters }
+      - equal: { path: spec.enableSuperuserAccess, value: true }
+      - equal: { path: spec.superuserSecret.name, value: RELEASE-NAME-database-superuser }
+
+  - it: "MAIR-649: Argo CD never prunes or deletes a Cluster"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+
+  - it: "MAIR-649: the Postgres pods carry the database component but never the StatefulSet's selector"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: "spec.inheritedMetadata.labels[\"app.kubernetes.io/component\"]", value: database }
+      - notExists: { path: spec.inheritedMetadata.labels.app }
+      - notExists: { path: metadata.labels.app }
+
+  - it: "MAIR-649: WAL archiving goes to the instance's backup bucket, its own prefix, with the backup keys"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    asserts:
+      - documentSelector: { path: kind, value: Cluster }
+        contains:
+          path: spec.plugins
+          content:
+            name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters: { barmanObjectName: RELEASE-NAME-database-backups }
+      - documentSelector: { path: kind, value: ObjectStore }
+        equal: { path: spec.configuration.destinationPath, value: s3://mairie360-backups-dev/cnpg }
+      - documentSelector: { path: kind, value: ObjectStore }
+        equal: { path: spec.configuration.endpointURL, value: https://s3.fr-par.scw.cloud }
+      - documentSelector: { path: kind, value: ObjectStore }
+        equal:
+          path: spec.configuration.s3Credentials
+          value:
+            accessKeyId: { name: RELEASE-NAME-backup-secret, key: AWS_ACCESS_KEY_ID }
+            secretAccessKey: { name: RELEASE-NAME-backup-secret, key: AWS_SECRET_ACCESS_KEY }
+
+  - it: "MAIR-649: the retention outlives the 30-day COMPLIANCE lock of the bucket"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: kind, value: ObjectStore }
+    asserts:
+      - equal: { path: spec.retentionPolicy, value: 35d }
+
+  - it: "MAIR-649: a daily base backup through the plugin, the first one at once"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: kind, value: ScheduledBackup }
+    asserts:
+      - equal: { path: spec.cluster.name, value: RELEASE-NAME-database-g1 }
+      - equal: { path: spec.method, value: plugin }
+      - equal: { path: spec.pluginConfiguration.name, value: barman-cloud.cloudnative-pg.io }
+      - equal: { path: spec.immediate, value: true }
+      # Six fields: CloudNativePG's cron format starts with the seconds.
+      - matchRegex: { path: spec.schedule, pattern: '^\S+( \S+){5}$' }
+
+  - it: "MAIR-649: no backup without a bucket"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.backup.s3.bucket: ""
+    asserts:
+      - failedTemplate: { errorPattern: "s3.endpoint and s3.bucket" }
+
+  - it: "MAIR-649: engine cnpg points the client Service at the primary of the current generation"
+    templates: [charts/database/templates/service.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.engine: cnpg
+      database.cnpg.generation: 3
+      database.cnpg.bootstrap: recovery
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-database }
+    asserts:
+      - equal:
+          path: spec.selector
+          value: { cnpg.io/cluster: RELEASE-NAME-database-g3, cnpg.io/instanceRole: primary }
+
+  - it: "MAIR-649: import copies the StatefulSet through its headless Service as postgres"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.bootstrap: import
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal:
+          path: spec.bootstrap.initdb.import
+          value:
+            type: monolith
+            databases: [mairie_db_RELEASE-NAME]
+            roles: ["*"]
+            source: { externalCluster: statefulset }
+      - equal:
+          path: spec.externalClusters[0]
+          value:
+            name: statefulset
+            connectionParameters: { host: RELEASE-NAME-database-hl, user: postgres, dbname: postgres, sslmode: disable }
+            password: { name: RELEASE-NAME-database-secret, key: POSTGRES_PASSWORD }
+
+  - it: "MAIR-649: removing the StatefulSet after an import leaves the Cluster spec unchanged"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.engine: cnpg
+      database.statefulset.enabled: false
+      database.cnpg.bootstrap: import
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: metadata.name, value: RELEASE-NAME-database-g1 }
+      - equal: { path: spec.bootstrap.initdb.import.source.externalCluster, value: statefulset }
+
+  - it: "MAIR-649: a restore bootstraps the next generation from the previous one, at the given time"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.generation: 2
+      database.cnpg.bootstrap: recovery
+      database.cnpg.recovery.targetTime: "2026-11-20T09:30:00+01:00"
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - equal: { path: metadata.name, value: RELEASE-NAME-database-g2 }
+      - equal:
+          path: spec.bootstrap
+          value:
+            recovery:
+              source: previous-generation
+              recoveryTarget: { targetTime: "2026-11-20T09:30:00+01:00" }
+      - equal:
+          path: spec.externalClusters
+          value:
+            - name: previous-generation
+              plugin:
+                name: barman-cloud.cloudnative-pg.io
+                parameters: { barmanObjectName: RELEASE-NAME-database-backups, serverName: RELEASE-NAME-database-g1 }
+
+  - it: "MAIR-649: a restore without a target time replays every archived WAL"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.generation: 4
+      database.cnpg.bootstrap: recovery
+      database.cnpg.recovery.fromGeneration: 2
+    documentSelector: { path: kind, value: Cluster }
+    asserts:
+      - isNull: { path: spec.bootstrap.recovery.recoveryTarget }
+      - equal: { path: "spec.externalClusters[0].plugin.parameters.serverName", value: RELEASE-NAME-database-g2 }
+
+  - it: "MAIR-649: a restore cannot overwrite its own generation"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.cnpg.bootstrap: recovery
+    asserts:
+      - failedTemplate: { errorPattern: "bump database.cnpg.generation" }
+
+  - it: "MAIR-649: engine cnpg needs the Cluster"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.engine: cnpg
+    asserts:
+      - failedTemplate: { errorPattern: "database.engine=cnpg needs database.cnpg.enabled" }
+
+  - it: "MAIR-649: the StatefulSet cannot go away while it is the engine"
+    templates: [charts/database/templates/cnpg-cluster.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.statefulset.enabled: false
+    asserts:
+      - failedTemplate: { errorPattern: "database.engine=statefulset needs database.statefulset.enabled" }
+
+  - it: "MAIR-649: after the cutover, no StatefulSet and no headless Service"
+    templates:
+      - charts/database/templates/statefulset.yaml
+      - charts/database/templates/service.yaml
+    set:
+      database.cnpg.enabled: true
+      database.engine: cnpg
+      database.statefulset.enabled: false
+    asserts:
+      - hasDocuments: { count: 0 }
+        template: charts/database/templates/statefulset.yaml
+      - hasDocuments: { count: 1 }
+        template: charts/database/templates/service.yaml
+
+  - it: "MAIR-649: the operator reaches the instance manager, the Cluster's pods reach Postgres"
+    templates: [charts/database/templates/network-policy.yaml]
+    set:
+      database.cnpg.enabled: true
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-database-allow-cnpg }
+    asserts:
+      - equal: { path: spec.podSelector.matchLabels, value: { app.kubernetes.io/component: database } }
+      - equal:
+          path: spec.ingress
+          value:
+            - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: cnpg-system } } }]
+              ports: [{ protocol: TCP, port: 8000 }]
+            - from: [{ podSelector: { matchExpressions: [{ key: cnpg.io/cluster, operator: Exists }] } }]
+              ports: [{ protocol: TCP, port: 5432 }]
+
+  - it: "MAIR-649: no CloudNativePG policy while it is off"
+    templates: [charts/database/templates/network-policy.yaml]
+    asserts:
+      - hasDocuments: { count: 1 }
+
+  - it: "MAIR-649: the local superuser Secret has the format CloudNativePG reads"
+    templates: [charts/database/templates/secret.yaml]
+    set:
+      database.cnpg.enabled: true
+      database.secret.create: true
+      database.env.POSTGRES_PASSWORD: test-only
+      database.rolePasswords:
+        core-api: a
+        project-api: b
+        calendar-api: c
+        message-api: d
+        elearning-api: e
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-database-superuser }
+    asserts:
+      - equal: { path: type, value: kubernetes.io/basic-auth }
+      - equal: { path: stringData, value: { username: postgres, password: test-only } }

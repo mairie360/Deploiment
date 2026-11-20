@@ -1,0 +1,155 @@
+{{- include "database.validate" . -}}
+{{- if .Values.cnpg.enabled }}
+{{- $cluster := include "database.cnpgCurrentCluster" . }}
+{{- $store := include "database.cnpgObjectStore" . }}
+{{- $plugin := "barman-cloud.cloudnative-pg.io" }}
+{{- $b := .Values.cnpg.backup }}
+{{- if $b.enabled }}
+# Where the Barman Cloud plugin archives the WAL and the base backups: the
+# instance's backup bucket (versioned, object lock), one folder per Cluster
+# generation (s3://<bucket>/<prefix>/<cluster>/).
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $store }}
+  labels:
+    {{- include "database.cnpgLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  retentionPolicy: {{ $b.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ printf "s3://%s/%s" $b.s3.bucket ($b.s3.prefix | trimAll "/") | quote }}
+    endpointURL: {{ $b.s3.endpoint | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: {{ include "database.cnpgBackupSecret" . }}
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: {{ include "database.cnpgBackupSecret" . }}
+        key: AWS_SECRET_ACCESS_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+---
+{{- end }}
+# The Mairie360 PostgreSQL as a CloudNativePG Cluster. Liquibase still owns
+# the schema (sync hook, wave 1); the roles of the APIs come from it too.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $cluster }}
+  labels:
+    {{- include "database.cnpgLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    # A Cluster holds the data: Argo CD never deletes one, not even when the
+    # generation moves on after a restore. Delete the old one by hand.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: {{ int .Values.cnpg.instances }}
+  imageName: {{ .Values.cnpg.imageName | quote }}
+  {{- with .Values.global.imagePullSecret }}
+  imagePullSecrets:
+    - name: {{ . }}
+  {{- end }}
+  # Liquibase, backup and retention log in as postgres with POSTGRES_PASSWORD.
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: {{ include "database.cnpgSuperuserSecret" . }}
+  inheritedMetadata:
+    labels:
+      {{- include "database.cnpgPodLabels" . | nindent 6 }}
+  postgresql:
+    parameters:
+      max_connections: {{ .Values.postgresql.maxConnections | quote }}
+      shared_buffers: {{ .Values.postgresql.sharedBuffers | quote }}
+  storage:
+    size: {{ .Values.cnpg.storage.size | quote }}
+    {{- with .Values.cnpg.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  {{- if $b.enabled }}
+  plugins:
+    - name: {{ $plugin }}
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $store }}
+  {{- end }}
+  bootstrap:
+    {{- if eq .Values.cnpg.bootstrap "recovery" }}
+    recovery:
+      source: previous-generation
+      {{- with .Values.cnpg.recovery.targetTime }}
+      recoveryTarget:
+        targetTime: {{ . | quote }}
+      {{- end }}
+    {{- else }}
+    initdb:
+      {{- if eq .Values.cnpg.bootstrap "import" }}
+      # One-off copy of the StatefulSet (databases and roles, owners kept).
+      import:
+        type: monolith
+        databases:
+          - {{ include "database.cnpgDatabaseName" . | quote }}
+        roles:
+          - "*"
+        source:
+          externalCluster: statefulset
+      {{- else }}
+      # CloudNativePG creates its own `app` database; the one Liquibase
+      # migrates belongs to postgres, like on the StatefulSet.
+      postInitSQL:
+        - {{ printf "CREATE DATABASE %s" (include "database.cnpgDatabaseName" . | quote) | quote }}
+      {{- end }}
+    {{- end }}
+  {{- if or (eq .Values.cnpg.bootstrap "import") (eq .Values.cnpg.bootstrap "recovery") }}
+  externalClusters:
+    {{- if eq .Values.cnpg.bootstrap "import" }}
+    - name: statefulset
+      connectionParameters:
+        # The headless Service selects the StatefulSet's pod only.
+        host: {{ printf "%s-hl" (include "database.fullname" .) }}
+        user: postgres
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: {{ include "database.secretName" . }}
+        key: POSTGRES_PASSWORD
+    {{- else }}
+    {{- $from := int (.Values.cnpg.recovery.fromGeneration | default (sub (int .Values.cnpg.generation) 1)) }}
+    - name: previous-generation
+      plugin:
+        name: {{ $plugin }}
+        parameters:
+          barmanObjectName: {{ $store }}
+          serverName: {{ include "database.cnpgClusterName" (dict "root" . "generation" $from) }}
+    {{- end }}
+  {{- end }}
+{{- if $b.enabled }}
+---
+# Daily base backup (the WAL in between are archived continuously).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $cluster }}-daily
+  labels:
+    {{- include "database.cnpgLabels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ $b.schedule | quote }}
+  # First base backup as soon as the Cluster is ready: no recovery point
+  # exists before it.
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: {{ $cluster }}
+  method: plugin
+  pluginConfiguration:
+    name: {{ $plugin }}
+{{- end }}
+{{- end }}

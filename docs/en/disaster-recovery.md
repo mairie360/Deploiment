@@ -11,7 +11,7 @@ secrets), `scripts/verify.sh` (acceptance test of an instance).
 
 | | Target | Where it comes from |
 | --- | --- | --- |
-| **RPO**, data that can be lost | **24 hours** of writes in the Mairie360 database | One backup a day (`backup.schedule`, `0 3 * * *` UTC). No WAL archiving, no point-in-time recovery, no replica. |
+| **RPO**, data that can be lost | **24 hours** of writes in the Mairie360 database | One backup a day (`backup.schedule`, `0 3 * * *` UTC). No WAL archiving, no point-in-time recovery, no replica. An instance on CloudNativePG (`database.engine: cnpg`) archives its WAL continuously: its RPO is the last archived WAL segment, restored to any second of the last 35 days ([`cloudnativepg.md`](cloudnativepg.md)). |
 | **RTO**, database restored on a working machine | **1 hour** | Scenario A below. |
 | **RTO**, lost instance machine rebuilt | **4 hours** | Scenario B: new machine, phases 1 to 3, Argo CD sync, restore, checks. Let's Encrypt certificates and DNS propagation are part of it. |
 | **RTO**, lost Argo CD machine | **2 hours** | Scenario C: the instances keep running meanwhile, only deployments stop. |

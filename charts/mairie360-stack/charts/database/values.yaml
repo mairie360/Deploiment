@@ -1,10 +1,21 @@
-# Sous-chart database — PostgreSQL en StatefulSet mono-instance.
+# database subchart: the Mairie360 PostgreSQL, either as a single-instance
+# StatefulSet (the historical engine) or as a CloudNativePG Cluster with WAL
+# archiving and point-in-time recovery (docs/en/cloudnativepg.md).
 #
-# Known limits: no failover, no replication (see the ../backup subchart,
-# MAIR-119, for off-machine snapshots — it doesn't give PITR or failover).
-# CloudNativePG is the target; this chart is a clean intermediate step.
+# Both can run side by side during a cutover; `engine` says which one the
+# client Service `<release>-database` (APIs, Liquibase, backup, retention)
+# points at. The pg_dump + restic backup (../backup) works with either.
 
 enabled: true
+
+# "statefulset" | "cnpg": the Postgres behind <release>-database.
+engine: statefulset
+
+statefulset:
+  # false once the instance runs on CloudNativePG. Removing the StatefulSet
+  # keeps its volume (data-<release>-database-0): delete it by hand once the
+  # cutover is confirmed.
+  enabled: true
 
 image:
   repository: "ghcr.io/mairie360/database"
@@ -64,3 +75,62 @@ initChown:
 testImage:
   repository: postgres
   tag: "18.7-alpine"
+
+# CloudNativePG (needs the operator and its Barman Cloud plugin, installed on
+# every instance machine by bootstrap/appsets/cloudnative-pg-appset.yaml).
+cnpg:
+  enabled: false
+  # Namespace of the operator (bootstrap/addons/cloudnative-pg): admitted on
+  # the instance manager port of the Postgres pods.
+  operatorNamespace: cnpg-system
+  # The Cluster is named <release>-database-g<generation>. A restore creates
+  # the next generation from the backups of the previous one (bootstrap
+  # "recovery"); Argo CD never deletes a Cluster (Prune=false, Delete=false),
+  # so the previous generation keeps running until it is deleted by hand.
+  generation: 1
+  instances: 1
+  # Official CloudNativePG operand image, pinned to a dated build. Debian
+  # bookworm like ghcr.io/mairie360/database, so the collations (glibc) match
+  # the StatefulSet's when importing it.
+  imageName: "ghcr.io/cloudnative-pg/postgresql:18.7-202611122305-standard-bookworm"
+  # Database the Liquibase job migrates, POSTGRES_DB of <release>-database-secret
+  # ("" = mairie_db_<release>, what scripts/seal-secrets.sh seals).
+  databaseName: ""
+  # kubernetes.io/basic-auth Secret (username / password) of the postgres
+  # superuser: the same password as POSTGRES_PASSWORD of the database Secret,
+  # sealed by scripts/seal-secrets.sh ("" = <release>-database-superuser).
+  superuserSecretName: ""
+  storage:
+    size: 2Gi
+    # "" = the cluster's default StorageClass (local-path on k3s / Kind).
+    storageClass: ""
+  # How a new generation starts:
+  # - initdb: empty database (a new instance);
+  # - import: one-off copy of the StatefulSet's database and roles (stop the
+  #   writers first, see the runbook). Keep the value after the cutover: the
+  #   operator only reads `bootstrap` when it creates the Cluster;
+  # - recovery: point-in-time restore from the backups of generation
+  #   `recovery.fromGeneration` (default: generation - 1).
+  bootstrap: initdb
+  recovery:
+    fromGeneration: 0
+    # RFC 3339 timestamp with a zone (2026-11-20T09:30:00+01:00); "" = the
+    # end of the archived WAL.
+    targetTime: ""
+  backup:
+    # WAL archiving + scheduled base backups through the Barman Cloud plugin.
+    enabled: true
+    # Six fields, seconds first (CloudNativePG's cron format), UTC. Before the
+    # pg_dump CronJob (03:00).
+    schedule: "0 30 2 * * *"
+    # Must stay longer than the object lock of the bucket (30 days in
+    # COMPLIANCE mode, mairie360/Infra): the plugin deletes older objects.
+    retentionPolicy: "35d"
+    # Same bucket and key as the pg_dump backup, under its own prefix:
+    # s3://<bucket>/<prefix>/<cluster name>/.
+    s3:
+      endpoint: ""
+      bucket: ""
+      prefix: "cnpg"
+    # <release>-backup-secret (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) by default.
+    credentialsSecretName: ""

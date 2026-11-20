@@ -1,0 +1,25 @@
+# Wrapper chart: pins the CloudNativePG operator and its Barman Cloud plugin on
+# every INSTANCE machine. Applied by bootstrap/appsets/cloudnative-pg-appset.yaml
+# at the machine's own revision (Argo CD cluster annotation
+# mairie360.fr/revision), so a bump here reaches dev on merge and staging/prod
+# only through the Promote workflow (docs/adr/0002-environment-promotion.md).
+#
+# The plugin must live in the operator's namespace (cnpg-system) and needs
+# cert-manager for the mTLS between the operator and itself (installed by
+# cert-manager-appset.yaml).
+apiVersion: v2
+name: bootstrap-cloudnative-pg
+description: CloudNativePG operator and Barman Cloud plugin as installed on every Mairie360 instance machine
+type: application
+version: 0.1.0
+dependencies:
+  - name: cloudnative-pg
+    # Operator 1.30.2. Read the release notes of every minor you skip:
+    # https://cloudnative-pg.io/documentation/current/release_notes/
+    version: 0.29.2
+    repository: https://cloudnative-pg.github.io/charts
+  - name: plugin-barman-cloud
+    # Plugin v0.16.0 (WAL archiving and base backups to S3, CNPG-I).
+    # Compatibility with the operator: https://github.com/cloudnative-pg/plugin-barman-cloud
+    version: 0.9.0
+    repository: https://cloudnative-pg.github.io/charts

@@ -527,6 +527,16 @@ kubectl create secret generic "${RELEASE}-database-secret" \
   --namespace "$NS" "${db_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/db.yaml"
 
+# The postgres superuser of the CloudNativePG Cluster (database.cnpg): the
+# format CloudNativePG reads, with the password of POSTGRES_PASSWORD above so
+# Liquibase, backup and retention log in the same way on either engine. The
+# operator applies it to the live role, so a --rotate needs no ALTER ROLE there.
+kubectl create secret generic "${RELEASE}-database-superuser" \
+  --namespace "$NS" --type=kubernetes.io/basic-auth \
+  --from-literal=username=postgres \
+  --from-literal=password="${PGPASS}" \
+  --dry-run=client -o yaml | seal > "$TMP/db-superuser.yaml"
+
 kubectl create secret generic "${RELEASE}-redis" \
   --namespace "$NS" "${redis_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/redis.yaml"
