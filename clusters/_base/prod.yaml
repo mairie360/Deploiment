@@ -50,6 +50,13 @@ database:
 redis:
   secret:
     create: false
+  # The JWT revocation list (`revoked:<sid>`) lives in this Redis: on an emptyDir the AOF is lost
+  # when the pod is rescheduled and every revoked JWT is accepted again until it expires. A PVC
+  # keeps it (the instance is one k3s node, local-path is bound to it; Recreate frees the volume).
+  persistence:
+    enabled: true
+    size: "1Gi"
+    storageClass: "local-path"
 
 liquibase:
   image:
