@@ -25,7 +25,11 @@ Conventional ports: APIs `3000-3006`, BFFs `4000-4006`, Fronts `5000-5007`.
 helm lint ./charts/mairie360-stack
 
 # Unit tests: network policies, secrets, Argo CD compatibility
-helm plugin install https://github.com/helm-unittest/helm-unittest --verify=false   # once (Helm 4)
+# once, as CI does: the release archive (it holds the binary) checked against the
+# SHA256 of .github/workflows/cicd.yaml, then unpacked in the plugins directory
+curl -sSLfo /tmp/hu.tgz https://github.com/helm-unittest/helm-unittest/releases/download/v0.8.2/helm-unittest-linux-amd64-0.8.2.tgz
+echo "56ab3091e6fa52a7c92ee951def9bed957f295d9ce98483aed404e748d7b3a94  /tmp/hu.tgz" | sha256sum -c -
+mkdir -p "$(helm env HELM_PLUGINS)/unittest" && tar -xzf /tmp/hu.tgz -C "$(helm env HELM_PLUGINS)/unittest"
 helm unittest ./charts/mairie360-stack
 
 # Render + schema-validate every instance with both ingress controllers,
@@ -111,7 +115,12 @@ The `secret-scan` job runs Gitleaks (mairie360/CICD `actions/security/gitleaks`)
 on the new commits of every push/PR and blocks on any finding (MAIR-677). Rules are
 `.gitleaks.toml`: defaults plus one allowlist, the `KEY: Ag…` SealedSecret ciphertext
 lines of `clusters/*/instances/*/secrets.yaml`; `tests/scripts/mair_677_secret_scan_test.sh`
-pins it. `trivy config` is not wired yet. The Kind + Cilium
+pins it. Supply chain: every third-party action is pinned by commit SHA with its tag in a
+comment (`@<sha> # v7`; Renovate's pinDigest keeps both), `cicd.yaml` runs with
+`permissions: contents: read`, and every tool fetched with curl (kubeconform, helm-unittest,
+kind, cilium CLI, chainsaw) is checked against a `*_SHA256` written next to its version before
+use: a version bump changes both in one commit (`tests/scripts/mair_686_ci_pins_test.sh`).
+`trivy config` is not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
 (it calls `cicd.yaml` as a reusable workflow on the promoted commit, refuses to
