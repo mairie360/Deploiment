@@ -16,6 +16,30 @@ tests:
       - equal: { path: spec.accessModes, value: [ReadWriteOnce] }
       - equal: { path: spec.resources.requests.storage, value: 1Gi }
 
+  - it: the PVC is in the sync wave of its Deployment, a WaitForFirstConsumer volume would stall an earlier wave
+    values:
+      - ../../../clusters/mairie360/instances/staging/values.yaml
+    templates: [charts/redis/templates/deployment.yaml]
+    documentSelector:
+      path: kind
+      value: PersistentVolumeClaim
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "0"
+
+  - it: the Deployment that mounts the PVC is in that same wave
+    values:
+      - ../../../clusters/mairie360/instances/staging/values.yaml
+    templates: [charts/redis/templates/deployment.yaml]
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "0"
+
   - it: staging mounts that PVC on /data, not an emptyDir
     values:
       - ../../../clusters/mairie360/instances/staging/values.yaml
