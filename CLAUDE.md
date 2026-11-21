@@ -375,7 +375,8 @@ Umbrella `type: application` chart with 9 local subcharts (`file://` deps):
   enabled, since `JWT_SECRET` is gone). `global.jwt.signing.enabled` gives `JWT_PRIVATE_KEY`
   (`<release>-jwt-signing-secret`, sealed) to the instance named `core-api`
   and to nothing else; `templates/jwt-session-keys.yaml` fails the render
-  when signing is on without a public key, or when `publicKey` is not made of
+  when signing is on without a public key, when core-api is enabled with signing
+  off (it could not issue any session), or when `publicKey` is not made of
   complete Ed25519 `PUBLIC KEY` blocks or holds a `PRIVATE KEY`. **`JWT_SECRET` is removed** from every service and
   from what `seal-secrets.sh` seals (an older `secrets.yaml` still carries
   the key, unused, until its next re-seal). `scripts/seal-secrets.sh` generates the pair once

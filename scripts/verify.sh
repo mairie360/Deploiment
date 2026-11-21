@@ -201,8 +201,10 @@ else
 fi
 # The shared HS256 secret is gone: a JWT_SECRET left on a workload means a
 # stale manifest, or an image still verifying HS256 tokens.
-if $K get deploy,statefulset -o yaml 2>/dev/null | grep -q 'name: JWT_SECRET$'; then
-  ko "a workload still gets JWT_SECRET (removed by MAIR-680)"
+if ! WORKLOADS="$($K get deploy,statefulset -o yaml)"; then
+  ko "cannot read the deployments and statefulsets (RBAC of this context?)"
+elif printf '%s' "$WORKLOADS" | grep -q 'name: JWT_SECRET$'; then
+  ko "a workload still gets JWT_SECRET (the shared HS256 secret is gone)"
 else
   ok "no workload gets JWT_SECRET"
 fi

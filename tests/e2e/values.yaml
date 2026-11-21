@@ -16,13 +16,16 @@
 # =============================================================================
 
 global:
-  # MAIR-680: required since JWT_SECRET is gone. Public half of a key pair
-  # generated for e2e only; its private half was thrown away (nothing signs).
+  # Required since JWT_SECRET is gone. Public half of a key pair generated for
+  # e2e only, its private half thrown away: the whoami images neither sign nor
+  # verify, signing is on only because an enabled core-api requires it.
   jwt:
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       MCowBQYDK2VwAyEA3mlSss0OXmrR0w5uY/dRfJJLujfJCfXesLPO2+zOnUc=
       -----END PUBLIC KEY-----
+    signing:
+      enabled: true
   domain: "e2e.invalid"
   # Every image used here is public.
   imagePullSecret: ""
@@ -36,6 +39,8 @@ global:
 
 secrets:
   create: true
+  # Placeholder: the whoami core-api never reads it.
+  jwtPrivateKey: "e2e-placeholder-not-a-key"
   # Placeholders: app-secrets requires the S3 pair when create=true.
   s3AccessKey: "e2e-s3-access-not-a-secret"
   s3SecretKey: "e2e-s3-secret-not-a-secret"
