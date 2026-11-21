@@ -108,20 +108,19 @@ spec:
                     --keep-weekly {{ .Values.retention.keepWeekly }} \
                     --keep-monthly {{ .Values.retention.keepMonthly }} \
                     --prune
-                  {{- if .Values.keycloak.enabled }}
-                  # MAIR-231: Keycloak's own PostgreSQL, same repository, its
-                  # own --host so it lands as a separate snapshot lineage.
-                  PGHOST="$KEYCLOAK_PGHOST" PGPORT="$KEYCLOAK_PGPORT" \
-                  PGUSER="$KEYCLOAK_PGUSER" PGPASSWORD="$KEYCLOAK_PGPASSWORD" \
-                    pg_dump -Fc "$KEYCLOAK_PGDATABASE" \
-                    | restic backup --stdin --stdin-filename "${KEYCLOAK_PGDATABASE}.dump" --host "keycloak-${KEYCLOAK_PGDATABASE}" --tag scheduled
-                  restic forget --host "keycloak-${KEYCLOAK_PGDATABASE}" \
-                    --keep-daily {{ .Values.retention.keepDaily }} \
-                    --keep-weekly {{ .Values.retention.keepWeekly }} \
-                    --keep-monthly {{ .Values.retention.keepMonthly }} \
-                    --prune
-                  {{- end }}
                   restic check --read-data-subset=5%
+                  {{- if ((.Values.global).observability).enabled }}
+                  # MAIR-622: report the success to the instance's collector,
+                  # hence to Cockpit, where BackupMissed (mairie360/Infra
+                  # alerts/instance/backups.yml) fires after 26 h without one.
+                  # Reached only when everything above succeeded (set -e). A
+                  # failed report never fails the backup: the alert fires.
+                  now=$(date +%s)
+                  wget -q -T 10 -O /dev/null --header 'Content-Type: application/json' \
+                    --post-data "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"backup\"}}]},\"scopeMetrics\":[{\"metrics\":[{\"name\":\"mairie360_backup_last_success_timestamp_seconds\",\"gauge\":{\"dataPoints\":[{\"asDouble\":${now},\"timeUnixNano\":\"${now}000000000\"}]}}]}]}]}" \
+                    {{ printf "http://%s-otel-collector:4318/v1/metrics" .Release.Name | quote }} \
+                    || echo "warning: backup success not reported to the collector (MAIR-622), BackupMissed will fire" >&2
+                  {{- end }}
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
           volumes:

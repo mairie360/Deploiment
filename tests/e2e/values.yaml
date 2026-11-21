@@ -6,9 +6,9 @@
 # `/health` on the port given by WHOAMI_PORT_NUMBER. A failure here is always
 # a chart / Kubernetes problem, never an application bug.
 #
-# Postgres, Redis, the Liquibase migrations and Keycloak keep their real
-# images (all public, GHCR / quay.io): the data layer, the per-role accounts,
-# the migration ordering and the realm import are part of what is tested.
+# Postgres, Redis and the Liquibase migrations keep their real images (all
+# public, GHCR): the data layer, the per-role accounts and the migration
+# ordering are part of what is tested.
 #
 # Every password below is a throwaway value for a cluster that lives a few
 # minutes. The chart creates the Secrets itself (`*.secret.create: true`),
@@ -26,7 +26,7 @@ global:
   domain: "e2e.invalid"
   # Every image used here is public.
   imagePullSecret: ""
-  # Traefik, installed by run.sh with bootstrap/values/traefik.yaml: the
+  # Traefik, installed by run.sh from bootstrap/addons/traefik: the
   # ingress chainsaw test goes through it (HTTP-01 via Pebble, HTTPS
   # redirect, body limit, X-Forwarded-For).
   ingressController: "traefik"
@@ -71,21 +71,6 @@ liquibase:
   # No ADMIN_* in the throwaway database secret: keep the template admin.
   adminAccount:
     required: false
-
-# MAIR-139: Keycloak keeps its real image too — the realm import (roles,
-# clients, the client secret substituted from the Secret) is part of what
-# the data-access test checks.
-keycloak:
-  secret:
-    create: true
-  env:
-    KEYCLOAK_ADMIN_PASSWORD: "e2e-keycloak-admin"
-    KEYCLOAK_DB_PASSWORD: "e2e-keycloak-db"
-    BFF_USER_CLIENT_SECRET: "e2e-bff-user-client-secret"
-    CORE_API_CLIENT_SECRET: "e2e-core-api-client-secret"
-  db:
-    persistence:
-      size: "1Gi"
 
 redis:
   secret:
@@ -146,3 +131,20 @@ Fronts:
     settings-front:  { enabled: true, port: 5005, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5005" }] }
     elearning-front: { enabled: true, port: 5006, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5006" }] }
     admin-front:     { enabled: true, port: 5007, image: *whoami, env: [{ name: WHOAMI_PORT_NUMBER, value: "5007" }] }
+
+# MAIR-240: the backup CronJob and the restore Job run against the S3 endpoint
+# of tests/e2e/s3.yaml (restore.sh). The schedule never fires: the test starts
+# the CronJob by hand.
+backup:
+  enabled: true
+  secret:
+    create: true
+  env:
+    AWS_ACCESS_KEY_ID: "e2e-s3-access-not-a-secret"
+    AWS_SECRET_ACCESS_KEY: "e2e-s3-secret-not-a-secret"
+    RESTIC_PASSWORD: "e2e-restic-not-a-secret"
+  s3:
+    endpoint: "http://s3.s3.svc.cluster.local:7070"
+    bucket: "e2e-backups"
+    region: "us-east-1"
+  schedule: "0 3 1 1 *"

@@ -5,7 +5,7 @@ version: 1
 people: []
 #  - name: Jane Doe
 #    role: operator            # operator, developer, dpo
-#    access: [ssh, wireguard, argocd, keycloak-admin]
+#    access: [ssh, wireguard, argocd]
 #    ssh_key_fingerprint: "SHA256:..."
 #    validated: {date: 2026-10-08, by: "mayor's office"}
 validated: null

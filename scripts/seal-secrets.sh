@@ -24,6 +24,10 @@
 # contrôleur sealed-secrets déployé (bootstrap/appsets/sealed-secrets-appset.yaml).
 #
 # Environment variables read by this script:
+#   TOTP_ENCRYPTION_KEY  (MAIR-805) base64 of 32 bytes sealing the second-factor
+#                   secrets of core-api. Normally unset: generated once, then
+#                   always kept from the cluster (--rotate never replaces it).
+#                   Set it only to restore a key kept outside the cluster.
 #   RESEND_API_KEY  Resend API key, stored as SMTP_PASSWORD in <env>-app-secrets
 #                   (core-api sends its e-mails through smtp.resend.com). When
 #                   unset, the value already present on the cluster is kept;
@@ -43,8 +47,9 @@
 #                   kept; with neither, <env>-backup-secret is not sealed.
 #   RESTIC_PASSWORD / ADMIN_PASSWORD  normally generated here, but the ansible
 #                   role resolves them itself and passes them in, so the value
-#                   sealed is exactly the one it backs up on the workstation
-#                   (~/.mairie360/restic-<org>-<env>.txt, admin-<org>-<env>.txt).
+#                   sealed is exactly the one it stores in the team vault,
+#                   Scaleway Secret Manager (MAIR-617, /<org>/<env>/restic-password
+#                   and admin-password).
 #                   When set, used as-is, even with --rotate; when unset,
 #                   kept from the cluster, else generated.
 #                   ADMIN_PASSWORD is the PLAINTEXT first password of the admin
@@ -54,7 +59,11 @@
 #                   `$argon2id$` hash is sealed as-is. Hashing needs OpenSSL
 #                   >= 3.2 (`openssl kdf ARGON2ID`) or the `argon2` CLI.
 #   ADMIN_PASSWORD_FILE  where a password generated here is written (mode 600)
-#                   for the operator, default ~/.mairie360/admin-<org>-<env>.txt.
+#                   for the operator. No default (MAIR-617): when this script
+#                   has to come up with a plaintext (none passed, none sealed,
+#                   or one sealed before MAIR-414) and no file is given, it
+#                   stops before sealing anything; run playbooks/secrets.yml of
+#                   mairie360/ansible instead, which stores it in the vault.
 #                   The cluster only ever gets the hash.
 #   ADMIN_EMAIL     e-mail of the town hall's administrator account (MAIR-170),
 #                   stored as-is in <env>-database-secret. When unset, the
@@ -62,19 +71,13 @@
 #                   neither, the script fails (MAIR-414): the Liquibase Job
 #                   refuses to run without it rather than seed the public
 #                   template admin account.
-#   BFF_USER_CLIENT_SECRET  Keycloak client secret of bff-user (MAIR-139), only
-#                   to re-seal one regenerated in the admin console; otherwise
-#                   the value on the cluster is kept, or generated once.
-#   CORE_API_CLIENT_SECRET  same for the core-api client (MAIR-554). When
-#                   generated for a realm that already exists, run
-#                   scripts/keycloak-core-api-client.sh once synced.
 #   COCKPIT_TOKEN   Scaleway Cockpit token (push metrics + push traces scopes),
 #                   stored in <env>-cockpit-secret for the OpenTelemetry
 #                   Collector (MAIR-131, charts/observability). When unset, the
 #                   value already on the cluster is kept; with neither, that
 #                   Secret is not sealed (only needed with
 #                   global.observability.enabled).
-#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET / COMPLIANCE_RESEND_API_KEY /
+#   COMPLIANCE_RESEND_API_KEY /
 #   COMPLIANCE_S3_ACCESS_KEY_ID / COMPLIANCE_S3_SECRET_ACCESS_KEY  erasure
 #                   credentials of the compliance service (MAIR-498), stored in
 #                   <env>-compliance-secret, mounted in compliance-api only.
@@ -109,13 +112,8 @@
 # logged in and changed it, rotating the sealed value here would just make
 # it wrong — the Job would leave the live account untouched either way.
 # ADMIN_EMAIL is likewise never rotated, so both stay in lockstep with
-# whatever the admin last set. Same for <env>-keycloak-secret (MAIR-139):
-# Keycloak reads the bootstrap admin password on the first start of an empty
-# database only, its Postgres reads KEYCLOAK_DB_PASSWORD on first init only,
-# and the realm (hence bff-user's client secret) is imported once — rotating
-# the sealed values would change nothing live and only desynchronise them.
-# Rotate those in Keycloak itself (admin console / ALTER ROLE), then re-seal
-# with BFF_USER_CLIENT_SECRET / CORE_API_CLIENT_SECRET set. --rotate-roles ne régénère que les
+# whatever the admin last set.
+# --rotate-roles ne régénère que les
 # <ROLE>_PASSWORD Postgres des APIs : the Liquibase Job (an Argo CD Sync
 # hook, rerun on every sync) runs `ALTER ROLE ... PASSWORD` with the new
 # values, so after pushing secrets.yaml only the API pods need a restart
@@ -250,7 +248,14 @@ argon2id_hash() {
 # A password this script came up with (generated, or the plaintext sealed
 # before MAIR-414) is handed to the operator in a 600 file, never printed.
 save_admin_password() {
-  local file="${ADMIN_PASSWORD_FILE:-$HOME/.mairie360/admin-${ORG}-${ENV}.txt}"
+  local file="${ADMIN_PASSWORD_FILE:-}"
+  # MAIR-617: no default file on the workstation, the vault is the only copy.
+  if [ -z "$file" ]; then
+    echo "ADMIN_PASSWORD has to be generated (or hashed from a plaintext sealed before MAIR-414)" >&2
+    echo "and its plaintext would be kept nowhere: run playbooks/secrets.yml of mairie360/ansible," >&2
+    echo "which stores it in Scaleway Secret Manager, or pass ADMIN_PASSWORD (or ADMIN_PASSWORD_FILE)." >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$file")"
   [ ! -e "$file" ] || mv "$file" "${file}.$(date +%Y%m%d%H%M%S)"
   (umask 077; printf '%s\n' "$1" > "$file")
@@ -274,29 +279,6 @@ else
   fi
 fi
 is_argon2id "$APPADMINPWD" || APPADMINPWD="$(argon2id_hash "$APPADMINPWD")"
-
-# MAIR-139: Keycloak bootstrap admin, its Postgres role and bff-user's client
-# secret. Never rotated by --rotate (see the comment near the top): kept from
-# the cluster, generated once when absent.
-KCADMINPWD="$(prev "${RELEASE}-keycloak-secret" KEYCLOAK_ADMIN_PASSWORD)"
-[ -n "$KCADMINPWD" ] || { KCADMINPWD="$(gen)"; echo "  KEYCLOAK_ADMIN_PASSWORD : generated"; }
-KCDBPWD="$(prev "${RELEASE}-keycloak-secret" KEYCLOAK_DB_PASSWORD)"
-[ -n "$KCDBPWD" ] || { KCDBPWD="$(gen)"; echo "  KEYCLOAK_DB_PASSWORD    : generated"; }
-KCBFFSECRET="${BFF_USER_CLIENT_SECRET:-}"
-if [ -n "$KCBFFSECRET" ]; then
-  echo "  BFF_USER_CLIENT_SECRET  : from BFF_USER_CLIENT_SECRET"
-else
-  KCBFFSECRET="$(prev "${RELEASE}-keycloak-secret" BFF_USER_CLIENT_SECRET)"
-  [ -n "$KCBFFSECRET" ] || { KCBFFSECRET="$(gen)"; echo "  BFF_USER_CLIENT_SECRET  : generated"; }
-fi
-# MAIR-554: secret of the core-api client, same lifecycle as bff-user's.
-KCCORESECRET="${CORE_API_CLIENT_SECRET:-}"
-if [ -n "$KCCORESECRET" ]; then
-  echo "  CORE_API_CLIENT_SECRET  : from CORE_API_CLIENT_SECRET"
-else
-  KCCORESECRET="$(prev "${RELEASE}-keycloak-secret" CORE_API_CLIENT_SECRET)"
-  [ -n "$KCCORESECRET" ] || { KCCORESECRET="$(gen)"; echo "  CORE_API_CLIENT_SECRET  : generated (run scripts/keycloak-core-api-client.sh on a realm already imported)"; }
-fi
 
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
@@ -388,13 +370,12 @@ else
 fi
 
 # MAIR-498: erasure credentials of the compliance service, issued elsewhere
-# (Keycloak admin console, Resend, Object Storage): never generated, kept from
+# (Resend, Object Storage): never generated, kept from
 # the cluster when not supplied.
-COMPLIANCE_KEYS="KEYCLOAK_ADMIN_CLIENT_SECRET RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
+COMPLIANCE_KEYS="RESEND_API_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY SCW_SECRET_KEY"
 compliance_args=()
 for key in $COMPLIANCE_KEYS; do
   case "$key" in
-    KEYCLOAK_ADMIN_CLIENT_SECRET) var=COMPLIANCE_KEYCLOAK_CLIENT_SECRET ;;
     *) var="COMPLIANCE_${key}" ;;
   esac
   val="${!var:-}"
@@ -467,8 +448,29 @@ seal() {
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
+# MAIR-805: seals the second-factor secrets of core-api (AES-256-GCM, base64 of
+# 32 bytes). Generated once, ALWAYS kept from the cluster, even with --rotate:
+# a new key makes every enrolled TOTP secret unreadable, so every protected
+# account would be locked out. Keep a copy outside the cluster, like the sealing
+# key. TOTP_ENCRYPTION_KEY imposes a value (restore after a loss).
+TOTPKEY="${TOTP_ENCRYPTION_KEY:-}"
+if [ -n "$TOTPKEY" ]; then
+  echo "  TOTP_ENCRYPTION_KEY : from TOTP_ENCRYPTION_KEY"
+else
+  TOTPKEY="$(prev "${RELEASE}-app-secrets" TOTP_ENCRYPTION_KEY)"
+  if [ -n "$TOTPKEY" ]; then
+    echo "  TOTP_ENCRYPTION_KEY : kept from cluster (never rotated)"
+  else
+    TOTPKEY="$(openssl rand -base64 32)"
+    echo "  TOTP_ENCRYPTION_KEY : generated"
+  fi
+fi
+[ "$(printf '%s' "$TOTPKEY" | base64 -d 2>/dev/null | wc -c)" = 32 ] || {
+  echo "TOTP_ENCRYPTION_KEY must be the base64 of exactly 32 bytes" >&2; exit 1; }
+
 kubectl create secret generic "${RELEASE}-app-secrets" \
   --namespace "$NS" \
+  --from-literal=TOTP_ENCRYPTION_KEY="$TOTPKEY" \
   --from-literal=SMTP_PASSWORD="$SMTPPASS" \
   --from-literal=S3_ACCESS_KEY="$S3AK" \
   --from-literal=S3_SECRET_KEY="$S3SK" \
@@ -487,17 +489,19 @@ kubectl create secret generic "${RELEASE}-database-secret" \
   --namespace "$NS" "${db_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/db.yaml"
 
+# The postgres superuser of the CloudNativePG Cluster (database.cnpg): the
+# format CloudNativePG reads, with the password of POSTGRES_PASSWORD above so
+# Liquibase, backup and retention log in the same way on either engine. The
+# operator applies it to the live role, so a --rotate needs no ALTER ROLE there.
+kubectl create secret generic "${RELEASE}-database-superuser" \
+  --namespace "$NS" --type=kubernetes.io/basic-auth \
+  --from-literal=username=postgres \
+  --from-literal=password="${PGPASS}" \
+  --dry-run=client -o yaml | seal > "$TMP/db-superuser.yaml"
+
 kubectl create secret generic "${RELEASE}-redis" \
   --namespace "$NS" "${redis_args[@]}" \
   --dry-run=client -o yaml | seal > "$TMP/redis.yaml"
-
-kubectl create secret generic "${RELEASE}-keycloak-secret" \
-  --namespace "$NS" \
-  --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KCADMINPWD" \
-  --from-literal=KEYCLOAK_DB_PASSWORD="$KCDBPWD" \
-  --from-literal=BFF_USER_CLIENT_SECRET="$KCBFFSECRET" \
-  --from-literal=CORE_API_CLIENT_SECRET="$KCCORESECRET" \
-  --dry-run=client -o yaml | seal > "$TMP/keycloak.yaml"
 
 if [ -n "$GHCR_TOKEN" ]; then
   kubectl create secret docker-registry ghcr-secret \
@@ -569,12 +573,10 @@ mkdir -p "$(dirname "$OUT")"
   echo "# Set the admin account's e-mail (MAIR-170, ADMIN_PASSWORD is generated once unless set,"
   echo "# sealed as its argon2id hash, MAIR-414):"
   echo "#   ADMIN_EMAIL=admin@example.org ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
-  echo "# Re-seal a bff-user client secret regenerated in the Keycloak admin console (MAIR-139):"
-  echo "#   BFF_USER_CLIENT_SECRET=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Change the Cockpit token (OpenTelemetry Collector, MAIR-131):"
   echo "#   COCKPIT_TOKEN=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# Set the erasure credentials of the compliance service (MAIR-498):"
-  echo "#   COMPLIANCE_KEYCLOAK_CLIENT_SECRET=... COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
+  echo "#   COMPLIANCE_RESEND_API_KEY=... ./scripts/seal-secrets.sh ${CTX} ${ORG} ${ENV}"
   echo "# ==========================================================================="
   echo "extraObjects:"
   for f in "$TMP"/*.yaml; do
@@ -597,7 +599,7 @@ if [ "$ROTATE" = "--rotate-signing-key" ]; then
   echo "           -l 'app.kubernetes.io/component in (api,bff)'); do"
   echo "         kubectl --context $CTX -n $NS rollout status \"\$d\" || break; done"
   echo "  2. Then commit $OUT and sync; restart core-api"
-  echo "     (kubectl -n $NS rollout restart deploy/${RELEASE}-core-api): it signs with the new key."
+  echo "     (kubectl --context $CTX -n $NS rollout restart deploy/${RELEASE}-core-api): it signs with the new key."
   echo "  3. After JWT_TIMEOUT, drop the old block from global.jwt.publicKey."
   echo "New public key:"
   printf '%s\n' "$JWTPUB" | sed 's/^/      /'

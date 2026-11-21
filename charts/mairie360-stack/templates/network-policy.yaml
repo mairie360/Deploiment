@@ -8,8 +8,6 @@ it needs:
   ingress-controller ─► fronts ─► bffs ─► apis ─► postgres / redis
                                    └──────────────► redis
                         (liquibase migration ──────► postgres)
-  ingress-controller ─► keycloak ─► keycloak-db      (MAIR-139)
-  core-api [+ compliance-api] ─► keycloak            (MAIR-610, templates/keycloak-network-policy.yaml)
          core-api ─► compliance-api                 (MAIR-498, global.compliance.enabled)
 
 Any permissive policy (podSelector: {} + namespaceSelector: {}) would cancel

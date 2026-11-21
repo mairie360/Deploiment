@@ -67,8 +67,8 @@ class CheckComplianceTest(unittest.TestCase):
         self.assertIn("keep daily is 7, retention.yaml decides 30", " ".join(self.run_check().errors))
 
     def test_an_undeclared_external_host_fails(self):
-        self.edit("subprocessors.yaml", "hosts: [smtp.resend.com, api.resend.com]", "hosts: [api.resend.com]")
-        self.assertIn("external host smtp.resend.com is not a declared subprocessor", " ".join(self.run_check().errors))
+        self.edit("subprocessors.yaml", "hosts: [s3.fr-par.scw.cloud, api.scaleway.com]", "hosts: [api.scaleway.com]")
+        self.assertIn("external host s3.fr-par.scw.cloud is not a declared subprocessor", " ".join(self.run_check().errors))
 
     def test_technical_logs_are_at_most_one_year(self):
         self.edit("retention.yaml", 'period: "1 year"\n  maximum: "1 year"', 'period: "2 years"\n  maximum: "2 years"')

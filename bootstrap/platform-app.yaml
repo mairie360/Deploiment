@@ -1,13 +1,18 @@
 # =============================================================================
-# Application racine (app-of-apps) — appliquée UNE FOIS par Ansible sur la
-# machine Argo CD de chaque groupe (rôle k8s_argocd).
+# Root Application (app-of-apps), applied ONCE by Ansible on each group's Argo
+# CD machine (role k8s_argocd).
 #
-# Elle synchronise bootstrap/appsets/, qui installe le socle (cert-manager,
-# sealed-secrets, ingress-nginx, ClusterIssuer) sur les machines d'INSTANCE
-# du groupe — pas sur la machine Argo CD elle-même.
+# It syncs bootstrap/appsets/, which installs the base layer (cert-manager,
+# sealed-secrets, ingress controller, ClusterIssuers) on the group's INSTANCE
+# machines, not on the Argo CD machine itself.
 #
-# L'ApplicationSet qui déploie Mairie360 n'est PAS ici : il dépend de l'org_id
-# et est rendu par Ansible (roles/k8s_argocd/templates/instances-appset.yaml.j2).
+# It follows `main` (Ansible repoints it to deploiment_repo_branch), so every
+# AppSet manifest reaches every machine at once. That is why the AppSets hold
+# no version and no values: those live in bootstrap/addons/, read at each
+# machine's own revision (mairie360.fr/revision, MAIR-346).
+#
+# The ApplicationSet deploying Mairie360 itself is NOT here: it depends on the
+# org_id and is rendered by Ansible (roles/k8s_argocd/templates/instances-appset.yaml.j2).
 # =============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application

@@ -1,0 +1,42 @@
+# MAIR-620: Cockpit keeps only the attributes of a data point. Without a copy
+# of the resource attributes, every pod and container of an instance landed in
+# one series per metric (seen on dev once the collector pushed): the collector
+# copies them onto each point of the metrics pipeline, after `resource`.
+suite: mair-620 cockpit metric labels
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: "https://m.example.com/otlp/v1/metrics"
+  observability.cockpit.tracesEndpoint: "https://t.example.com/otlp/v1/traces"
+templates: [charts/observability/templates/configmap.yaml]
+tests:
+  - it: "MAIR-620: pod, container, namespace, environment and service become point labels"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(datapoint\.attributes\[\\"k8s\.pod\.name\\"\], resource\.attributes\[\\"k8s\.pod\.name\\"\]\) where resource\.attributes\[\\"k8s\.pod\.name\\"\] != nil'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(datapoint\.attributes\[\\"k8s\.container\.name\\"\]'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(datapoint\.attributes\[\\"k8s\.namespace\.name\\"\]'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(datapoint\.attributes\[\\"deployment\.environment\.name\\"\]'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(datapoint\.attributes\[\\"service\.name\\"\]'
+
+  - it: "MAIR-620: the copy runs after `resource` (which adds the environment), before the export"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'processors: \[memory_limiter, filter/namespace, resource, transform/resource-labels, batch\]\n\s+exporters: \[otlphttp/cockpit-metrics\]'
+
+  - it: "MAIR-620: traces keep their own pipeline (resource attributes are kept by Cockpit's Tempo)"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'processors: \[memory_limiter, transform/span-allowlist(, transform/mask-personal-data)?, resource, batch\]'

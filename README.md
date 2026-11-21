@@ -27,11 +27,12 @@ Le provisionnement des machines est dans le dépôt
 
 | Chemin | Rôle |
 |---|---|
-| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), Keycloak (SSO), 5 APIs, 7 BFFs, 8 fronts |
+| `charts/mairie360-stack/` | Le chart : Postgres, Redis, migrations, sauvegarde (backup), 5 APIs, 7 BFFs, 8 fronts |
 | `clusters/<org>/instances/<env>/` | `values.yaml` + `secrets.yaml` d'une instance |
 | `clusters/_base/<env>.yaml` | What every `<env>` instance shares (prod: versions and settings of every prod, MAIR-414) |
 | `bootstrap/` | Argo CD bootstrap: platform AppSets (cert-manager, sealed-secrets, ingress controller: ingress-nginx or Traefik, see `bootstrap/README.md`) |
 | `docs/adr/` | Architecture decision records (`0001`: replacing ingress-nginx with Traefik, migration procedure) |
+| `docs/en/`, `docs/fr/` | Runbooks, in English and French: disaster recovery (`disaster-recovery.md`) |
 | `scripts/` | Préparation d'un nœud, scellement des secrets, recette, flux réseau (Hubble) |
 
 ## Ajouter une instance
@@ -51,13 +52,12 @@ Le provisionnement des machines est dans le dépôt
    - `ADMIN_EMAIL`: the town hall administrator's e-mail (MAIR-170), mandatory.
      Sealed as `ADMIN_EMAIL` into `<env>-database-secret` alongside the
      argon2id hash of a generated `ADMIN_PASSWORD` (MAIR-414; the plaintext is
-     backed up to `~/.mairie360/admin-<org>-<env>.txt`, never sealed); the
+     stored in the team vault, Scaleway Secret Manager, by the ansible role,
+     MAIR-617, never sealed); the
      Liquibase Job creates or resets the admin account with them,
      `first_connect = TRUE`, and refuses to migrate without them.
 
-   `<env>-keycloak-secret` (MAIR-139: Keycloak bootstrap admin, its Postgres
-   role, the `bff-user` client secret) is generated entirely, nothing to
-   provide. The DNS records must cover `auth.<domain>` as well as the fronts.
+   The DNS records must cover the fronts.
 
    It then writes `clusters/<org>/instances/<env>/secrets.yaml` into this
    checkout.
@@ -91,12 +91,23 @@ Kubernetes réels.
 ./scripts/verify.sh <contexte-kube> dev dev.mairie360-eip.fr
 ```
 
+## Disaster recovery
+
+Lost data, a lost instance machine, a lost Argo CD machine or a lost sealing key: follow
+the runbook [`docs/en/disaster-recovery.md`](docs/en/disaster-recovery.md)
+([French](docs/fr/disaster-recovery.md)). It gives the RPO / RTO targets, the rebuild
+order (the sealing key goes back before Argo CD deploys sealed-secrets) and the restore
+steps. List the backups of an instance with:
+
+```bash
+./scripts/list-snapshots.sh <kube-context> <env>
+```
+
 ## Network traffic (Cilium / Hubble)
 
 Every machine runs Cilium as CNI (Ansible role `k8s_node`), which enforces
 the `NetworkPolicy` objects below and lets Hubble record every flow with its
-verdict — `ingress -> fronts -> bffs -> apis -> postgres / redis` and
-`ingress -> keycloak -> keycloak-db`.
+verdict — `ingress -> fronts -> bffs -> apis -> postgres / redis`.
 
 ```bash
 ./scripts/hubble-flows.sh <contexte-kube> dev
@@ -118,8 +129,8 @@ for how the CNI itself is installed.
   forward by committing here (MAIR-444); prod's only moves through a reviewed
   commit and a `Promote` (MAIR-186);
   `scripts/check-image-tags.sh` checks it in CI (MAIR-172).
-- **Seuls les fronts et Keycloak (`auth.<domain>`) sont exposés.** APIs,
-  BFFs, Postgres, Redis et la base de Keycloak sont en `ClusterIP`,
+- **Seuls les fronts sont exposés.** APIs,
+  BFFs, Postgres et Redis sont en `ClusterIP`,
   cloisonnés par des `NetworkPolicy` en `default-deny`. L'API server (6443)
   est sur le VPN, jamais sur Internet.
 - **Retour arrière = `git revert`.** Ne jamais corriger un cluster à la main :

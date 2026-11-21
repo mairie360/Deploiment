@@ -24,9 +24,14 @@ permissions:
   contents: read
 
 env:
+  # A new version changes its SHA256 in the same commit (hash from the release's
+  # checksum file, linux-amd64 asset).
   KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
   CILIUM_CLI_VERSION: v0.20.0
+  CILIUM_CLI_SHA256: 94adc5c3be44d8240df91cec520536686f8a1eb29e5bc70c4c1c80137f00d764
   CHAINSAW_VERSION: v0.2.15
+  CHAINSAW_SHA256: 295d226c89f126c0a97775d364be149f47a810c8a3f9829ee410583d0c1abe3c
 
 jobs:
   changes:
@@ -37,7 +42,7 @@ jobs:
     steps:
       - name: Checkout repository
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -51,9 +56,11 @@ jobs:
             exit 0
           fi
           # bootstrap/: Traefik and cert-manager versions and values used by
-          # the ingress test
+          # the ingress test. clusters/ (MAIR-541): the instance values feed the
+          # chart; the e2e installs tests/e2e/values.yaml, but a values change
+          # must still run it so a key the chart stops reading shows up here.
           if git diff --name-only "$BASE_SHA" HEAD \
-              | grep -qE '^(charts|tests/e2e|bootstrap)/|^\.github/workflows/k8s-e2e\.yaml$'; then
+              | grep -qE '^(charts|tests/e2e|bootstrap|clusters)/|^\.github/workflows/k8s-e2e\.yaml$'; then
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
             echo "e2e=false" >> "$GITHUB_OUTPUT"
@@ -67,23 +74,28 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
         with:
-          version: v4.3.1
+          version: v4.3.2
 
       - name: Install kind, cilium CLI and chainsaw
         run: |
           mkdir -p "$HOME/.local/bin"
           cd "$HOME/.local/bin"
+          # Each download is checked against the SHA256 of its version (env, top of
+          # the file) before it is unpacked or made executable.
           curl -sSfLo kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "$KIND_SHA256  kind" | sha256sum -c -
           chmod +x kind
-          curl -sSfL "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-amd64.tar.gz" \
-            | tar xz cilium
-          curl -sSfL "https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz" \
-            | tar xz chainsaw
+          curl -sSfLo "$RUNNER_TEMP/cilium.tar.gz" "https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-amd64.tar.gz"
+          echo "$CILIUM_CLI_SHA256  $RUNNER_TEMP/cilium.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/cilium.tar.gz" cilium
+          curl -sSfLo "$RUNNER_TEMP/chainsaw.tar.gz" "https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz"
+          echo "$CHAINSAW_SHA256  $RUNNER_TEMP/chainsaw.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/chainsaw.tar.gz" chainsaw
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run the e2e suite

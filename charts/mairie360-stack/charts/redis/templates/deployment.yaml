@@ -6,7 +6,10 @@ metadata:
   labels:
     {{- include "redis.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    # Same wave as the Deployment that mounts it: a WaitForFirstConsumer StorageClass (local-path)
+    # keeps the PVC Pending until a pod uses it, and Argo CD does not leave a wave before it is
+    # Healthy, so an earlier wave would stall the first sync.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   accessModes: ["ReadWriteOnce"]
   {{- with .Values.persistence.storageClass }}

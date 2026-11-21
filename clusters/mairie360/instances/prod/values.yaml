@@ -10,6 +10,17 @@
 # ============================================================================
 
 global:
+  # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
+  # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
+  # ansible from the vault (/mairie360/prod/cockpit-token, issued by Infra's
+  # scripts/issue-cockpit-tokens.sh).
+  # Needs the endpoints below: the chart refuses an enabled collector without them.
+  # Still off: prod-cockpit-secret can only be sealed once prod has received the
+  # session signing key already sealed in secrets.yaml (seal-secrets.sh refuses
+  # to reseal before that). Turn on after that promotion and a reseal.
+  observability:
+    enabled: false
+    apis: ["core-api"]
   # Legal pages (MAIR-292): identity of the mairie to complete; retention and
   # subprocessors repeat compliance/mairie360/ (scripts/check-compliance.py).
   legal:
@@ -36,24 +47,33 @@ global:
   # of prod verifies EdDSA. Required since JWT_SECRET was removed: the chart
   # refuses to render without it.
   jwt:
-    publicKey: ""
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEAAyTSlrKFajbVzZCemyxZoYQllyjBkwIwiKbKtWVqIPk=
+      -----END PUBLIC KEY-----
     signing:
       enabled: false
   # MAIR-612: this machine runs Traefik (ADR 0001), like dev and staging. Must
   # match ansible's `ingress_controller` for the host; the other prod
   # instances keep the base's nginx until their machine switches.
   ingressController: "traefik"
-  # Sender of core-api's and Keycloak's e-mails; its domain must be verified
+  # Sender of core-api's e-mails; its domain must be verified
   # in the Resend dashboard.
   emailFrom: "noreply@mairie360-eip.fr"
   # Scaleway Object Storage bucket of elearning-api's course attachments.
   elearningBucket: "mairie360-elearning-prod"
 
+# MAIR-620: push URLs of this instance's Cockpit data sources, from
+#   scripts/tf.sh orgs/mairie360 output -json instances | jq '.prod.cockpit_endpoints'
+# in mairie360/Infra. Not secret.
+# tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
+# Cockpit data source URL.
+observability:
+  cockpit:
+    metricsEndpoint: "https://a57f40de-d46f-492f-a137-911a1776701d.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics"
+    tracesEndpoint: "https://4bd6c63d-a50c-4203-a6a2-3b6702c34157.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces"
+
 backup:
   s3:
-    bucket: "mairie360-backup-prod"
-
-keycloak:
-  realm:
-    smtp:
-      from: "noreply@mairie360-eip.fr"
+    # Versioned, COMPLIANCE-locked 30 days, created by mairie360/Infra (MAIR-618).
+    bucket: "mairie360-backups-prod"

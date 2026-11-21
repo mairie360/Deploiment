@@ -1,5 +1,6 @@
-# Service "gouvernant" du StatefulSet : headless, obligatoire pour l'identité
-# DNS stable des pods (<pod>.<service>.<ns>.svc).
+{{- if .Values.statefulset.enabled }}
+# Governing Service of the StatefulSet: headless, gives its pod a stable DNS
+# name (<pod>.<service>.<ns>.svc). Also the source of a CloudNativePG import.
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,8 +19,10 @@ spec:
   selector:
     {{- include "database.selectorLabels" . | nindent 4 }}
 ---
-# Service client : c'est celui-ci que les APIs et Liquibase utilisent
-# (<release>-database:5432).
+{{- end }}
+# Client Service: the one the APIs, Liquibase, backup and retention use
+# (<release>-database:5432). `engine` picks the Postgres behind it: the
+# StatefulSet's pod, or the primary of the current CloudNativePG Cluster.
 apiVersion: v1
 kind: Service
 metadata:
@@ -33,6 +36,12 @@ spec:
   ports:
     - name: postgres
       port: 5432
-      targetPort: postgres
+      # By number: the CloudNativePG container names its port "postgresql".
+      targetPort: 5432
   selector:
+    {{- if eq .Values.engine "cnpg" }}
+    cnpg.io/cluster: {{ include "database.cnpgCurrentCluster" . }}
+    cnpg.io/instanceRole: primary
+    {{- else }}
     {{- include "database.selectorLabels" . | nindent 4 }}
+    {{- end }}

@@ -14,6 +14,11 @@ on:
         type: string
         default: ""
 
+# Read-only token for every job: none of them writes to the repository, its
+# pull requests or a registry.
+permissions:
+  contents: read
+
 jobs:
   # Blocks any new commit that adds a secret (MAIR-677: a GHCR PAT stayed
   # readable in this public repo's history). Rules: .gitleaks.toml, which only
@@ -29,7 +34,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -45,14 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref }}
 
       - name: Setup Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
         with:
-          version: v4.3.1
+          version: v4.3.2
 
       - name: Helm dependency build
         run: helm dependency build ./charts/mairie360-stack
@@ -64,15 +69,22 @@ jobs:
         run: helm lint ./charts/mairie360-stack
 
       # Render every instance and validate it against the Kubernetes schemas.
-      # CiliumNetworkPolicy has no schema in kubeconform's default store.
+      # CiliumNetworkPolicy comes from the datreeio CRDs-catalog (MAIR-541).
       # Every instance is rendered with both ingress controllers (MAIR-260),
       # so a switch to Traefik is validated before it happens; the Traefik
       # Middleware and the Argo CD AppSets are checked against the
       # datreeio CRDs-catalog schemas.
+      # The archive is checked against a SHA256 written here before anything is
+      # extracted: a replaced release asset stops the job. A new version changes
+      # the URL and the hash together (hash from the release's CHECKSUMS file).
       - name: Install kubeconform
+        env:
+          KUBECONFORM_URL: https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          KUBECONFORM_SHA256: 95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
         run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
-            | sudo tar -xz -C /usr/local/bin kubeconform
+          curl -sSLf -o "$RUNNER_TEMP/kubeconform.tar.gz" "$KUBECONFORM_URL"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C /usr/local/bin kubeconform
 
       - name: Render and validate every instance
         run: |
@@ -81,17 +93,44 @@ jobs:
             # clusters/_base/<env>.yaml first, like the instances AppSet (MAIR-414).
             mapfile -t files < <(./scripts/instance-values.sh "$v")
             args=(); for f in "${files[@]}"; do args+=(-f "$f"); done
+            # MAIR-541: --strict turns the chart warnings into errors, with the
+            # values of each instance (the default values alone prove little).
+            helm lint ./charts/mairie360-stack --strict "${args[@]}"
             for controller in nginx traefik; do
               echo "Rendering $v (ingress controller: $controller)"
               helm template r ./charts/mairie360-stack "${args[@]}" \
                 --set global.ingressController="$controller" \
                 | kubeconform -strict -summary -schema-location default \
-                    -schema-location "$CRDS" -skip CiliumNetworkPolicy
+                    -schema-location "$CRDS"
             done
           done
           echo "Validating bootstrap/"
           kubeconform -strict -summary -schema-location default \
             -schema-location "$CRDS" bootstrap/appsets bootstrap/cluster-addons bootstrap/platform-app.yaml
+
+      # MAIR-346: the platform app applies bootstrap/appsets/ from `main` to
+      # every machine at once, so versions and values must stay in the
+      # wrapper charts of bootstrap/addons/, read at each machine's own
+      # revision. Render each one, and refuse an instance AppSet that pins a
+      # revision or points at a Helm repository again.
+      - name: Render the bootstrap wrapper charts
+        # bash -eo pipefail: a failed `helm template` must fail the step, not
+        # leave kubeconform validating zero resources.
+        shell: bash
+        run: |
+          CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          for chart in bootstrap/addons/*/; do
+            name=$(basename "$chart")
+            echo "Rendering $chart"
+            ./scripts/addon-deps.sh "$chart"
+            helm lint "$chart"
+            helm template "$name" "$chart" --include-crds \
+              | kubeconform -strict -summary -schema-location default \
+                  -schema-location "$CRDS" -skip CustomResourceDefinition
+          done
+
+      - name: Bootstrap AppSets follow each machine's revision
+        run: ./scripts/check-bootstrap-revisions.sh
 
       # GDPR decisions of each mairie (compliance/<org>/, MAIR-294) against the
       # rendered configuration: retention periods, backup retention, external
@@ -102,11 +141,24 @@ jobs:
           python3 -m unittest discover -s tests/compliance -v
           ./scripts/check-compliance.py
 
+      # Global RGAA rate of the prod fronts (prod gate of Promote) and
+      # the accessible platform release note.
+      - name: Test the platform RGAA rate and release note
+        run: python3 -m unittest discover -s tests/rgaa -v
+
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and
       # exist on their registry. skopeo is preinstalled on ubuntu-latest.
       - name: Check image tags exist
         run: ./scripts/check-image-tags.sh
+
+      # Release manifests (MAIR-1006): releases/<version>.yaml freezes the
+      # commit of each service repo's main for one platform release. Format,
+      # dev tags, and every sha existing on its repo's main.
+      - name: Check the release manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/release-manifest.py check --remote
 
       # Every Secret (and key) the pods reference is sealed in the instance's
       # secrets.yaml (MAIR-414). Warnings only here: a secrets.yaml is sealed
@@ -118,9 +170,27 @@ jobs:
       # Helm 4 verifies plugin signatures and refuses a git source, which
       # cannot be verified: the version pin is what trusts the plugin here.
       - name: Helm unit tests
+        env:
+          HELM_UNITTEST_URL: https://github.com/helm-unittest/helm-unittest/releases/download/v0.8.2/helm-unittest-linux-amd64-0.8.2.tgz
+          HELM_UNITTEST_SHA256: 56ab3091e6fa52a7c92ee951def9bed957f295d9ce98483aed404e748d7b3a94
         run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.8.2 --verify=false
+          # helm-unittest publishes no provenance file, so `helm plugin install
+          # --verify` cannot work: the release archive, which already holds the
+          # binary, is checked against a SHA256 written here, then unpacked in
+          # the plugins directory (its install hook would download the binary
+          # again, unchecked). Hash from the release's helm-unittest-checksum.sha.
+          curl -sSLf -o "$RUNNER_TEMP/helm-unittest.tgz" "$HELM_UNITTEST_URL"
+          echo "$HELM_UNITTEST_SHA256  $RUNNER_TEMP/helm-unittest.tgz" | sha256sum -c -
+          mkdir -p "$(helm env HELM_PLUGINS)/unittest"
+          tar -xzf "$RUNNER_TEMP/helm-unittest.tgz" -C "$(helm env HELM_PLUGINS)/unittest"
           helm unittest ./charts/mairie360-stack
+
+      # MAIR-541: errors and warnings of shellcheck on every shell script of the
+      # repo (info and style findings are reported by the editor, not blocking).
+      - name: Shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          shellcheck -x --severity=warning "${scripts[@]}"
 
       - name: Script tests
         run: for t in tests/scripts/*_test.sh; do echo "== $t"; "$t" || exit 1; done

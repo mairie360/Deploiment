@@ -6,6 +6,8 @@ values:
   - ../../../clusters/mairie360/instances/dev/values.yaml
 tests:
   - it: renders nothing while global.observability.enabled=false (default)
+    set:
+      global.observability.enabled: false
     templates:
       - charts/observability/templates/deployment.yaml
       - charts/observability/templates/configmap.yaml
@@ -19,6 +21,8 @@ tests:
   - it: refuses to render without the Cockpit endpoints
     set:
       global.observability.enabled: true
+      observability.cockpit.metricsEndpoint: ""
+      observability.cockpit.tracesEndpoint: ""
     templates: [charts/observability/templates/deployment.yaml]
     asserts:
       - failedTemplate:
@@ -98,6 +102,8 @@ tests:
           content: { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "http/protobuf" }
 
   - it: no API gets an OTEL_* variable while disabled
+    set:
+      global.observability.enabled: false
     templates: [charts/APIs/templates/deployment.yaml]
     documentSelector:
       path: metadata.name

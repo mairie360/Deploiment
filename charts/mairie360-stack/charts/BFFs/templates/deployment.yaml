@@ -29,6 +29,7 @@ spec:
         {{- include "bffs.instancePodLabels" $ctx | nindent 8 }}
     spec:
       automountServiceAccountToken: {{ $.Values.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
       {{- with $.Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -61,6 +62,12 @@ spec:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 15
             periodSeconds: 10
+          {{- with $.Values.preStopSleepSeconds }}
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ . }}
+          {{- end }}
           resources:
             {{- toYaml ($bffConfig.resources | default $.Values.resources) | nindent 12 }}
           {{- with $.Values.writableDirs }}

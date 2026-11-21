@@ -12,7 +12,8 @@
 # clusters/_base/<env>.yaml + values.yaml + secrets.yaml,
 # release and namespace named after the environment), then compares:
 #   - what the pods reference: env secretKeyRef, envFrom secretRef and secret
-#     volumes, unless marked `optional: true`;
+#     volumes, unless marked `optional: true`, plus the Secrets a
+#     CloudNativePG Cluster / ObjectStore reads (superuser, import source, S3);
 #   - what the render provides: Secrets created by the chart and the
 #     SealedSecrets of secrets.yaml, whose KEY NAMES are readable in clear
 #     (only the values are encrypted).
@@ -67,6 +68,25 @@ for doc in yaml.safe_load_all(sys.stdin):
         provided[name] = set(spec.get("encryptedData") or {})
         continue
     spec = doc.get("spec") or {}
+    who = "%s/%s" % (kind, meta.get("name"))
+    # CloudNativePG reads Secrets for its pods: the superuser, the import
+    # source and the S3 keys of the Barman Cloud plugin.
+    if kind == "Cluster" and str(doc.get("apiVersion", "")).startswith("postgresql.cnpg.io/"):
+        ref = spec.get("superuserSecret")
+        if ref:
+            for key in ("username", "password"):
+                needed.setdefault((ref["name"], key), set()).add(who)
+        for ext in spec.get("externalClusters") or []:
+            ref = ext.get("password")
+            if ref:
+                needed.setdefault((ref["name"], ref["key"]), set()).add(who)
+        continue
+    if kind == "ObjectStore" and str(doc.get("apiVersion", "")).startswith("barmancloud.cnpg.io/"):
+        creds = ((spec.get("configuration") or {}).get("s3Credentials") or {})
+        for ref in creds.values():
+            if isinstance(ref, dict) and "name" in ref and "key" in ref:
+                needed.setdefault((ref["name"], ref["key"]), set()).add(who)
+        continue
     if kind == "CronJob":
         spec = (spec.get("jobTemplate") or {}).get("spec") or {}
     pod = (spec.get("template") or {}).get("spec") if kind != "Pod" else spec

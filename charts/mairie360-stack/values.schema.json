@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "mairie360-stack values (MAIR-541)",
+  "description": "Closed list of the top-level keys and of the `global` keys: a misspelled key in an instance values.yaml fails helm lint / template / install instead of being ignored. Sub-sections stay open on purpose; tighten them when a typo there bites.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "APIs": {},
+    "BFFs": {},
+    "Fronts": {},
+    "backup": {},
+    "database": {},
+    "extraObjects": {},
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apis": {},
+        "bffs": {},
+        "compliance": {},
+        "database": {},
+        "domain": {
+          "type": "string"
+        },
+        "elearningBucket": {},
+        "emailFrom": {},
+        "imagePullSecret": {},
+        "ingressController": {},
+        "ingressNamespace": {},
+        "jwt": {},
+        "legal": {},
+        "monitoringNamespace": {},
+        "networkPolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "observability": {},
+        "secrets": {},
+        "trustedProxyCIDRs": {}
+      }
+    },
+    "image": {},
+    "ingress": {},
+    "liquibase": {},
+    "observability": {},
+    "redis": {},
+    "retention": {},
+    "secrets": {}
+  }
+}

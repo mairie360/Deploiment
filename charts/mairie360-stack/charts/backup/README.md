@@ -14,16 +14,21 @@ filesystem; restic is copied by an initContainer from the pinned
 --exit-on-error`: a failed restore rolls back instead of leaving a half-loaded
 database.
 
-**Known limit:** the same key pair writes snapshots and runs
-`restic forget --prune`, so a compromised instance can delete its own
-backups. Protect the bucket on the provider side (object lock / versioning
-with a retention period longer than `retention.keepDaily`).
+The same key pair writes snapshots and runs `restic forget --prune`, so the
+bucket itself must refuse deletions: the instance buckets
+`<org>-backups-<env>` are created by
+[`mairie360/Infra`](https://github.com/mairie360/Infra) (MAIR-618) versioned
+and locked in **COMPLIANCE mode for 30 days**. A prune (or a stolen key) only
+adds delete markers; every version of the last 30 days stays restorable
+(`restic` >= 0.13 sends the Content-MD5 object lock requires). To restore
+a snapshot pruned by mistake, roll the bucket objects back to their previous
+version before running restic.
 
 ## Enabling it for an instance
 
-1. Create an S3-compatible bucket for that instance (provider and bucket
-   naming are an infra decision, not part of this repo) and an access-key
-   pair scoped to it.
+1. Add the instance to `orgs/<org>/` of `mairie360/Infra`: its apply
+   creates the locked bucket `<org>-backups-<env>` (MAIR-618). The access-key
+   pair must reach that bucket only.
 2. Seal `<release>-backup-secret` with the ansible repo (phase 4, which runs
    `scripts/seal-secrets.sh` on the group's Argo CD machine), then commit the
    `secrets.yaml` it writes into this checkout:
@@ -34,12 +39,12 @@ with a retention period longer than `retention.keepDaily`).
    Once `backup.enabled` is true (step 3), later runs prompt for the key pair
    instead when it is neither exported nor already sealed.
    `RESTIC_PASSWORD` (the repository encryption key) is not an input: the
-   ansible role generates it on the first run, then keeps it, and writes it
-   to `~/.mairie360/restic-<org>-<env>.txt` (mode 600) on the workstation.
-   Store that file in the team vault, like the sealed-secrets sealing key —
-   losing it makes every existing backup permanently unreadable. To restore
-   into a reinstalled instance, pass the old value back through
-   `instance_secrets[<host>].restic_password`. When sealing by hand, read it
+   ansible role generates it on the first run, then keeps it, and stores it
+   in the team vault, Scaleway Secret Manager (`/<org>/<env>/restic-password`,
+   MAIR-617), like the sealed-secrets sealing keys — losing it makes every
+   existing backup permanently unreadable. To restore into a reinstalled
+   instance, the role reads it back from the vault (or pass it through
+   `instance_secrets[<host>].restic_password`). When sealing by hand, read it
    from the cluster:
    ```bash
    kubectl -n mairie360-<env> get secret <env>-backup-secret \
@@ -52,7 +57,7 @@ with a retention period longer than `retention.keepDaily`).
      schedule: "0 3 * * *"          # cron, evaluated in UTC
      s3:
        endpoint: "https://s3.<region>.example.com"
-       bucket: "mairie360-<org>-<env>-backups"
+       bucket: "<org>-backups-<env>"   # created by mairie360/Infra
        region: "<region>"
      retention:
        keepDaily: 7
@@ -66,26 +71,6 @@ with a retention period longer than `retention.keepDaily`).
 
 Argo CD picks up the change on the next sync; there is no hook, so the
 CronJob is created/updated like any other resource.
-
-## Keycloak (MAIR-231)
-
-Set `backup.keycloak.enabled: true` on an instance where Keycloak is deployed
-(`keycloak.enabled: true`, the default everywhere) to add a second
-`pg_dump`/`restic backup` pass, right after the Mairie360 database, against
-Keycloak's own PostgreSQL (`<release>-keycloak-db`). It authenticates with
-`KEYCLOAK_DB_PASSWORD` from `<release>-keycloak-secret` (nothing new to seal)
-and lands in the **same** S3 repository, tagged with its own `--host
-keycloak-<db-name>` so it is a separate snapshot lineage from the Mairie360
-database's, with its own retention. `charts/keycloak/templates/network-policy.yaml`
-admits `app.kubernetes.io/component: backup` on `keycloak-db:5432` for this.
-
-Sibling subcharts don't see each other's values, so this is independent from
-the umbrella chart's `keycloak.enabled`: don't turn it on for an instance
-without Keycloak. The restore Job (`templates/restore-job.yaml`) is not
-wired up for the Keycloak dump yet — restoring it today means dumping the
-snapshot by hand (`restic dump --host keycloak-<db-name> <snapshot> ... |
-pg_restore` against `<release>-keycloak-db`), same connection details as
-`charts/keycloak/templates/db-statefulset.yaml`.
 
 ## Sealed backups: a key per user (MAIR-500)
 
@@ -128,25 +113,55 @@ is set, and carries no Argo CD hook annotation — so it must be applied by
 hand, never left `true` in a values file an Argo CD Application tracks:
 
 ```bash
+kubectl config current-context        # must be the cluster of the instance to restore
 helm dependency build ./charts/mairie360-stack
 helm template <release> ./charts/mairie360-stack -f <instance values file> \
   -s charts/backup/templates/restore-job.yaml \
   --set backup.restore.enabled=true \
-  --set backup.restore.snapshotId=<snapshot-id-or-latest> \
+  --set backup.restore.snapshotId=<exact-snapshot-id> \
+  --set backup.restore.confirmDatabase=<POSTGRES_DB of the database to replace> \
   | kubectl --context <kube-context> -n mairie360-<env> apply -f -
 ```
 
-List available snapshots first with a throwaway pod using the same image and
-env as the CronJob (`AWS_*` / `RESTIC_*` from `<release>-backup-secret`):
-`restic snapshots --host <db-name>`.
+List the snapshots first with `scripts/list-snapshots.sh <kube-context>
+<env>`: a throwaway pod using the same image and env as the CronJob (`AWS_*` /
+`RESTIC_*` from `<release>-backup-secret`); extra arguments go to restic, e.g.
+`snapshots --host <db-name>`. The chart refuses to render without an exact
+snapshot id (`latest` is refused) and without `confirmDatabase`.
 
-The restore Job runs `pg_restore --clean --if-exists --no-owner`: it drops
-and recreates every object the dump contains against the *existing*
-Postgres server (it does not create the server or the role, only the schema
-and data), so the database ends up in the exact state it was in at backup
-time. Delete the Job (`kubectl delete job <release>-backup-restore`) once
-done — `ttlSecondsAfterFinished` also cleans it up automatically after an
-hour.
+Stop the APIs and BFFs, the backup and retention CronJobs (and Argo CD's
+automated sync, which would scale them back) before applying the Job, and
+start them again afterwards: the full sequence, and how to rebuild a lost
+machine before restoring, is in the disaster-recovery runbook,
+`docs/en/disaster-recovery.md` at the root of this repository.
+
+The Job checks everything before it changes anything, and stops otherwise:
+
+1. `confirmDatabase` is the database the pod is connected to;
+2. the snapshot exists and its archive is readable (`pg_restore --list`);
+3. the current state is saved as a `pre-restore` snapshot (not with
+   `sealing`: that copy would hold unsealed personal data, the scheduled
+   sealed backup is the safety net there). A restore of the wrong snapshot
+   can then be undone by restoring the `pre-restore` one.
+
+Then it drops schema `public` and loads the dump back, in one transaction
+(`BEGIN; DROP SCHEMA public CASCADE; CREATE SCHEMA public …`, then the dump as
+SQL through `pg_restore -f -`, `COMMIT` only once `pg_restore` finished and
+`public.users` is not empty) against the *existing* Postgres server (it does
+not create the server or the role, only the schema and data), so the database
+ends up in the exact state it was in at backup time, or untouched when
+anything fails. It does not use `pg_restore --clean`: that fails on
+partitioned tables (`cannot drop inherited constraint
+access_logs_default_pkey`, found by the backup/restore e2e test, MAIR-240).
+Everything in schema `public` is replaced; only Liquibase edits it, so
+nothing outside the dump is lost, but everything written after the snapshot is.
+
+**What a restore cannot give back.** Backups run once a day: up to 24 hours of
+writes are lost, and the chart has no point-in-time recovery or failover.
+Redis (the JWT revocation list) is not restored by this Job.
+
+Delete the Job (`kubectl delete job <release>-backup-restore`) once done —
+`ttlSecondsAfterFinished` also cleans it up automatically after an hour.
 
 ## Verifying
 

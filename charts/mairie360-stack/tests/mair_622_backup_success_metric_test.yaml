@@ -1,0 +1,44 @@
+# MAIR-622: the backup CronJob reports each success to the instance's
+# collector, which lets it in; BackupMissed (mairie360/Infra) alerts without it.
+suite: backup success metric (MAIR-622)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+tests:
+  - it: pushes the success time to the collector after restic check, without failing the backup
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'restic check --read-data-subset=5%\n(.*\n)*\s*now=\$\(date \+%s\)\n\s*wget -q -T 10 .*'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '"name\\":\\"mairie360_backup_last_success_timestamp_seconds\\",\\"gauge\\"'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '"http://RELEASE-NAME-otel-collector:4318/v1/metrics" \\\n\s*\|\| echo "warning'
+
+  - it: reports nothing without observability (no collector to reach)
+    set:
+      global.observability.enabled: false
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: otel-collector
+
+  - it: the collector admits the backup pods on OTLP
+    templates: [charts/observability/templates/network-policy.yaml]
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: backup
+      - contains:
+          path: spec.ingress[0].ports
+          content: { protocol: TCP, port: 4318 }

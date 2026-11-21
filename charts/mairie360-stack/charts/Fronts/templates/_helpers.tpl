@@ -34,16 +34,22 @@ app.kubernetes.io/component: frontend
 
 {{/*
 Variables injectées dans TOUS les fronts :
+ - COOKIE_DOMAIN (MAIR-747), `.<global.domain>`: the session cookie shared by the
+   fronts; lib-components answers 503 on resume, refresh and logout without it
+   (NODE_ENV=production). Derived here so that no front can miss it: the instance
+   values must not declare it,
  - l'URL publique de chaque front (pour les liens inter-modules),
  - l'URL interne de chaque BFF (les fronts appellent les BFFs dans le cluster).
 */}}
 {{- define "fronts.commonEnv" -}}
+{{- $domain := .Values.global.domain }}
 - name: HOSTNAME
   value: "0.0.0.0"
+- name: COOKIE_DOMAIN
+  value: {{ printf ".%s" $domain | quote }}
 {{- with .Values.commonEnv }}
 {{ toYaml . }}
 {{- end }}
-{{- $domain := .Values.global.domain }}
 {{- range $frontName, $frontConfig := .Values.instances }}
 {{- if $frontConfig.enabled }}
 - name: {{ $frontName | upper | replace "-" "_" }}_URL
@@ -94,32 +100,5 @@ Takes { root, name }.
 {{- $g := .root.Values.global | default dict -}}
 - name: LEGAL_CONFIG
   value: {{ ($g.legal | default dict) | toJson | quote }}
-{{- end -}}
-{{- end -}}
-
-{{/*
-MAIR-153: Keycloak sign-in of the fronts in keycloakLoginInstances (only
-login-front). KEYCLOAK_REALM_URL is the public realm URL the browser is sent
-to (same host and realm as Core's KEYCLOAK_ISSUER); KEYCLOAK_CLIENT_ID is the
-client Core redeems the code with (keycloakLoginClientId, Core's client), so
-the authorization request and the code exchange use the same client. An
-instance `env` entry of the same name wins. Takes { root, name, config }.
-*/}}
-{{- define "fronts.keycloakEnv" -}}
-{{- if has .name (.root.Values.keycloakLoginInstances | default list) -}}
-{{- $names := list -}}
-{{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
-{{- $kc := ((.root.Values.global).keycloak) | default dict -}}
-{{- if not (has "KEYCLOAK_REALM_URL" $names) }}
-{{- /* `default` evaluates both arguments: only require global.domain for the fallback host. */}}
-{{- $host := $kc.hostname -}}
-{{- if not $host }}{{ $host = printf "auth.%s" (required "global.domain is required (Keycloak realm URL)" .root.Values.global.domain) }}{{ end }}
-- name: KEYCLOAK_REALM_URL
-  value: {{ printf "https://%s/realms/%s" $host ($kc.realm | default "mairie360") | quote }}
-{{- end }}
-{{- if not (has "KEYCLOAK_CLIENT_ID" $names) }}
-- name: KEYCLOAK_CLIENT_ID
-  value: {{ .root.Values.keycloakLoginClientId | default "core-api" | quote }}
-{{- end }}
 {{- end -}}
 {{- end -}}

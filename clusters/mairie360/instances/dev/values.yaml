@@ -43,9 +43,12 @@ global:
   # of dev verifies EdDSA. Required since JWT_SECRET was removed: the chart
   # refuses to render without it.
   jwt:
-    publicKey: ""
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEACIJhCfqjMY6nw8yMQ6jHzqbjFq78hmaNdE3WIT7tQx0=
+      -----END PUBLIC KEY-----
     signing:
-      enabled: false
+      enabled: true
   imagePullSecret: "ghcr-secret"
   # Ingress controller of this machine: "nginx" or "traefik" (MAIR-260).
   # Must match the Argo CD cluster label mairie360.fr/ingress set by ansible
@@ -61,14 +64,14 @@ global:
     # HTTP details (method, path, status) in Hubble on fronts -> bffs -> apis.
     # Requires the Cilium CNI installed by the Ansible role k8s_node.
     ciliumL7Visibility: true
-  # MAIR-131 (POC): OpenTelemetry Collector -> Scaleway Cockpit, core-api only.
-  # Turn on once the two Cockpit data sources below exist and
-  # <release>-cockpit-secret is sealed (COCKPIT_TOKEN exported when running
-  # scripts/seal-secrets.sh): with empty endpoints the chart refuses to render.
-  # Commented out: the chart default is already `enabled: false`.
-  # observability:
-  #   enabled: false
-  #   apis: ["core-api"]
+  # MAIR-620: OpenTelemetry Collector -> the instance's Cockpit data sources
+  # (created by mairie360/Infra, orgs/mairie360). COCKPIT_TOKEN is sealed by
+  # ansible from the vault (/mairie360/dev/cockpit-token, issued by Infra's
+  # scripts/issue-cockpit-tokens.sh).
+  # Needs the endpoints below: the chart refuses an enabled collector without them.
+  observability:
+    enabled: true
+    apis: ["core-api"]
 
 # Secrets fournis par SealedSecret (secrets.yaml, généré par
 # scripts/seal-secrets.sh mairie360 dev). Jamais de valeur en clair ici.
@@ -87,7 +90,7 @@ ingress:
 # The chart defaults (256-512 MiB limits) stay as is for staging and prod.
 database:
   image:
-    tag: "dev-34b5230"
+    tag: "dev-5d26e89"
   secret:
     create: false
   persistence:
@@ -106,7 +109,7 @@ redis:
 
 liquibase:
   image:
-    tag: "dev-34b5230"
+    tag: "dev-5d26e89"
   db:
     name: "mairie_db_dev"
 
@@ -117,8 +120,7 @@ liquibase:
 # this change — until then the CronJob's pod sits in
 # CreateContainerConfigError, same as any new Secret (see the root
 # CLAUDE.md Gotchas). Schedule and retention are applied by Argo CD on the
-# next sync. keycloak.enabled also dumps <release>-keycloak-db into the same
-# repository (KEYCLOAK_DB_PASSWORD, no extra secret to seal).
+# next sync.
 backup:
   enabled: true
   schedule: "0 3 * * *"
@@ -128,47 +130,19 @@ backup:
     keepMonthly: 6
   s3:
     endpoint: "https://s3.fr-par.scw.cloud"
-    bucket: "mairie360-backup-dev"
+    # Versioned, COMPLIANCE-locked 30 days, created by mairie360/Infra (MAIR-618).
+    bucket: "mairie360-backups-dev"
     region: "fr-par"
-  keycloak:
-    enabled: true
 
-# Keycloak (MAIR-139): the instance's identity provider, on
-# https://auth.<global.domain> (DNS record required, like the fronts). Realm
-# and clients: charts/mairie360-stack/charts/keycloak/values.yaml. Its own
-# Postgres is covered by the backup CronJob above (backup.keycloak.enabled,
-# MAIR-231). Requires <release>-keycloak-secret in secrets.yaml
-# (scripts/seal-secrets.sh).
-keycloak:
-  enabled: true
-  # Keycloak idles around 400 MiB. Cap the heap explicitly: without it the JVM
-  # sizes it as a percentage of the limit and the rest (metaspace, threads,
-  # code cache) can push the container over the limit during the realm import.
-  extraEnv:
-    - name: JAVA_OPTS_KC_HEAP
-      value: "-Xms64m -Xmx512m"
-  resources:
-    requests: { memory: "400Mi", cpu: "100m" }
-    limits:   { memory: "1Gi", cpu: "1000m" }
-  realm:
-    # Same Resend relay and verified domain as core-api's EMAIL_FROM above.
-    smtp:
-      from: "noreply@mairie360-eip.fr"
-      fromDisplayName: "Mairie360 (dev)"
-  db:
-    persistence:
-      size: "1Gi"
-      storageClass: "local-path"
-
-# Cockpit push URLs of the dev data sources (Cockpit console > Data sources).
-# Not secret: the token lives in <release>-cockpit-secret.
-# Commented out until Cockpit is enabled (chart default: empty endpoints).
-# observability:
-#   cockpit:
-#     # https://<metrics-datasource-id>.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
-#     metricsEndpoint: ""
-#     # https://<traces-datasource-id>.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
-#     tracesEndpoint: ""
+# MAIR-620: push URLs of this instance's Cockpit data sources, from
+#   scripts/tf.sh orgs/mairie360 output -json instances | jq '.dev.cockpit_endpoints'
+# in mairie360/Infra. Not secret.
+# tests/scripts/mair_620_cockpit_endpoints_test.sh refuses anything but a
+# Cockpit data source URL.
+observability:
+  cockpit:
+    metricsEndpoint: "https://16cb3a89-241f-4ff2-b039-0bd5def28da2.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics"
+    tracesEndpoint: "https://b5c3564a-5e39-4aad-afda-aa88489980be.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces"
 
 APIs:
   resources:
@@ -183,7 +157,7 @@ APIs:
   instances:
     core-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-30d9bb5" }
+      image: { repository: ghcr.io/mairie360/core-api, tag: "dev-6e16ba6" }
       env:
         - name: PUBLIC_URL
           value: "https://login.dev.mairie360-eip.fr"
@@ -205,16 +179,16 @@ APIs:
           value: "Mairie360 (dev)"
     project-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-be2b410" }
+      image: { repository: ghcr.io/mairie360/project-api, tag: "dev-408314f" }
     calendar-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-3b4668b" }
+      image: { repository: ghcr.io/mairie360/calendar-api, tag: "dev-bfff317" }
     message-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-75d7650" }
+      image: { repository: ghcr.io/mairie360/message-api, tag: "dev-aeb3275" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-e3ffc1c" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "dev-9229666" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
@@ -249,40 +223,40 @@ BFFs:
     user-bff:
       enabled: true
       port: 4000
-      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-699a1ef" }
+      image: { repository: ghcr.io/mairie360/bff-user, tag: "dev-91f04c7" }
       env:
         - name: COOKIE_DOMAIN
           value: ".dev.mairie360-eip.fr"
     project-bff:
       enabled: true
       port: 4001
-      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-1c2e664" }
+      image: { repository: ghcr.io/mairie360/bff-project, tag: "dev-3b7a5ce" }
     calendar-bff:
       enabled: true
       port: 4002
-      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-45c8598" }
+      image: { repository: ghcr.io/mairie360/bff-calendar, tag: "dev-49f78b8" }
       env:
         - name: CALENDAR_API_BASE_PATH
           value: "http://{{ .Release.Name }}-calendar-api:3002"
     message-bff:
       enabled: true
       port: 4003
-      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-9cb0aa6" }
+      image: { repository: ghcr.io/mairie360/bff-message, tag: "dev-b3e3ee9" }
       env:
         - name: MESSAGE_API_BASE_PATH
           value: "http://{{ .Release.Name }}-message-api:3003"
     dashboard-bff:
       enabled: true
       port: 4004
-      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "dev-51b0f32" }
+      image: { repository: ghcr.io/mairie360/bff-dashboard, tag: "dev-448f3e3" }
     settings-bff:
       enabled: true
       port: 4005
-      image: { repository: ghcr.io/mairie360/bff-settings, tag: "dev-bdc4a88" }
+      image: { repository: ghcr.io/mairie360/bff-settings, tag: "dev-95d5937" }
     elearning-bff:
       enabled: true
       port: 4006
-      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-15082e0" }
+      image: { repository: ghcr.io/mairie360/bff-elearning, tag: "dev-08c737f" }
 
 Fronts:
   resources:
@@ -292,50 +266,32 @@ Fronts:
     login-front:
       enabled: true
       port: 5000
-      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-2f50848" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/login-front, tag: "dev-ebee0b0" }
     project-front:
       enabled: true
       port: 5001
-      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-ad806b5" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/projects-front, tag: "dev-5dcad47" }
     calendar-front:
       enabled: true
       port: 5002
-      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-dcbfb02" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/calendar-front, tag: "dev-48f8879" }
     message-front:
       enabled: true
       port: 5003
-      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-9856e2c" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/message-front, tag: "dev-57a6187" }
     dashboard-front:
       enabled: true
       port: 5004
-      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-a3ae7d8" }
+      image: { repository: ghcr.io/mairie360/dashboard-front, tag: "dev-822e040" }
     settings-front:
       enabled: true
       port: 5005
-      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-891e2fa" }
+      image: { repository: ghcr.io/mairie360/settings-front, tag: "dev-d435d24" }
     elearning-front:
       enabled: true
       port: 5006
-      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-0474b4c" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/elearning-front, tag: "dev-5441b4e" }
     admin-front:
       enabled: true
       port: 5007
-      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-a266ffd" }
-      env:
-        - name: COOKIE_DOMAIN
-          value: ".dev.mairie360-eip.fr"
+      image: { repository: ghcr.io/mairie360/administrator-front, tag: "dev-e9dbc82" }

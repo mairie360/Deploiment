@@ -1,5 +1,6 @@
 {{- if and (include "observability.enabled" .) (((.Values.global).networkPolicy).enabled) }}
-# Only the APIs send OTLP to the collector. Its own outbound traffic (kubelet
+# Only the APIs, and the backup CronJob reporting its success (MAIR-622), send
+# OTLP to the collector. Its own outbound traffic (kubelet
 # :10250 on the node, Cockpit on 443) is unrestricted while
 # global.networkPolicy.egressDefaultDeny is off; turning that on requires
 # adding the node IP and Cockpit's addresses to egressAllowCIDRs.
@@ -22,6 +23,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backup
       ports:
         - { protocol: TCP, port: 4317 }
         - { protocol: TCP, port: 4318 }

@@ -142,8 +142,10 @@ not parse"), scripts/verify.sh checks it on the cluster. MAIR-531.
   value: {{ printf "redis://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis:6379" .root.Release.Name | quote }}
 {{- /* MAIR-680: no JWT_SECRET anymore, the APIs verify EdDSA tokens only. */}}
 {{- include "apis.jwtKeysEnv" . }}
+{{- include "apis.totpKeyEnv" . }}
+{{- include "apis.webauthnEnv" . }}
 {{- include "apis.dbPoolEnv" . }}
-{{- include "apis.keycloakEnv" . }}
+{{- include "apis.rateLimitEnv" . }}
 {{- include "apis.otelEnv" . }}
 {{- include "apis.complianceEnv" . }}
 {{- with .root.Values.commonEnv }}
@@ -180,31 +182,36 @@ sum(replicas x maxConnections) well below it.
 {{- end -}}
 
 {{/*
-MAIR-554: Keycloak settings of the APIs listed in keycloakClientInstances
-(API_lib / Core `KeycloakConfig::from_env`). Core reaches the realm through
-the in-cluster Service, but Keycloak writes its public hostname into the
-`iss` claim (KC_HOSTNAME), hence the separate KEYCLOAK_ISSUER. The secret is
-optional: with a <release>-keycloak-secret sealed before it, Core still
-starts, Keycloak sign-in works and only the account synchronisation stays off
-until scripts/seal-secrets.sh + scripts/keycloak-core-api-client.sh run.
+Per-user rate limit of the business APIs listed in rateLimitInstances (API_lib
+`RateLimiter::from_env`). `rateLimit` of the chart, overridden key by key by
+`rateLimit.perInstance.<name>` then `instances.<name>.rateLimit` (a perSecond of
+0 turns the limiter off; trustForwarded, only behind one proxy that appends the
+address it saw, makes anonymous callers count per forwarded address). A key missing
+everywhere is not rendered and the API keeps the lib's default. The counters are per pod.
 */}}
-{{- define "apis.keycloakEnv" -}}
-{{- if has .name (.root.Values.keycloakClientInstances | default list) }}
-{{- $kc := ((.root.Values.global).keycloak) | default dict }}
-{{- $realm := $kc.realm | default "mairie360" }}
-{{- $host := $kc.hostname | default (printf "auth.%s" (required "global.domain is required (Keycloak issuer)" .root.Values.global.domain)) }}
-- name: KEYCLOAK_REALM_URL
-  value: {{ printf "http://%s-keycloak:8080/realms/%s" .root.Release.Name $realm | quote }}
-- name: KEYCLOAK_ISSUER
-  value: {{ printf "https://%s/realms/%s" $host $realm | quote }}
-- name: KEYCLOAK_CLIENT_ID
-  value: {{ .name | quote }}
-- name: KEYCLOAK_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ printf "%s-keycloak-secret" .root.Release.Name }}
-      key: {{ printf "%s_CLIENT_SECRET" (.name | upper | replace "-" "_") }}
-      optional: true
+{{- define "apis.rateLimitEnv" -}}
+{{- if has .name (.root.Values.rateLimitInstances | default list) }}
+{{- $limit := deepCopy (omit (.root.Values.rateLimit | default dict) "perInstance") }}
+{{- $perInstance := index ((.root.Values.rateLimit | default dict).perInstance | default dict) .name | default dict }}
+{{- range $key, $value := $perInstance }}
+{{- $_ := set $limit $key $value }}
+{{- end }}
+{{- $instance := index (.root.Values.instances | default dict) .name | default dict }}
+{{- range $key, $value := $instance.rateLimit | default dict }}
+{{- $_ := set $limit $key $value }}
+{{- end }}
+{{- if hasKey $limit "perSecond" }}
+- name: RATE_LIMIT_PER_SECOND
+  value: {{ $limit.perSecond | toString | quote }}
+{{- end }}
+{{- if hasKey $limit "burst" }}
+- name: RATE_LIMIT_BURST
+  value: {{ $limit.burst | toString | quote }}
+{{- end }}
+{{- if hasKey $limit "trustForwarded" }}
+- name: RATE_LIMIT_TRUST_FORWARDED
+  value: {{ $limit.trustForwarded | toString | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 
@@ -234,8 +241,7 @@ OTEL_RESOURCE_ATTRIBUTES for the $(K8S_POD_NAME) expansion to work.
 
 {{/*
 MAIR-498: settings and erasure credentials of the compliance service, injected
-into compliance-api ONLY: no other API gets the Keycloak admin client, the
-Resend key or the S3 delete keys. Every secret key is optional: a connector
+into compliance-api ONLY: no other API gets the Resend key or the S3 delete keys. Every secret key is optional: a connector
 without its credentials stays "not configured" (Compliance_API CLAUDE.md).
 Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 */}}
@@ -247,9 +253,6 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 {{- define "apis.complianceEnv" -}}
 {{- $c := (.root.Values.global).compliance | default dict }}
 {{- if and $c.enabled (eq .name "compliance-api") }}
-{{- $kc := $c.keycloak | default dict }}
-{{- $realm := ((.root.Values.global).keycloak).realm | default "mairie360" }}
-{{- $kcBase := printf "http://%s-keycloak:8080" .root.Release.Name }}
 {{- $secret := include "apis.complianceSecretName" .root }}
 - name: SCAN_INTERVAL_SECONDS
   value: {{ $c.scanIntervalSeconds | default 21600 | quote }}
@@ -265,15 +268,6 @@ Redis: the same ACL account scans and erases (redis chart, configmap.yaml).
 - name: REDIS_ERASURE_PATTERNS
   value: {{ join "," . | quote }}
 {{- end }}
-- name: KEYCLOAK_ADMIN_URL
-  value: {{ $kc.adminUrl | default (printf "%s/admin/realms/%s" $kcBase $realm) | quote }}
-- name: KEYCLOAK_TOKEN_URL
-  value: {{ $kc.tokenUrl | default (printf "%s/realms/%s/protocol/openid-connect/token" $kcBase $realm) | quote }}
-- name: KEYCLOAK_ADMIN_CLIENT_ID
-  value: {{ $kc.adminClientId | default "compliance" | quote }}
-- name: KEYCLOAK_ADMIN_CLIENT_SECRET
-  valueFrom:
-    secretKeyRef: { name: {{ $secret }}, key: KEYCLOAK_ADMIN_CLIENT_SECRET, optional: true }
 {{- with ($c.resend).audienceId }}
 - name: RESEND_AUDIENCE_ID
   value: {{ . | quote }}
@@ -332,5 +326,45 @@ templates/jwt-session-keys.yaml (umbrella) guards both values.
     secretKeyRef:
       name: {{ printf "%s-jwt-signing-secret" .root.Release.Name }}
       key: JWT_PRIVATE_KEY
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-805: TOTP_ENCRYPTION_KEY (base64 of 32 bytes) seals the second-factor
+secrets of the users in core-api (AES-256-GCM), and core-api alone reads it,
+whatever the instance is called in a values file it is the one named core-api.
+`optional`: an instance whose secrets.yaml was sealed before MAIR-805 keeps
+starting, and core-api then answers 503 on the second-factor routes instead of
+crash-looping. scripts/seal-secrets.sh generates it once per instance and
+never replaces it: a new key makes every enrolled secret unreadable.
+*/}}
+{{- define "apis.totpKeyEnv" -}}
+{{- if eq .name "core-api" }}
+- name: TOTP_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "apis.appSecretName" .root }}
+      key: TOTP_ENCRYPTION_KEY
+      optional: true
+{{- end }}
+{{- end -}}
+
+{{/*
+MAIR-810: the WebAuthn relying party of core-api (passkeys). The `rpId` is the
+instance domain and the origins are the two fronts that touch passkeys: the
+login front signs in with them, the settings front registers them (an origin
+must be on the `rpId` domain, and a passkey is only usable with the `rpId` it
+was created for, so changing global.domain strands every registered passkey).
+Rendered for core-api only, whenever global.domain is set; without it core-api
+answers 503 on the passkey routes and the administrator cannot allow them.
+`instances.core-api.env` still wins when it names the same variables.
+*/}}
+{{- define "apis.webauthnEnv" -}}
+{{- $domain := ((.root.Values.global).domain) | default "" }}
+{{- if and (eq .name "core-api") $domain }}
+- name: WEBAUTHN_RP_ID
+  value: {{ $domain | quote }}
+- name: WEBAUTHN_RP_ORIGIN
+  value: {{ printf "https://login.%s,https://settings.%s" $domain $domain | quote }}
 {{- end }}
 {{- end -}}
