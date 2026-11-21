@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: Run Gitleaks on the new commits
-        uses: mairie360/CICD/actions/security/gitleaks@v5.2.2
+        uses: mairie360/CICD/actions/security/gitleaks@v5.14.2
 
   # ================================
   # 🧱 JOB 1 : Validation & Qualité
