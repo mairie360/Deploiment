@@ -40,19 +40,18 @@ global:
       - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
       - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
   domain: "prod.mairie360-eip.fr"
-  # Session tokens signed by core-api alone (MAIR-680, audit A1). TODO
-  # (after scripts/seal-secrets.sh, or ansible playbooks/secrets.yml, sealed
-  # <release>-jwt-signing-secret on this machine): paste the PUBLIC KEY block
-  # it printed as publicKey, then turn signing on once every API and BFF image
-  # of prod verifies EdDSA. Required since JWT_SECRET was removed: the chart
-  # refuses to render without it.
+  # Session tokens signed by core-api alone (audit A1): the key pair is sealed
+  # in <release>-jwt-signing-secret and every API and BFF image pinned in
+  # clusters/_base/prod.yaml verifies EdDSA. JWT_SECRET is gone, so the HS256
+  # sessions still open when this reaches prod are refused: users log in again
+  # once.
   jwt:
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       MCowBQYDK2VwAyEAAyTSlrKFajbVzZCemyxZoYQllyjBkwIwiKbKtWVqIPk=
       -----END PUBLIC KEY-----
     signing:
-      enabled: false
+      enabled: true
   # MAIR-612: this machine runs Traefik (ADR 0001), like dev and staging. Must
   # match ansible's `ingress_controller` for the host; the other prod
   # instances keep the base's nginx until their machine switches.
