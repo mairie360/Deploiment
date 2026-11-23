@@ -11,15 +11,21 @@ secrets), `scripts/verify.sh` (recette d'une instance).
 
 | | Cible | D'où elle vient |
 | --- | --- | --- |
-| **RPO**, données qui peuvent être perdues | **24 heures** d'écritures dans la base Mairie360 | Une sauvegarde par jour (`backup.schedule`, `0 3 * * *` UTC). Pas d'archivage WAL, pas de restauration à un instant donné, pas de réplica. Une instance sur CloudNativePG (`database.engine: cnpg`) avec `database.cnpg.backup.enabled: true` archive son WAL en continu : son RPO est le dernier segment WAL archivé, restaurable à n'importe quelle seconde entre le premier point de restauration de la génération et ce segment, sur 35 jours au plus ([`cloudnativepg.md`](cloudnativepg.md)). Sans cette sauvegarde, aucun WAL n'est archivé et le RPO reste le dump quotidien. |
-| **RTO**, base restaurée sur une machine qui fonctionne | **1 heure** | Scénario A ci-dessous. |
-| **RTO**, machine d'instance perdue puis reconstruite | **4 heures** | Scénario B : nouvelle machine, phases 1 à 3, synchronisation Argo CD, restauration, vérifications. Les certificats Let's Encrypt et la propagation DNS en font partie. |
+| **RPO**, données qui peuvent être perdues | **6 heures** d'écritures dans la base Mairie360 | Une sauvegarde toutes les 6 heures (`backup.schedule`, `0 */6 * * *` UTC) ; `mairie360/Infra` alerte (`BackupMissed`) après 7 heures sans sauvegarde. Pas d'archivage WAL, pas de restauration à un instant donné, pas de réplica. Une instance sur CloudNativePG (`database.engine: cnpg`) avec `database.cnpg.backup.enabled: true` archive son WAL en continu : son RPO est le dernier segment WAL archivé, restaurable à n'importe quelle seconde entre le premier point de restauration de la génération et ce segment, sur 35 jours au plus ([`cloudnativepg.md`](cloudnativepg.md)). Sans cette sauvegarde, aucun WAL n'est archivé et le RPO reste le dump toutes les 6 heures. |
+| **RTO**, base restaurée sur une machine qui fonctionne | **1 heure** | Scénario A ci-dessous. Mesuré chaque semaine par le test de restauration (`backup.restoreTest`), qui alerte (`RestoreTooSlow`) au-delà d'1 heure et quand il n'a pas réussi depuis 8 jours (`RestoreTestMissed`). |
+| **RTO**, machine d'instance perdue puis reconstruite | **2 heures** | Scénario B : nouvelle machine, phases 1 à 3, synchronisation Argo CD, restauration, vérifications. Les certificats Let's Encrypt et la propagation DNS en font partie. |
 | **RTO**, machine Argo CD perdue | **2 heures** | Scénario C : les instances continuent de tourner, seuls les déploiements s'arrêtent. |
 
 Jamais récupéré : Redis (liste de révocation des sessions et caches : les utilisateurs se
 reconnectent), les fichiers du bucket Object Storage de l'e-learning ne sont pas couverts
 par ces sauvegardes (ils sont dans Scaleway Object Storage, hors de la machine), et tout ce
 qui a été écrit après le snapshot.
+
+Le RPO et le RTO d'instance sont ceux promis à la mairie : ils sont décidés dans
+`compliance/<org>/service-levels.yaml`, affichés sur les pages légales de l'instance
+(`global.legal.serviceLevels`) et vérifiés par `scripts/check-compliance.py` (un planning de
+sauvegarde qui laisse plus que le RPO entre deux sauvegardes, ou des pages légales qui affichent
+d'autres valeurs, font échouer la CI). Les changer tous les trois ensemble.
 
 Revoir ces cibles après chaque exercice (voir « Journal des exercices » à la fin).
 
@@ -128,7 +134,7 @@ d'`ansible`, `kubectl`, `jq`, `helm`.
 
 5. **Vérifier** : `./scripts/verify.sh <ctx> <env> <domaine>`, se connecter sur le front
    Login, ouvrir un projet et un calendrier. Lancer une fois le CronJob de sauvegarde à la
-   main pour que le prochain snapshot ne soit pas dans 24 heures :
+   main pour que le prochain snapshot ne soit pas dans 6 heures :
 
    ```bash
    kubectl --context <ctx> -n $NS create job --from=cronjob/<env>-backup <env>-backup-after-restore
@@ -232,4 +238,5 @@ Un exercice rejoue les étapes risquées sur des clusters jetables, jamais sur u
 | 2026-11-16 | `scripts/list-snapshots.sh` sur un cluster kind avec le CronJob dev rendu et un `dev-backup-secret` factice (`restic version`, puis `restic snapshots` contre le bucket dev, injoignable), plus `tests/scripts/mair_244_list_snapshots_test.sh` | Le pod démarre avec l'image, les clés et les labels du CronJob, affiche la sortie de restic et est supprimé ensuite ; aucune valeur secrète ne passe sur la ligne de commande. |
 
 La partie base (sauvegarde puis restauration sur un vrai cluster) est rejouée par le test
-e2e du chart de sauvegarde (`tests/e2e/restore.sh`, MAIR-240).
+e2e du chart de sauvegarde (`tests/e2e/restore.sh`), et chaque semaine sur chaque instance
+par le test de restauration (README de `charts/backup`, « Weekly restore test »).

@@ -183,7 +183,7 @@ global:
   # login front at /mentions-legales and /confidentialite (every front's
   # footer links there). Passed as LEGAL_CONFIG (JSON) to the fronts of
   # Fronts.legalConfigInstances, read at request time: one image serves every
-  # mairie. `retention` and `subprocessors` repeat the decisions of
+  # mairie. `retention`, `subprocessors` and `serviceLevels` repeat the decisions of
   # compliance/<org>/ (MAIR-294): scripts/check-compliance.py fails when they
   # differ. Empty values are shown as "to be completed by the mairie".
   legal:
@@ -198,6 +198,8 @@ global:
     # { name, location, purpose } of compliance/<org>/subprocessors.yaml
     # (purpose: its French `purpose_fr`).
     subprocessors: []
+    # { rpo, rto } of compliance/<org>/service-levels.yaml -> "<n> hour(s)".
+    serviceLevels: {}
 
   # Ports de service des APIs et BFFs. Source de vérité UNIQUE : ces valeurs
   # alimentent à la fois les Services et les variables *_URL injectées dans
