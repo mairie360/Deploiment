@@ -1,0 +1,43 @@
+# MAIR-630: backups every 6 h (RPO 6 h), the last 8 runs kept on top of the
+# daily / weekly / monthly snapshots, on every tracked instance.
+suite: backups every 6 h (MAIR-630)
+tests:
+  - it: dev backs up every 6 h and keeps the last 8 runs
+    values: [../../../clusters/mairie360/instances/dev/values.yaml]
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - equal: { path: spec.schedule, value: "0 */6 * * *" }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '--keep-hourly 8 \\\n\s+--keep-daily 7'
+
+  - it: staging backs up every 6 h and keeps the last 8 runs
+    values: [../../../clusters/mairie360/instances/staging/values.yaml]
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - equal: { path: spec.schedule, value: "0 */6 * * *" }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: '--keep-hourly 8'
+
+  - it: every prod backs up every 6 h and keeps the last 8 runs
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/client-example/instances/prod/values.yaml
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - equal: { path: spec.schedule, value: "0 */6 * * *" }
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'restic forget --host "\$PGDATABASE" \\\n\s+--keep-hourly 8'
+
+  - it: keepHourly 0 drops the flag (daily backups keep working)
+    values: [../../../clusters/mairie360/instances/staging/values.yaml]
+    set:
+      backup.schedule: "0 3 * * *"
+      backup.retention.keepHourly: 0
+    templates: [charts/backup/templates/cronjob.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: keep-hourly

@@ -337,7 +337,7 @@ def check_org(org, report, rendered):
         if script is None:
             report.error(label, "the backup CronJob is not rendered (backup.enabled) while retention.yaml decides backups")
         else:
-            for flag, key_name in (("daily", "keep_daily"), ("weekly", "keep_weekly"), ("monthly", "keep_monthly")):
+            for flag, key_name in (("hourly", "keep_hourly"), ("daily", "keep_daily"), ("weekly", "keep_weekly"), ("monthly", "keep_monthly")):
                 found = set(re.findall(rf"--keep-{flag} (\d+)", script))
                 if found != {str(backups.get(key_name))}:
                     report.error(label, f"backup.retention keep {flag} is {', '.join(sorted(found)) or 'unset'}, retention.yaml decides {backups.get(key_name)}")
