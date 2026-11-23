@@ -1,0 +1,24 @@
+suite: front URLs of message-bff (MAIR-1166)
+# The links of the messages open the pages of the Projects and Calendar fronts: message-bff gets their
+# public URLs, the Ingress hosts of project-front and calendar-front; no other BFF reads them.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/BFFs/templates/deployment.yaml]
+tests:
+  - it: message-bff gets the URLs of the Projects and Calendar fronts
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-message-bff }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PROJECT_FRONT_URL, value: "https://project.dev.mairie360-eip.fr/" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CALENDAR_FRONT_URL, value: "https://calendar.dev.mairie360-eip.fr/" }
+
+  - it: no other BFF gets them
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-user-bff }
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PROJECT_FRONT_URL }
+          any: true
