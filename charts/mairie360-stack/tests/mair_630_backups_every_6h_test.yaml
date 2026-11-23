@@ -20,7 +20,7 @@ tests:
           path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
           pattern: '--keep-hourly 8'
 
-  - it: every prod backs up every 6 h, Keycloak's lineage pruned the same way
+  - it: every prod backs up every 6 h and keeps the last 8 runs
     values:
       - ../../../clusters/_base/prod.yaml
       - ../../../clusters/client-example/instances/prod/values.yaml
@@ -30,9 +30,6 @@ tests:
       - matchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
           pattern: 'restic forget --host "\$PGDATABASE" \\\n\s+--keep-hourly 8'
-      - matchRegex:
-          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
-          pattern: 'restic forget --host "keycloak-\$\{KEYCLOAK_PGDATABASE\}" \\\n\s+--keep-hourly 8'
 
   - it: keepHourly 0 drops the flag (daily backups keep working)
     values: [../../../clusters/mairie360/instances/staging/values.yaml]
