@@ -26,6 +26,8 @@ data:
   # `admin` is for the probes and `helm test`. The API roles also get the
   # shared revocation list (MAIR-264, values `revokedTokens`): read-write for
   # its writers, read-only (`%R~`) for the other APIs, nothing for the BFFs.
+  # Every API role also reads and writes the session states (values
+  # `sessionStates`): Core publishes them, the APIs cache them (SET NX).
   # The roles of `pubSubRoles` also publish/subscribe on `&<role>:*` (MAIR-394).
   # A BFF account whose optional password is unset is written `off` (MAIR-531):
   # `on` with an empty `>` would be a login with an empty password.
@@ -38,6 +40,7 @@ data:
       echo "user admin on >$REDIS_PASSWORD ~* &* allcommands"
       {{- $apis := ((($.Values.global | default dict).apis | default dict).instances) | default dict }}
       {{- $revoked := $.Values.revokedTokens | default dict }}
+      {{- $sessions := $.Values.sessionStates | default dict }}
       {{- $compliance := (($.Values.global | default dict).compliance | default dict) }}
       {{- range $role := (include "redis.roles" . | fromYamlArray) }}
       {{- $shared := "" }}
@@ -58,6 +61,9 @@ data:
       {{- $shared = printf "%s ~%s" $shared (. | replace "{user_id}" "*") }}
       {{- end }}
       {{- $extraCommands = ($compliance.redis | default dict).extraCommands | default list }}
+      {{- end }}
+      {{- if and $sessions.keyPattern (or (hasKey $apis $role) (eq $role "compliance-api")) }}
+      {{- $shared = printf "%s ~%s" $shared $sessions.keyPattern }}
       {{- end }}
       {{- $pubSub := has $role ($.Values.pubSubRoles | default list) }}
       {{- $acl := printf "~%s:*%s resetchannels%s -@all" $role $shared (ternary (printf " &%s:*" $role) "" $pubSub) }}

@@ -150,6 +150,10 @@ APIs:
       env:
         - name: PUBLIC_URL
           value: "https://login.staging.mairie360-eip.fr"
+        # Link of the stolen-session alert e-mail to the administrators: the
+        # agent's sign-in journal in the administration front.
+        - name: ADMIN_PUBLIC_URL
+          value: "https://admin.staging.mairie360-eip.fr"
         # Transactional e-mails (password reset) are Resend templates sent
         # through the Resend API since MAIR-522 (API_lib `ResendMailer`), from
         # no-reply@<EMAIL_DOMAIN>: core-api refuses to start without
