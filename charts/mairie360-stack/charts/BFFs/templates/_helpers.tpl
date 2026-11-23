@@ -122,6 +122,15 @@ TRUST_PROXY itself in its `env` (no duplicate env entry).
 {{ toYaml . }}
 {{- end }}
 {{- $g := $.root.Values.global | default dict }}
+{{- /* MAIR-825: BFF_Dashboard shows the commune of the mairie (`communeName` of
+       /dashboard/bootstrap) from MAIRIE_NAME. Same source as the fronts' COMMUNE_NAME
+       (MAIR-1109): global.legal.mairie.name, trimmed, not injected while empty, so the
+       BFF answers `communeName: null`. The API URLs below already give it
+       MESSAGE_API_URL and ELEARNING_API_URL. */}}
+{{- with ((($g.legal | default dict).mairie | default dict).name | default "" | trim) }}
+- name: MAIRIE_NAME
+  value: {{ . | quote }}
+{{- end }}
 {{- $apis := ((($g.apis) | default dict).instances) | default dict }}
 {{- range $apiName, $apiConfig := $apis }}
 - name: {{ $apiName | upper | replace "-" "_" }}_URL
