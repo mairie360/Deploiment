@@ -169,7 +169,7 @@ tests:
           value: true
       - equal:
           path: spec.jobTemplate.spec.template.spec.initContainers[0].image
-          value: restic/restic:0.18.1
+          value: restic/restic:0.20.0
       - notMatchRegex:
           path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
           pattern: 'apk add'
@@ -233,6 +233,23 @@ tests:
       - failedTemplate:
           errorPattern: "backup.restore.confirmDatabase is required"
 
+  - it: "restic 0.20: the Job checks the snapshot's own host, never `snapshots --host <id>`"
+    # restic ignores --host once an id is given (0.18 warned, 0.20 fails), so
+    # the host has to be read from the snapshot itself.
+    set:
+      backup:
+        enabled: true
+        s3: { endpoint: "https://s3.example.com", bucket: "mairie360-staging", region: "fr-par" }
+        restore: { enabled: true, snapshotId: "abcd1234", confirmDatabase: "mairie_db_dev" }
+    templates: [charts/backup/templates/restore-job.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'restic snapshots --host "\$PGDATABASE" "\$SNAPSHOT_ID"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: 'restic snapshots --json "\$SNAPSHOT_ID"(.|\n)*"hostname\\":\\"\$PGDATABASE(.|\n)*REFUSED: snapshot \$SNAPSHOT_ID was not taken from(.|\n)*pg_restore --list'
+
   - it: "MAIR-240: the Job checks everything before it touches the database"
     set:
       backup:
@@ -250,7 +267,7 @@ tests:
       # order: confirmation, snapshot check, archive check, safety backup, restore
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'REFUSED(.|\n)*restic snapshots --host(.|\n)*pg_restore --list(.|\n)*--tag pre-restore(.|\n)*DROP SCHEMA public CASCADE'
+          pattern: 'REFUSED(.|\n)*restic snapshots --json "\$SNAPSHOT_ID"(.|\n)*REFUSED: snapshot(.|\n)*pg_restore --list(.|\n)*--tag pre-restore(.|\n)*DROP SCHEMA public CASCADE'
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
           pattern: 'CREATE SCHEMA public AUTHORIZATION pg_database_owner; GRANT USAGE ON SCHEMA public TO PUBLIC;'
