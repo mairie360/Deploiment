@@ -29,16 +29,17 @@ sql() {
   $K -n "$NAMESPACE" exec "$DB_POD" -- sh -c \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' _ "$1"
 }
-# restic snapshots of the database lineage, as JSON, read through a throwaway
-# Job that gets the backup Secret and the repository like the backup Job.
-snapshots_json() {
-  local repo="s3:http://s3.s3.svc.cluster.local:7070/e2e-backups" db
-  db="$(sql 'SELECT current_database()')"
-  $K -n "$NAMESPACE" delete job e2e-restic-list --ignore-not-found >/dev/null
+# restic_job <name> <restic args...>: run restic in a throwaway Job that gets
+# the backup Secret and the repository like the backup Job, print its output.
+restic_job() {
+  local name="$1" repo="s3:http://s3.s3.svc.cluster.local:7070/e2e-backups" args
+  shift
+  args="$(printf '%s\n' "$@" | jq -R . | jq -sc .)"
+  $K -n "$NAMESPACE" delete job "$name" --ignore-not-found >/dev/null
   $K -n "$NAMESPACE" apply -f - >/dev/null <<EOM
 apiVersion: batch/v1
 kind: Job
-metadata: { name: e2e-restic-list }
+metadata: { name: $name }
 spec:
   backoffLimit: 0
   template:
@@ -47,15 +48,17 @@ spec:
       restartPolicy: Never
       containers:
         - name: restic
-          image: restic/restic:0.18.1
-          args: ["snapshots", "--host", "$db", "--json"]
+          image: restic/restic:0.20.0
+          args: $args
           envFrom: [ { secretRef: { name: $RELEASE-backup-secret } } ]
           env: [ { name: RESTIC_REPOSITORY, value: "$repo" }, { name: AWS_DEFAULT_REGION, value: us-east-1 } ]
 EOM
-  $K -n "$NAMESPACE" wait job/e2e-restic-list --for=condition=complete --timeout=3m >/dev/null \
-    || { $K -n "$NAMESPACE" logs job/e2e-restic-list --tail=20 >&2 || true; fail "could not list the snapshots"; }
-  $K -n "$NAMESPACE" logs job/e2e-restic-list
+  $K -n "$NAMESPACE" wait "job/$name" --for=condition=complete --timeout=3m >/dev/null \
+    || { $K -n "$NAMESPACE" logs "job/$name" --tail=20 >&2 || true; fail "restic $1 failed in Job $name"; }
+  $K -n "$NAMESPACE" logs "job/$name"
 }
+# restic snapshots of the database lineage, as JSON.
+snapshots_json() { restic_job e2e-restic-list snapshots --host "$(sql 'SELECT current_database()')" --json; }
 # restore_job <snapshot id> <confirmDatabase>: render the Job and apply it by hand.
 restore_job() {
   $K -n "$NAMESPACE" delete job "$RELEASE-backup-restore" --ignore-not-found >/dev/null
@@ -147,6 +150,20 @@ restore_job "deadbeef" "$DB_NAME"
 $K -n "$NAMESPACE" wait "job/$RELEASE-backup-restore" --for=condition=failed --timeout=3m \
   || fail "the Job with an unknown snapshot did not fail"
 [ "$(probe_rows)" = "$BEFORE_REFUSAL" ] || fail "the Job with an unknown snapshot changed the database"
+
+step "Restore guards: a snapshot of another database changes nothing"
+# restic ignores --host once a snapshot id is given: the Job has to check the
+# snapshot's own host (restic 0.20 refuses `snapshots --host <id>` outright).
+restic_job e2e-restic-foreign backup --host "foreign-$DB_NAME" --tag scheduled \
+  --stdin-filename "${DB_NAME}.dump" --stdin-from-command -- echo "not a dump of $DB_NAME" >/dev/null
+FOREIGN_ID="$(restic_job e2e-restic-list snapshots --host "foreign-$DB_NAME" --json | jq -r 'last | .short_id')"
+[ -n "$FOREIGN_ID" ] && [ "$FOREIGN_ID" != null ] || fail "no snapshot of the foreign host"
+restore_job "$FOREIGN_ID" "$DB_NAME"
+$K -n "$NAMESPACE" wait "job/$RELEASE-backup-restore" --for=condition=failed --timeout=3m \
+  || fail "the Job with a snapshot of another database did not fail"
+$K -n "$NAMESPACE" logs "job/$RELEASE-backup-restore" --all-containers | grep -q "REFUSED: snapshot $FOREIGN_ID" \
+  || fail "the host refusal is not in the Job logs"
+[ "$(probe_rows)" = "$BEFORE_REFUSAL" ] || fail "the Job with a snapshot of another database changed the database"
 
 step "Restore: the Job rendered from the chart"
 restore_job "$SNAPSHOT_ID" "$DB_NAME"

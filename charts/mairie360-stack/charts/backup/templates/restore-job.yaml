@@ -84,7 +84,15 @@ spec:
                 exit 1
               fi
               echo "== snapshot $SNAPSHOT_ID of host $PGDATABASE"
-              restic snapshots --host "$PGDATABASE" "$SNAPSHOT_ID"
+              # restic ignores --host once a snapshot id is given (0.20 refuses
+              # the combination): check the snapshot's own host instead, so a
+              # snapshot of another database is never restored here.
+              snapshot="$(restic snapshots --json "$SNAPSHOT_ID")"
+              case "$snapshot" in
+                *"\"hostname\":\"$PGDATABASE\""*) ;;
+                *) echo "REFUSED: snapshot $SNAPSHOT_ID was not taken from '$PGDATABASE'. Nothing was changed." >&2; exit 1 ;;
+              esac
+              restic snapshots "$SNAPSHOT_ID"
               {{- if .Values.sealing.enabled }}
               restic restore --host "$PGDATABASE" "$SNAPSHOT_ID" --target /work
               pg_restore --list "/work/${PGDATABASE}.dump" >/dev/null
