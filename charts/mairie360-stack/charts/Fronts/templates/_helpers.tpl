@@ -109,3 +109,23 @@ Takes { root, name }.
   value: {{ ($g.legal | default dict) | toJson | quote }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+APP_VERSION (MAIR-844): the instance's image tag, shown as the version in the
+footer of the fronts' shell (Messages V2 and Login read it, the other fronts get
+it ahead of their V2 shell). Read at request time. An explicit value wins: a
+`commonEnv` or instance `env` entry of the same name is kept and this one is
+not rendered (no duplicate name in the container env). The commune name of the
+shell is COMMUNE_NAME, from global.legal.mairie.name (fronts.commonEnv, MAIR-1109).
+Takes { root, config }.
+*/}}
+{{- define "fronts.appVersion" -}}
+{{- $names := list -}}
+{{- range (.root.Values.commonEnv | default list) }}{{ $names = append $names .name }}{{ end -}}
+{{- range (.config.env | default list) }}{{ $names = append $names .name }}{{ end -}}
+{{- $version := ((.config.image | default dict).tag | default "") | toString -}}
+{{- if and $version (not (has "APP_VERSION" $names)) }}
+- name: APP_VERSION
+  value: {{ $version | quote }}
+{{- end }}
+{{- end -}}
