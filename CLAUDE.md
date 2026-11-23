@@ -508,6 +508,10 @@ Umbrella `type: application` chart with 9 local subcharts (`file://` deps):
   `mairie360/Infra` alerts (`BackupMissed`) after 7 h without one (backups run
   every 6 h, `keepHourly: 8`).
   A failed report never fails the backup.
+  `backup.restoreTest` (on with backups): weekly CronJob `<release>-backup-restore-test` restoring the
+  newest `scheduled` snapshot into a sidecar Postgres of its own pod (restic credentials only, never
+  the database's), failing on any `pg_restore` error or an empty `public.users`; it reports
+  `mairie360_restore_test_last_success_timestamp_seconds` / `_duration_seconds` (Infra alerts).
   `backup.sealing` (MAIR-500, off by default): crypto-shredding. A native sidecar Postgres receives a
   copy of the live dump, `compliance-backup seal` (Compliance_API image) moves each user's personal
   values into blobs encrypted under a data key wrapped by the user's key in Scaleway Key Manager
@@ -726,7 +730,8 @@ while Postgres, Redis and Liquibase keep their real public GHCR images.
   `X-Forwarded-For` is not trusted. The e2e values run Traefik, so the
   network-policies probe sits in the `traefik` namespace.
 - `restore.sh` (MAIR-240, sourced by `run.sh` after Chainsaw, placeholder install only): backup then
-  restore on the real database. `s3.yaml` deploys a pinned Versity S3 Gateway (MinIO no longer
+  restore on the real database, plus one run of the weekly restore test (users found, database
+  untouched, no `PGPASSWORD`). `s3.yaml` deploys a pinned Versity S3 Gateway (MinIO no longer
   publishes images) as the restic repository; the script writes a probe table, runs the backup
   CronJob, damages the data, checks that the restore Job refuses `latest`, a missing
   `confirmDatabase`, another database and an unknown snapshot without changing anything, then

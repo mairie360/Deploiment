@@ -89,6 +89,20 @@ env:
 # tags below. The inventory comes from the liquibase-migrations image of the
 # deployed schema (/gdpr/inventory.yaml, Devops/Database): use the same tag as
 # liquibase.image.tag.
+# Weekly restore test: the newest scheduled snapshot is restored into a
+# throwaway Postgres inside the pod (never the instance's database, whose
+# credentials the pod does not get), then checked: the dump loads without
+# error and public.users is not empty. With observability on, it reports
+# mairie360_restore_test_last_success_timestamp_seconds and
+# mairie360_restore_test_duration_seconds (mairie360/Infra alerts on a missed
+# test and on a restore slower than the RTO). Runs when backups are on.
+restoreTest:
+  enabled: true
+  schedule: "30 4 * * 0"   # Sundays 04:30 UTC, between two backups
+  activeDeadlineSeconds: 7200
+  scratchSize: 4Gi
+  workSize: 4Gi
+
 sealing:
   enabled: false
   image:

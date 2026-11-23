@@ -1,0 +1,72 @@
+# MAIR-631: every week the newest scheduled backup is restored into a
+# throwaway Postgres of the pod, checked, and the result reported to Cockpit.
+suite: weekly restore test (MAIR-631)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+templates: [charts/backup/templates/restore-test-cronjob.yaml]
+tests:
+  - it: runs once a week on an instance with backups
+    asserts:
+      - isKind: { of: CronJob }
+      - equal: { path: metadata.name, value: RELEASE-NAME-backup-restore-test }
+      - equal: { path: spec.schedule, value: "30 4 * * 0" }
+      - equal: { path: spec.concurrencyPolicy, value: Forbid }
+
+  - it: restores the newest scheduled snapshot into its own Postgres and checks the users
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'restic restore --host "\$DB_NAME" --tag scheduled latest --target /work'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'pg_restore --no-owner --no-acl --exit-on-error -d restoretest'
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'SELECT count\(\*\) FROM public.users'
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: { name: PGHOST, value: "127.0.0.1" }
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+          content: { name: scratch-db }
+          any: true
+
+  - it: never gets the instance database's password or host
+    asserts:
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: { name: PGPASSWORD }
+          any: true
+      - notContains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: { name: PGHOST, value: RELEASE-NAME-database }
+
+  - it: reports its success and duration to the collector
+    asserts:
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'report "mairie360_restore_test_last_success_timestamp_seconds=\$\(date \+%s\)" \\\n\s+"mairie360_restore_test_duration_seconds=\$\{duration\}"'
+
+  - it: reports nothing without observability
+    set:
+      global.observability.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args[0]
+          pattern: 'report "mairie360_restore_test'
+
+  - it: is not rendered without backups, or when turned off
+    set:
+      backup.restoreTest.enabled: false
+    asserts:
+      - hasDocuments: { count: 0 }
+
+  - it: is not rendered when backups are off
+    set:
+      backup.enabled: false
+    asserts:
+      - hasDocuments: { count: 0 }
