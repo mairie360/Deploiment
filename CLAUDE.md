@@ -751,6 +751,10 @@ and maintaining a parallel Kind topology is what produced the earlier
   trimmed mairie name, and nothing while it is empty (the fronts then hide the block instead of the
   library's sample « Saint-André »). Fill `global.legal.mairie.name` per instance to show it.
   `tests/mair_1109_commune_name_test.yaml`.
+- **BFF_Dashboard needs nothing per instance (MAIR-825, MAIR-1106).** Every BFF gets one
+  `<NAME>_URL` per entry of `global.apis.instances` (so `MESSAGE_API_URL` and `ELEARNING_API_URL`
+  too) and `MAIRIE_NAME` from the same `global.legal.mairie.name` (trimmed, absent while empty:
+  the dashboard then answers `communeName: null`). `tests/mair_825_dashboard_bff_env_test.yaml`.
 - **`COOKIE_DOMAIN` of the fronts is derived, never declared.** `fronts.commonEnv`
   (`charts/Fronts/templates/_helpers.tpl`) gives every front `.<global.domain>`; an instance
   `env:` list that declares it too would put it twice. `lib-components` answers 503 on the

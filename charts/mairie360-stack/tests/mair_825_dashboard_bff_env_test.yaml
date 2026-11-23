@@ -1,0 +1,43 @@
+suite: environment of BFF_Dashboard (MAIR-825, MAIR-1106)
+# The dashboard reads the trainings from ELearning API, the unread messages from Message API
+# and shows the commune of global.legal.mairie.name. Every URL is derived from
+# global.apis.instances and MAIRIE_NAME from the legal values: nothing to set per instance.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/BFFs/templates/deployment.yaml]
+documentSelector:
+  path: metadata.name
+  value: RELEASE-NAME-dashboard-bff
+tests:
+  - it: gets the URLs of every API it reads
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CORE_API_URL, value: "http://RELEASE-NAME-core-api:3000" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: PROJECT_API_URL, value: "http://RELEASE-NAME-project-api:3001" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: CALENDAR_API_URL, value: "http://RELEASE-NAME-calendar-api:3002" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: MESSAGE_API_URL, value: "http://RELEASE-NAME-message-api:3003" }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: ELEARNING_API_URL, value: "http://RELEASE-NAME-elearning-api:3006" }
+
+  - it: gets the mairie name as MAIRIE_NAME, trimmed
+    set:
+      global.legal.mairie.name: "  Mairie de Testville "
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: MAIRIE_NAME, value: "Mairie de Testville" }
+
+  - it: gets no MAIRIE_NAME while the mairie name is empty
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: MAIRIE_NAME }
+          any: true
