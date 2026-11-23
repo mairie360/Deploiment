@@ -6,8 +6,11 @@ machine that still runs ingress-nginx. Referenced by the fronts Ingress
 through traefik.ingress.kubernetes.io/router.middlewares
 (<namespace>-<name>@kubernetescrd), same namespace, so no cross-namespace
 reference is needed.
-Buffering also buffers responses: fine for the fronts, which stream
-nothing (no SSE / WebSocket).
+Buffering also buffers responses, which an upgraded WebSocket connection
+cannot go through, and holds an SSE stream's events until it ends: the
+paths of ingress.websocket (the messaging /ws and its SSE /stream on
+message-front) are routed by their own Ingress without this Middleware
+(templates/websocket-ingress.yaml). Every other path stays behind it.
 */ -}}
 {{- if and .Values.ingress.enabled (eq (include "mairie360.ingressController" .) "traefik") (gt (int (.Values.ingress.maxBodySizeMiB | default 0)) 0) }}
 apiVersion: traefik.io/v1alpha1

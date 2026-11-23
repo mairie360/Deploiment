@@ -405,6 +405,31 @@ Umbrella `type: application` chart with 9 local subcharts (`file://` deps):
   CRD does not exist on an nginx machine). `ingress.annotations` are added
   last and win. Instance values never carry controller annotations anymore.
   APIs/BFFs are never exposed.
+- `templates/websocket-ingress.yaml` is the **WebSocket Ingress**
+  `<release>-websocket`: the exact paths of `ingress.websocket.paths`
+  (`message-front: ["/ws", "/stream"]` by default: the messaging WebSocket,
+  contract in Message_API `docs/en/realtime-websocket.md`, and its SSE, which
+  the buffering Middleware would hold until the stream ends; `/stream` leaves
+  the list when the SSE is removed) on the front's host, same TLS
+  Secret, same front Service, no cert-manager annotation. Traefik's
+  `buffering` Middleware also buffers responses, which an upgraded
+  connection cannot go through, so this route goes without it (the body
+  limit stays on every other path) and carries `router.priority: "1000"`:
+  Traefik's default priority is the rule length, and the fronts router's
+  `PathPrefix(`/`)` rule is longer than `Path(`/ws`)`, so without it the
+  fronts router keeps `/ws`. On nginx it gets `proxy-read/send-timeout`
+  (`ingress.websocket.timeoutSeconds`, 3600) and no proxy buffering.
+  `ingress.annotations` are not copied onto it, only
+  `ingress.websocket.annotations`. Nothing else is needed: the WebSocket uses
+  the HTTP ports of ingress → front → BFF → API, so no NetworkPolicy changes,
+  and no session affinity (Message_API fans signals out through Redis to
+  every replica, the front and the BFF relay one connection each). The e2e
+  `ingress` test opens whoami's `/echo` through Traefik (101, frame echoed
+  under 1 s, 90 s idle past Traefik's default 60 s read timeout, Traefik's
+  access log naming the WebSocket router: the buffering Middleware can
+  hijack too, so a working handshake alone proves nothing) and from a
+  front-labelled pod to a BFF through the Cilium L7 rule
+  (`ciliumL7Visibility` is on in `tests/e2e/values.yaml`, as on dev).
 - `database` is a StatefulSet with a **headless** governing Service
   (`<release>-database-hl`) plus a client Service (`<release>-database`).
   Credentials come from `<release>-database-secret`.

@@ -257,7 +257,8 @@ secrets:
   totpEncryptionKey: ""
 
 # -----------------------------------------------------------------------------
-# Single Ingress for every enabled front (templates/ingress.yaml).
+# Single Ingress for every enabled front (templates/ingress.yaml), plus the
+# WebSocket Ingress of ingress.websocket (templates/websocket-ingress.yaml).
 # -----------------------------------------------------------------------------
 ingress:
   enabled: true
@@ -282,6 +283,39 @@ ingress:
   # Extra annotations, added as-is whatever the controller (they win over
   # the generated ones).
   annotations: {}
+  # WebSocket and streaming routes (templates/websocket-ingress.yaml). A second Ingress,
+  # <release>-websocket, routes these exact paths of a front's host to the
+  # same front Service, without what the fronts Ingress adds for plain HTTP:
+  #   traefik -> no `buffering` Middleware (it buffers responses too, which
+  #              an upgraded connection cannot go through), router.priority
+  #              1000 so that it wins over the fronts router's longer
+  #              PathPrefix(`/`) rule; the body limit stays on every other
+  #              path. Traefik proxies the Upgrade and
+  #              keeps an upgraded connection open with no idle timeout.
+  #   nginx   -> proxy-read/send-timeout = timeoutSeconds, proxy buffering
+  #              off; ingress-nginx forwards Upgrade/Connection by itself.
+  # Same host and TLS Secret as the fronts Ingress, no cert-manager
+  # annotation (the fronts Ingress owns the certificate). A front listed here
+  # but not enabled gets no route.
+  # NetworkPolicies need nothing more: the WebSocket uses the HTTP ports of
+  # ingress -> front -> BFF -> API. No session affinity either: Message_API
+  # fans the signals out through Redis to every replica, the front and the
+  # BFF only relay one upgraded connection each.
+  websocket:
+    # <front instance> -> exact paths. Messages_Web_Service serves the
+    # messaging WebSocket on /ws (Message_API docs/en/realtime-websocket.md).
+    # /stream is its SSE, kept while SSE and WebSocket coexist: the buffering
+    # Middleware would hold its events until the stream ends. Remove it from
+    # this list together with the SSE.
+    paths:
+      message-front: ["/ws", "/stream"]
+    # nginx only: maximum time without traffic in one direction, in seconds.
+    # The APIs and BFFs ping every 15 s and the BFF ends an SSE stream after
+    # 5 min, so this only cuts a dead peer.
+    timeoutSeconds: 3600
+    # Extra annotations of the WebSocket Ingress only (ingress.annotations
+    # are not copied: they may attach a buffering middleware again).
+    annotations: {}
 
 # -----------------------------------------------------------------------------
 # Objets supplémentaires rendus tels quels (SealedSecret, ExternalSecret…).

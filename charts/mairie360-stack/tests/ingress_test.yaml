@@ -145,8 +145,10 @@ tests:
         template: templates/acme-solver-network-policy.yaml
 
   - it: an unknown controller fails the render
-    # traefik-middlewares.yaml is the first template to evaluate it.
-    templates: [templates/traefik-middlewares.yaml]
+    # websocket-ingress.yaml is the first template to evaluate it (Helm
+    # renders templates in reverse name order; traefik-middlewares.yaml was
+    # the first one before the WebSocket Ingress came).
+    templates: [templates/websocket-ingress.yaml]
     set:
       global.ingressController: haproxy
     asserts:

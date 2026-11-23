@@ -26,6 +26,9 @@ global:
   networkPolicy:
     enabled: true
     egressDefaultDeny: false
+    # As on dev: an Envoy hop on fronts -> BFFs and BFFs -> APIs, which the
+    # WebSocket of the ingress test has to cross too.
+    ciliumL7Visibility: true
 
 secrets:
   create: true
@@ -38,6 +41,12 @@ ingress:
   enabled: true
   # Pebble (tests/e2e/pebble.yaml) instead of Let's Encrypt.
   clusterIssuer: "e2e-pebble"
+  # traefik/whoami serves a WebSocket echo on /echo: the chainsaw ingress
+  # test opens it through Traefik on message.e2e.invalid, where the real
+  # message front serves /ws (the chart's default).
+  websocket:
+    paths:
+      message-front: ["/echo"]
 
 database:
   # Pinned, not `latest`: the run must fail when a new image breaks the chart,

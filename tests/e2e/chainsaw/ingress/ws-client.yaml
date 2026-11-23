@@ -1,0 +1,69 @@
+# A WebSocket client standing in for the browser (through Traefik) and for
+# the front's Node server (straight to a BFF): Node's built-in WebSocket, the
+# same API as a browser. Labelled as a front, so the BFFs' NetworkPolicy and
+# the Cilium L7 rule let it in exactly like a real front pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ws-check
+data:
+  ws-check.mjs: |
+    // node ws-check.mjs <url> [idle seconds]
+    // Opens <url>, checks that a frame comes back from the echo server in
+    // under a second (nothing buffers it), stays silent for <idle> seconds
+    // (no ping, no data), then checks the connection still echoes.
+    const url = process.argv[2];
+    const idle = Number(process.argv[3] ?? 0);
+    const fail = (msg) => { console.log(`FAIL  ${msg}`); process.exit(1); };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    setTimeout(() => fail(`${url}: no result after ${idle + 30} s`), (idle + 30) * 1000);
+
+    const ws = new WebSocket(url);
+    let opened = false;
+    ws.onerror = () => {};
+    ws.onclose = (e) => fail(`${url}: closed with code ${e.code} ${opened ? "after" : "before"} the upgrade`);
+
+    const echo = (text) => new Promise((resolve) => {
+      const start = Date.now();
+      ws.onmessage = (m) => { if (String(m.data) === text) resolve(Date.now() - start); };
+      ws.send(text);
+    });
+
+    ws.onopen = async () => {
+      opened = true;
+      console.log(`ok    ${url}: upgraded`);
+      const first = await echo("first frame");
+      if (first > 1000) fail(`${url}: the echoed frame took ${first} ms (buffered?)`);
+      console.log(`ok    ${url}: frame echoed in ${first} ms`);
+      if (idle > 0) {
+        await sleep(idle * 1000);
+        const late = await echo("after idle");
+        console.log(`ok    ${url}: still open and echoing after ${idle} s idle (${late} ms)`);
+      }
+      ws.onclose = null;
+      ws.close(1000);
+      process.exit(0);
+    };
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-ws
+  labels:
+    app.kubernetes.io/component: frontend
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: node
+      image: node:22.20.0-alpine
+      command: ["sleep", "3600"]
+      env:
+        # Pebble's certificate is not trusted by the image (curl uses -k).
+        - name: NODE_TLS_REJECT_UNAUTHORIZED
+          value: "0"
+      volumeMounts:
+        - { name: ws-check, mountPath: /ws }
+  volumes:
+    - name: ws-check
+      configMap:
+        name: ws-check
