@@ -87,6 +87,19 @@ class CheckComplianceTest(unittest.TestCase):
         os.remove(os.path.join(self.root, "compliance", "mairie360", "service-levels.yaml"))
         self.assertIn("service-levels.yaml is missing", " ".join(self.run_check().errors))
 
+    def test_mair_633_a_quarterly_rebuild_drill_is_required(self):
+        self.edit("deadlines.yaml", "  - id: rebuild-drill\n", "  - id: other-drill\n")
+        self.assertIn("a rebuild-drill deadline at least every 3 months is required", " ".join(self.run_check().errors))
+
+    def test_mair_633_a_rebuild_drill_rarer_than_a_quarter_fails(self):
+        path = os.path.join(self.root, "compliance", "mairie360", "deadlines.yaml")
+        text = open(path, encoding="utf-8").read()
+        start = text.index("  - id: rebuild-drill")
+        end = text.index("  - id:", start + 1)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text[:start] + text[start:end].replace('every: "3 months"', 'every: "6 months"') + text[end:])
+        self.assertIn("a rebuild-drill deadline at least every 3 months is required", " ".join(self.run_check().errors))
+
     def test_mair_629_backup_gap_of_a_schedule(self):
         self.assertEqual(check.backup_gap_hours("0 */6 * * *"), 6)
         self.assertEqual(check.backup_gap_hours("0 3 * * *"), 24)
