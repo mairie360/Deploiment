@@ -1,7 +1,7 @@
 {{- if (($.Values.global).networkPolicy).enabled }}
-# MAIR-114: Postgres is only reachable from APIs (each with its own role),
-# the Liquibase migration Job, the backup CronJob (MAIR-119) and the
-# retention CronJob (MAIR-236) — the latter three authenticate as the
+# Postgres is only reachable from the APIs (each with its own role), the
+# Liquibase migration Job, the backup and retention CronJobs and, with
+# observability on, postgres_exporter; all but the APIs authenticate as the
 # postgres superuser via <release>-database-secret. BFFs and fronts never
 # talk to Postgres directly — they go through an API, which is also the
 # only place Postgres RBAC has to hold.
@@ -33,6 +33,14 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: retention
+        {{- if (($.Values.global).observability).enabled }}
+        # Postgres_exporter of charts/observability (read-only
+        # statistics; rendered with the collector).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-exporter
+              app.kubernetes.io/component: metrics-exporter
+        {{- end }}
       ports:
         - protocol: TCP
           port: 5432
