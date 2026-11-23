@@ -30,6 +30,16 @@ receivers:
                 - {{ printf "%s-%s:%v" $.Release.Name .name .port | quote }}
                 {{- end }}
   {{- end }}
+  {{- if .Values.kubeStateMetrics.enabled }}
+  # State of the instance's workloads, see kube-state-metrics.yaml.
+  prometheus/cluster:
+    config:
+      scrape_configs:
+        - job_name: kube-state-metrics
+          scrape_interval: {{ .Values.kubeStateMetrics.scrapeInterval | quote }}
+          static_configs:
+            - targets: [{{ printf "%s:8080" (include "observability.ksmName" .) | quote }}]
+  {{- end }}
   {{- if .Values.kubeletStats.enabled }}
   kubeletstats:
     collection_interval: {{ .Values.kubeletStats.collectionInterval | quote }}
@@ -181,7 +191,7 @@ service:
       exporters: [otlphttp/cockpit-logs]
     {{- end }}
     metrics:
-      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}]
+      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}{{ if .Values.kubeStateMetrics.enabled }}, prometheus/cluster{{ end }}]
       processors: [memory_limiter, filter/namespace, resource, transform/resource-labels, batch]
       exporters: [otlphttp/cockpit-metrics]
     {{- if .Values.usage.enabled }}

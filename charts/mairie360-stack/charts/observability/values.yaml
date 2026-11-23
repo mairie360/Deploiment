@@ -152,3 +152,47 @@ usage:
     endpoint: ""
     # Label of this mairie in Mairie 360's statistics (no personal data: an organisation).
     mairie: ""
+
+# kube-state-metrics: state of the instance's own workloads, read
+# from the API server and scraped by the collector. Restarts, why a container
+# last stopped (OOMKilled...), why it waits (CrashLoopBackOff...), the last
+# success of each CronJob, failed Jobs and missing replicas. Namespaced: it
+# only watches the instance's namespace (Role, not ClusterRole), and only
+# exposes the series listed in `metricAllowlist`, so Cockpit ingests a few
+# series per pod instead of hundreds.
+kubeStateMetrics:
+  enabled: true
+  image:
+    repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    tag: "v2.20.0"
+    pullPolicy: IfNotPresent
+  scrapeInterval: "60s"
+  # Kubernetes resources watched (kube-state-metrics --resources). Each needs
+  # a matching rule in templates/kube-state-metrics.yaml's Role.
+  resources: [pods, deployments, statefulsets, jobs, cronjobs]
+  metricAllowlist:
+    - kube_pod_status_phase
+    - kube_pod_container_status_restarts_total
+    - kube_pod_container_status_last_terminated_reason
+    - kube_pod_container_status_waiting_reason
+    # The current reason: a Job container that ends OOMKilled with
+    # restartPolicy Never has no last terminated state yet.
+    - kube_pod_container_status_terminated_reason
+    - kube_pod_container_status_ready
+    # Init containers have their own families: without them an init
+    # container in CrashLoopBackOff shows nothing but a Pending pod.
+    - kube_pod_init_container_status_restarts_total
+    - kube_pod_init_container_status_waiting_reason
+    - kube_pod_init_container_status_last_terminated_reason
+    - kube_pod_init_container_status_terminated_reason
+    - kube_deployment_status_replicas_unavailable
+    - kube_statefulset_status_replicas_ready
+    - kube_statefulset_replicas
+    - kube_job_status_failed
+    - kube_job_status_succeeded
+    - kube_cronjob_status_last_successful_time
+    - kube_cronjob_status_last_schedule_time
+    - kube_cronjob_spec_suspend
+  podResources:
+    requests: { memory: "32Mi", cpu: "10m" }
+    limits: { memory: "128Mi", cpu: "100m" }
