@@ -48,6 +48,9 @@ tests:
           value: ingress-nginx
 
   - it: "la base n'accepte que api, migration, backup et retention, jamais bff ni frontend (MAIR-114/MAIR-119/MAIR-236)"
+    # Observability off: with it on, postgres_exporter is a fifth peer (tests/mair_626_postgres_cert_manager_test.yaml).
+    set:
+      global.observability.enabled: false
     templates: [charts/database/templates/network-policy.yaml]
     asserts:
       - lengthEqual:
