@@ -36,7 +36,7 @@ receivers:
     auth_type: serviceAccount
     endpoint: "https://${env:K8S_NODE_IP}:10250"
     insecure_skip_verify: {{ .Values.kubeletStats.insecureSkipVerify }}
-    metric_groups: [pod, container]
+    metric_groups: [{{ join ", " .Values.kubeletStats.metricGroups }}]
     {{- if .Values.kubeletStats.utilizationMetrics }}
     metrics:
       {{- range list "container" "pod" }}
@@ -59,7 +59,8 @@ processors:
     spike_limit_percentage: {{ .Values.memoryLimiter.spikeLimitPercentage }}
   # The kubelet reports every pod of the node (kube-system, argocd agents...):
   # only this instance's namespace is worth paying Cockpit ingestion for.
-  # Metrics without the attribute (OTLP from the apps) are kept.
+  # Metrics without the attribute (OTLP from the apps, the node's own
+  # k8s.node.* series) are kept.
   filter/namespace:
     error_mode: ignore
     metrics:
