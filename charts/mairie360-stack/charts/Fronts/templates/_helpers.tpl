@@ -59,6 +59,13 @@ Variables injectées dans TOUS les fronts :
 - name: ADMINISTRATION_FRONT_URL
   value: {{ printf "https://admin.%s/" $domain | quote }}
 {{- $g := .Values.global | default dict }}
+{{- /* MAIR-1109 (lib-components 2.3): the shared Header shows « Mairie de » + the commune.
+       Its name is the mairie's of global.legal (the fronts drop a leading « Mairie de »);
+       not injected while empty, so a front hides the block instead of a sample name. */}}
+{{- with ((($g.legal | default dict).mairie | default dict).name | default "" | trim) }}
+- name: COMMUNE_NAME
+  value: {{ . | quote }}
+{{- end }}
 {{- $bffs := ((($g.bffs) | default dict).instances) | default dict }}
 {{- range $bffName, $bffConfig := $bffs }}
 - name: {{ $bffName | upper | replace "-" "_" }}_URL
