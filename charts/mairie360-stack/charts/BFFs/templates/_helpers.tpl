@@ -131,6 +131,18 @@ TRUST_PROXY itself in its `env` (no duplicate env entry).
 - name: MAIRIE_NAME
   value: {{ . | quote }}
 {{- end }}
+{{- /*
+MAIR-1166: the links of the messages open the pages of the Projects and Calendar fronts
+(`<PROJECT_FRONT_URL>/?project=&task=`, `<CALENDAR_FRONT_URL>/?date=&event=`). Their public URLs
+follow the Ingress hosts (`project.<domain>`, `calendar.<domain>`, same as fronts.commonEnv);
+only message-bff reads them (MAIR-414: a BFF gets what it reads).
+*/}}
+{{- if and (eq $.name "message-bff") $g.domain }}
+- name: PROJECT_FRONT_URL
+  value: {{ printf "https://project.%s/" $g.domain | quote }}
+- name: CALENDAR_FRONT_URL
+  value: {{ printf "https://calendar.%s/" $g.domain | quote }}
+{{- end }}
 {{- $apis := ((($g.apis) | default dict).instances) | default dict }}
 {{- range $apiName, $apiConfig := $apis }}
 - name: {{ $apiName | upper | replace "-" "_" }}_URL
