@@ -175,7 +175,16 @@ kubeStateMetrics:
     - kube_pod_container_status_restarts_total
     - kube_pod_container_status_last_terminated_reason
     - kube_pod_container_status_waiting_reason
+    # The current reason: a Job container that ends OOMKilled with
+    # restartPolicy Never has no last terminated state yet.
+    - kube_pod_container_status_terminated_reason
     - kube_pod_container_status_ready
+    # Init containers have their own families: without them an init
+    # container in CrashLoopBackOff shows nothing but a Pending pod.
+    - kube_pod_init_container_status_restarts_total
+    - kube_pod_init_container_status_waiting_reason
+    - kube_pod_init_container_status_last_terminated_reason
+    - kube_pod_init_container_status_terminated_reason
     - kube_deployment_status_replicas_unavailable
     - kube_statefulset_status_replicas_ready
     - kube_statefulset_replicas

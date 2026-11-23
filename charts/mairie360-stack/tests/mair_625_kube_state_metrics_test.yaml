@@ -42,6 +42,14 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].args[2]
           pattern: 'kube_cronjob_status_last_successful_time'
+      # A Job OOMKilled without restart only has a current terminated reason,
+      # and init containers report through their own families.
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[2]
+          pattern: '(^|,)kube_pod_container_status_terminated_reason(,|$)'
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[2]
+          pattern: 'kube_pod_init_container_status_restarts_total,kube_pod_init_container_status_waiting_reason,kube_pod_init_container_status_last_terminated_reason,kube_pod_init_container_status_terminated_reason'
       - equal:
           path: spec.template.spec.containers[0].image
           value: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0
