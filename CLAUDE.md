@@ -776,6 +776,10 @@ and maintaining a parallel Kind topology is what produced the earlier
   trimmed mairie name, and nothing while it is empty (the fronts then hide the block instead of the
   library's sample « Saint-André »). Fill `global.legal.mairie.name` per instance to show it.
   `tests/mair_1109_commune_name_test.yaml`.
+- **`APP_VERSION` of the fronts is the image tag (MAIR-844).** `fronts.appVersion` gives every front its
+  instance's `image.tag` (footer version of the V2 shell, read at request time); a `commonEnv` or instance
+  `env` entry of the same name wins and the generated one is not rendered. The shell's commune name is the
+  `COMMUNE_NAME` above, never a second value. `tests/mair_844_shell_info_test.yaml`.
 - **BFF_Dashboard needs nothing per instance (MAIR-825, MAIR-1106).** Every BFF gets one
   `<NAME>_URL` per entry of `global.apis.instances` (so `MESSAGE_API_URL` and `ELEARNING_API_URL`
   too) and `MAIRIE_NAME` from the same `global.legal.mairie.name` (trimmed, absent while empty:
