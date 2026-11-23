@@ -1,0 +1,35 @@
+# MAIR-628: the 5xx alert of mairie360/Infra reads Traefik's request counters,
+# scraped by the instance collector from the traefik-metrics Service.
+suite: Traefik metrics for the 5xx alert (MAIR-628)
+values:
+  - ../../../clusters/mairie360/instances/staging/values.yaml
+set:
+  global.observability.enabled: true
+  observability.cockpit.metricsEndpoint: https://11111111-1111-1111-1111-111111111111.metrics.cockpit.fr-par.scw.cloud/otlp/v1/metrics
+  observability.cockpit.tracesEndpoint: https://11111111-1111-1111-1111-111111111111.traces.cockpit.fr-par.scw.cloud/otlp/v1/traces
+templates: [charts/observability/templates/configmap.yaml]
+tests:
+  - it: scrapes Traefik's request counters on a Traefik instance, nothing else
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- targets: \["traefik-metrics\.traefik\.svc:9100"\]\n\s+metric_relabel_configs:\n\s+- source_labels: \[__name__\]\n\s+regex: "traefik_entrypoint_requests_total\|traefik_service_requests_total"\n\s+action: keep'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'receivers: \[otlp, kubeletstats, prometheus/cluster, prometheus/database, prometheus/cert-manager, prometheus/ingress\]'
+
+  - it: does not scrape on an ingress-nginx instance (no metrics Service there)
+    set:
+      global.ingressController: nginx
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: prometheus/ingress
+
+  - it: can be turned off
+    set:
+      observability.ingressMetrics.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: prometheus/ingress

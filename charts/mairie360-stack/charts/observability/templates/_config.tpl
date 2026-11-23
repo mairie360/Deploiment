@@ -68,6 +68,20 @@ receivers:
               regex: {{ .Values.certManager.keepMetrics | replace "$" "$$" | quote }}
               action: keep
   {{- end }}
+  {{- if include "observability.ingressMetrics" . }}
+  # Requests by status code at the ingress.
+  prometheus/ingress:
+    config:
+      scrape_configs:
+        - job_name: traefik
+          scrape_interval: {{ .Values.ingressMetrics.scrapeInterval | quote }}
+          static_configs:
+            - targets: [{{ .Values.ingressMetrics.target | quote }}]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: {{ .Values.ingressMetrics.keepMetrics | replace "$" "$$" | quote }}
+              action: keep
+  {{- end }}
   {{- if .Values.kubeletStats.enabled }}
   kubeletstats:
     collection_interval: {{ .Values.kubeletStats.collectionInterval | quote }}
@@ -219,7 +233,7 @@ service:
       exporters: [otlphttp/cockpit-logs]
     {{- end }}
     metrics:
-      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}{{ if .Values.kubeStateMetrics.enabled }}, prometheus/cluster{{ end }}{{ if .Values.postgresExporter.enabled }}, prometheus/database{{ end }}{{ if .Values.certManager.enabled }}, prometheus/cert-manager{{ end }}]
+      receivers: [otlp{{ if .Values.kubeletStats.enabled }}, kubeletstats{{ end }}{{ if .Values.kubeStateMetrics.enabled }}, prometheus/cluster{{ end }}{{ if .Values.postgresExporter.enabled }}, prometheus/database{{ end }}{{ if .Values.certManager.enabled }}, prometheus/cert-manager{{ end }}{{ if include "observability.ingressMetrics" . }}, prometheus/ingress{{ end }}]
       processors: [memory_limiter, filter/namespace, resource, transform/resource-labels, batch]
       exporters: [otlphttp/cockpit-metrics]
     {{- if .Values.usage.enabled }}
