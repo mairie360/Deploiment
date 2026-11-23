@@ -44,6 +44,17 @@ revokedTokens:
   keyPattern: "revoked:*"
   writerRoles: ["core-api"]
 
+# Session states (`session:<sid>`): Core publishes the state of every session
+# it issues a JWT for (hash of the active JWT, user, IP, active/revoked) and
+# refuses to hand out a JWT it could not publish. API_lib checks every session
+# JWT against it and, when the key is missing, writes the state it read from
+# the database with SET NX (never over a `revoked` state). Like
+# `revoked:*`, the key is not prefixed by the role, so every API role (and
+# compliance-api) gets read-write on keyPattern; the BFFs get nothing.
+# An empty keyPattern removes the grant.
+sessionStates:
+  keyPattern: "session:*"
+
 # Persistence of /data. false = emptyDir: data survives a container restart
 # (with config.appendonly) but not a new pod (config change, node reboot).
 # true = a PVC, which also keeps the revocation list across new pods.

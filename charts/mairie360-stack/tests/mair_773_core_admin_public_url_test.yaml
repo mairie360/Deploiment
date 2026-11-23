@@ -1,0 +1,27 @@
+suite: core-api links the administrators to the agent's journal (MAIR-773)
+# Without ADMIN_PUBLIC_URL, Core leaves the journal link out of the
+# stolen-session alert e-mail sent to the administrators.
+tests:
+  - it: dev gives core-api the administration front URL
+    templates: [charts/APIs/templates/deployment.yaml]
+    values:
+      - ../../../clusters/mairie360/instances/dev/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: ADMIN_PUBLIC_URL, value: "https://admin.dev.mairie360-eip.fr" }
+
+  - it: staging gives core-api the administration front URL
+    templates: [charts/APIs/templates/deployment.yaml]
+    values:
+      - ../../../clusters/mairie360/instances/staging/values.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-core-api
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: { name: ADMIN_PUBLIC_URL, value: "https://admin.staging.mairie360-eip.fr" }

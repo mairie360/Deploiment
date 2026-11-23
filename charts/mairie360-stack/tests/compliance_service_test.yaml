@@ -112,10 +112,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["entrypoint.sh"]
-          pattern: 'user compliance-api on >\$COMPLIANCE_API_REDIS_PASSWORD ~compliance-api:\* %R~\* ~core-api:session:\*:\* resetchannels -@all \+get \+set \+del \+exists \+expire \+scan \+ttl"'
+          pattern: 'user compliance-api on >\$COMPLIANCE_API_REDIS_PASSWORD ~compliance-api:\* %R~\* ~core-api:session:\*:\* ~session:\* resetchannels -@all \+get \+set \+del \+exists \+expire \+scan \+ttl"'
       - matchRegex:
           path: data["entrypoint.sh"]
-          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
+          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* ~session:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
 
   - it: on, only core-api may call compliance-api, and the BFF rule leaves it out
     set:

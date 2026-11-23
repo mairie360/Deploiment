@@ -1,0 +1,57 @@
+suite: redis session states (MAIR-772)
+# Core publishes `session:<sid>` for every JWT it issues and refuses to hand out
+# a JWT it could not publish; API_lib reads it on every request and writes it
+# back with SET NX on a miss. The key is not prefixed by the role.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+tests:
+  - it: core-api reads and writes session:* (a missing grant fails every sign-in)
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user core-api on [^"]* ~session:\* resetchannels'
+
+  - it: every other API reads and writes session:* (GET, SET NX), revoked:* stays read-only
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user project-api on [^"]* %R~revoked:\* ~session:\* resetchannels[^"]*\+get \+set'
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user calendar-api on [^"]* ~session:\* '
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user message-api on [^"]* ~session:\* '
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user elearning-api on [^"]* ~session:\* '
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user project-api on [^"]* ~revoked:\*'
+
+  - it: the BFF accounts get no access to session:*
+    templates: [charts/redis/templates/configmap.yaml]
+    asserts:
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user [a-z]+-bff [^"]*session'
+
+  - it: compliance-api also gets session:* once enabled (it authenticates JWTs like the APIs)
+    templates: [charts/redis/templates/configmap.yaml]
+    set:
+      global.compliance.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["entrypoint.sh"]
+          pattern: 'user compliance-api on [^"]* ~session:\* resetchannels'
+
+  - it: an empty keyPattern removes the grant
+    templates: [charts/redis/templates/configmap.yaml]
+    set:
+      redis.sessionStates.keyPattern: ""
+    asserts:
+      - notMatchRegex:
+          path: data["entrypoint.sh"]
+          pattern: '~session:\*'

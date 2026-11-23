@@ -9,14 +9,14 @@ tests:
     asserts:
       - matchRegex:
           path: data["entrypoint.sh"]
-          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
+          pattern: 'user core-api on >\$CORE_API_REDIS_PASSWORD ~core-api:\* ~revoked:\* ~session:\* resetchannels -@all \+get \+set \+del \+exists \+expire"'
 
   - it: the other APIs only read revoked:* (Redis 7 %R~ key permission)
     templates: [charts/redis/templates/configmap.yaml]
     asserts:
       - matchRegex:
           path: data["entrypoint.sh"]
-          pattern: 'user project-api on >\$PROJECT_API_REDIS_PASSWORD ~project-api:\* %R~revoked:\* resetchannels'
+          pattern: 'user project-api on >\$PROJECT_API_REDIS_PASSWORD ~project-api:\* %R~revoked:\* ~session:\* resetchannels'
       - matchRegex:
           path: data["entrypoint.sh"]
           pattern: 'user calendar-api on .* ~calendar-api:\* %R~revoked:\* '
