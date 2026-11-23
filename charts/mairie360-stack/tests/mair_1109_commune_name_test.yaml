@@ -1,0 +1,25 @@
+suite: commune name of the shared Header (MAIR-1109)
+# lib-components 2.3 shows « Mairie de » + the commune in the Header of every front. The
+# name comes from global.legal.mairie.name; while it is empty no front gets COMMUNE_NAME,
+# so the fronts hide the block rather than showing the library's sample name.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+templates: [charts/Fronts/templates/deployment.yaml]
+tests:
+  - it: every front gets the mairie name as COMMUNE_NAME
+    set:
+      global.legal.mairie.name: "  Mairie de Testville "
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COMMUNE_NAME
+            value: "Mairie de Testville"
+
+  - it: no front gets COMMUNE_NAME while the mairie name is empty
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: COMMUNE_NAME
+          any: true

@@ -746,6 +746,11 @@ and maintaining a parallel Kind topology is what produced the earlier
 
 - **Subchart directory names are capitalized** (`APIs`, `BFFs`, `Fronts`) and must
   match the top-level values keys exactly.
+- **`COMMUNE_NAME` of the fronts comes from `global.legal.mairie.name` (MAIR-1109).** lib-components
+  2.3 shows « Mairie de » + the commune in the shared Header; `fronts.commonEnv` gives every front the
+  trimmed mairie name, and nothing while it is empty (the fronts then hide the block instead of the
+  library's sample « Saint-André »). Fill `global.legal.mairie.name` per instance to show it.
+  `tests/mair_1109_commune_name_test.yaml`.
 - **`COOKIE_DOMAIN` of the fronts is derived, never declared.** `fronts.commonEnv`
   (`charts/Fronts/templates/_helpers.tpl`) gives every front `.<global.domain>`; an instance
   `env:` list that declares it too would put it twice. `lib-components` answers 503 on the
