@@ -90,6 +90,7 @@ derives everything controller-specific:
 | `ingressClassName` | `nginx` | `traefik` |
 | HTTP -> HTTPS | `nginx.ingress.kubernetes.io/ssl-redirect` + `force-ssl-redirect` | web entrypoint redirect (301 for GET/HEAD, 308 otherwise) in `bootstrap/addons/traefik/values.yaml`, priority 1; fronts routers on `websecure` only |
 | body limit (`ingress.maxBodySizeMiB`, 50) | `proxy-body-size: 50m` | `buffering` Middleware (`maxRequestBodyBytes`), `router.middlewares` annotation |
+| WebSocket paths (`ingress.websocket.paths`) | own Ingress, `proxy-read/send-timeout` 3600, `proxy-buffering: off` | own Ingress without the `buffering` Middleware (it buffers responses, an upgraded connection cannot go through it), `router.priority` 1000 (the default, rule length, would let the fronts' `PathPrefix(`/`)` win) |
 | HTTP-01 solver class | annotation `acme.cert-manager.io/http01-ingress-ingressclassname: nginx` | same annotation, `traefik` (the shared ClusterIssuers keep `nginx` as default) |
 | client `X-Forwarded-For` | `use-forwarded-headers: "false"` (MAIR-226) | `forwardedHeaders` with no `trustedIPs`, `insecure: false` |
 | source IP | `externalTrafficPolicy: Local` | `externalTrafficPolicy: Local` |

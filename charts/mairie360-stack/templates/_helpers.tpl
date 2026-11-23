@@ -113,3 +113,38 @@ then adds ingress.annotations (which win on a key conflict).
 {{- $annotations = merge (deepCopy (.Values.ingress.annotations | default dict)) $annotations -}}
 {{- toYaml $annotations -}}
 {{- end }}
+
+{{/*
+Annotations of the WebSocket Ingress (templates/websocket-ingress.yaml), as
+YAML. Unlike mairie360.ingressAnnotations:
+- no cert-manager annotation: the fronts Ingress owns the certificate of
+  these hosts, this Ingress only reuses its TLS Secret;
+- traefik: no body-size Middleware (its `buffering` also buffers responses,
+  which an upgraded connection cannot go through), and an explicit
+  router.priority: by default Traefik ranks routers by rule length, and the
+  fronts router's `PathPrefix(`/`)` rule is longer than `Path(`/ws`)`. A
+  DNS name is at most 253 characters, so no fronts rule reaches 1000;
+- nginx: long proxy timeouts and no buffering, no body limit (a handshake
+  has no body);
+- ingress.websocket.annotations are added last (they win), ingress.annotations
+  are not.
+*/}}
+{{- define "mairie360.websocketIngressAnnotations" -}}
+{{- $ws := .Values.ingress.websocket | default dict -}}
+{{- $timeout := toString (int ($ws.timeoutSeconds | default 3600)) -}}
+{{- $annotations := dict -}}
+{{- if eq (include "mairie360.ingressController" .) "traefik" }}
+{{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.entrypoints" "websecure" -}}
+{{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.tls" "true" -}}
+{{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.priority" "1000" -}}
+{{- else }}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/ssl-redirect" "true" -}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/force-ssl-redirect" "true" -}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-read-timeout" $timeout -}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-send-timeout" $timeout -}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-buffering" "off" -}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-request-buffering" "off" -}}
+{{- end }}
+{{- $annotations = merge (deepCopy ($ws.annotations | default dict)) $annotations -}}
+{{- toYaml $annotations -}}
+{{- end }}

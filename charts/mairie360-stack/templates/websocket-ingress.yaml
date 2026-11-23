@@ -1,0 +1,67 @@
+{{- /*
+WebSocket and streaming routes of the fronts (ingress.websocket.paths: the
+messaging WebSocket /ws, and its SSE /stream while both coexist): the exact paths
+listed for each enabled front, on the same host and TLS Secret as the fronts
+Ingress (templates/ingress.yaml), to the same front Service, but without the
+plain-HTTP settings an upgraded connection cannot go through (Traefik's
+`buffering` Middleware) and with long timeouts on nginx
+(mairie360.websocketIngressAnnotations in templates/_helpers.tpl).
+
+Both controllers must prefer this route on its paths. nginx does by itself
+(an Exact `location =` beats the `/` prefix of the same host). Traefik does
+not: a router's default priority is the length of its rule, and
+"Host(`h`) && PathPrefix(`/`)" is longer than "Host(`h`) && Path(`/ws`)", so
+the fronts router (with its buffering Middleware) would keep /ws. This route
+therefore gets an explicit router.priority above any rule length a fronts
+router can reach (mairie360.websocketIngressAnnotations).
+
+No NetworkPolicy goes with it: the browser reaches the front's port like any
+other request, and the front then the BFF then the API use their usual HTTP
+ports (templates/network-policy.yaml and the subcharts).
+*/ -}}
+{{- $ws := .Values.ingress.websocket | default dict -}}
+{{- $routes := dict -}}
+{{- range $frontName, $paths := ($ws.paths | default dict) -}}
+{{- $front := get ($.Values.Fronts.instances | default dict) $frontName -}}
+{{- if and $front $front.enabled $paths -}}
+{{- $_ := set $routes $frontName $paths -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled $routes }}
+{{- $domain := required "global.domain is required by the WebSocket Ingress" .Values.global.domain -}}
+{{- $fullname := include "mairie360.fullname" . -}}
+{{- $release := .Release.Name -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-websocket
+  labels:
+    {{- include "mairie360.labels" . | nindent 4 }}
+  annotations:
+    # Same wave as the fronts Ingress, whose certificate it reuses.
+    argocd.argoproj.io/sync-wave: "5"
+    {{- include "mairie360.websocketIngressAnnotations" . | nindent 4 }}
+spec:
+  ingressClassName: {{ include "mairie360.ingressClassName" . | quote }}
+  tls:
+    - hosts:
+        {{- range $frontName, $paths := $routes }}
+        - {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tlsSecretName | default (printf "%s-fronts-tls" $fullname) }}
+  rules:
+    {{- range $frontName, $paths := $routes }}
+    - host: {{ printf "%s.%s" ($frontName | lower | replace "-front" "") $domain | quote }}
+      http:
+        paths:
+          {{- range $path := $paths }}
+          - path: {{ $path | quote }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ printf "%s-%s" $release ($frontName | lower) }}
+                port:
+                  number: 80
+          {{- end }}
+    {{- end }}
+{{- end }}

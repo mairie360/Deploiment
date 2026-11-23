@@ -8,6 +8,13 @@
 #  - a request body above ingress.maxBodySizeMiB (50 MiB) gets 413;
 #  - a client-sent X-Forwarded-For is not trusted: the front sees the
 #    client's real address (MAIR-226).
+#  - MAIR-660: the WebSocket route of ingress.websocket answers
+#    101 Switching Protocols, echoes a frame at once and keeps an idle
+#    connection open past Traefik's default 60 s read timeout; Traefik's
+#    access log shows the WebSocket router served it, not the fronts router
+#    and its buffering Middleware (which can hijack too, so a working
+#    handshake alone proves nothing); a front reaches a BFF over WebSocket
+#    through the Cilium L7 rule.
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
@@ -114,6 +121,95 @@ spec:
               '
             check:
               ($error): ~
+
+    - name: "MAIR-660: start the WebSocket client"
+      try:
+        - apply:
+            file: ws-client.yaml
+        - wait:
+            apiVersion: v1
+            kind: Pod
+            name: client-ws
+            timeout: 2m
+            for:
+              condition:
+                name: Ready
+
+    - name: "MAIR-660: the WebSocket route upgrades through Traefik"
+      try:
+        - script:
+            timeout: 2m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-browser -- sh -c '
+                FAILED=0
+                handshake() { # <url>: status of a WebSocket handshake
+                  curl -sk --http1.1 -o /dev/null -m 5 -w "%{http_code}" \
+                    -H "Connection: Upgrade" -H "Upgrade: websocket" \
+                    -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: $(head -c 16 /dev/urandom | base64)" "$1"
+                }
+                out=$(handshake https://message.e2e.invalid/echo)
+                case "$out" in
+                  101) echo "ok    wss://message.e2e.invalid/echo answers 101 Switching Protocols" ;;
+                  *) echo "FAIL  wss://message.e2e.invalid/echo answered $out instead of 101"; FAILED=1 ;;
+                esac
+                # The other paths of the host keep the body limit.
+                out=$(head -c 52428801 /dev/zero | curl -sk -o /dev/null -w "%{http_code}" -X POST --data-binary @- https://message.e2e.invalid/)
+                case "$out" in
+                  413) echo "ok    message.e2e.invalid/ keeps the 50 MiB body limit" ;;
+                  *) echo "FAIL  message.e2e.invalid/ answered $out to a body over 50 MiB"; FAILED=1 ;;
+                esac
+                exit $FAILED
+              '
+            check:
+              ($error): ~
+
+    - name: "MAIR-660: an idle WebSocket stays open, frames are not buffered"
+      try:
+        - script:
+            # 90 s idle: past the 60 s default read timeout of Traefik's
+            # entrypoints, which must not cut an upgraded connection.
+            timeout: 4m
+            env:
+              - name: NAMESPACE
+                value: ($namespace)
+              - name: RELEASE
+                value: ($release)
+            content: |
+              set -u
+              kubectl -n "$NAMESPACE" exec client-ws -- node /ws/ws-check.mjs wss://message.e2e.invalid/echo 90 || exit 1
+              # front -> BFF over WebSocket, through the BFFs' NetworkPolicy
+              # and the Cilium L7 rule (Envoy), like the front's Node server.
+              kubectl -n "$NAMESPACE" exec client-ws -- node /ws/ws-check.mjs "ws://$RELEASE-message-bff:4003/echo" 30
+            check:
+              ($error): ~
+        - script:
+            # An upgraded request is logged when its connection ends. Common
+            # log format: ... "<router name>" "<server URL>" <duration>ms.
+            timeout: 1m
+            content: |
+              set -u
+              for i in $(seq 1 15); do
+                lines=$(kubectl -n traefik logs deploy/traefik --since=10m | grep '"GET /echo ' || true)
+                [ -n "$lines" ] && break
+                sleep 2
+              done
+              [ -n "$lines" ] || { echo "FAIL  no /echo request in Traefik's access log"; exit 1; }
+              echo "$lines"
+              if echo "$lines" | grep -v 'mairie360-stack-websocket' >/dev/null; then
+                echo "FAIL  a /echo request was served by another router than the WebSocket Ingress's"
+                exit 1
+              fi
+              echo "ok    every /echo request went through the WebSocket router"
+            check:
+              ($error): ~
+      catch:
+        - script:
+            content: |
+              kubectl -n traefik logs deploy/traefik --tail=50 || true
 
     - name: "MAIR-814: nothing is routed on auth.<domain> any more"
       try:

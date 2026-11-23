@@ -1,0 +1,276 @@
+suite: "MAIR-660: WebSocket Ingress of the fronts"
+# The messaging WebSocket (wss://message.<domain>/ws) goes through the
+# ingress on the front's host. It gets its own Ingress, without Traefik's
+# `buffering` Middleware (it buffers responses, an upgraded connection cannot
+# go through it) and with long timeouts on nginx, while the body limit stays
+# on every other path of the fronts Ingress.
+values:
+  - ../../../clusters/mairie360/instances/dev/values.yaml
+release:
+  name: r
+  namespace: mairie360-dev
+tests:
+  # --- traefik (every instance) ---------------------------------------------
+  - it: traefik routes message.<domain>/ws and /stream exactly to the message front, on websecure
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+      - equal:
+          path: metadata.name
+          value: r-mairie360-stack-websocket
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - equal:
+          path: spec.rules
+          value:
+            - host: message.dev.mairie360-eip.fr
+              http:
+                paths:
+                  - path: /ws
+                    pathType: Exact
+                    backend:
+                      service:
+                        name: r-message-front
+                        port:
+                          number: 80
+                  - path: /stream
+                    pathType: Exact
+                    backend:
+                      service:
+                        name: r-message-front
+                        port:
+                          number: 80
+      - isSubset:
+          path: metadata.annotations
+          content:
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+            traefik.ingress.kubernetes.io/router.tls: "true"
+
+  # Traefik's default priority is the rule length: "Host(`h`) && PathPrefix(`/`)"
+  # of the fronts router is longer than "Host(`h`) && Path(`/ws`)" and would
+  # keep /ws behind the buffering Middleware.
+  - it: traefik gives the WebSocket router a priority above any fronts rule length
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - equal:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.priority"]
+          value: "1000"
+
+  - it: the fronts router keeps its default priority (rule length)
+    templates: [templates/ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.priority"]
+
+  - it: traefik does not attach the buffering Middleware to the WebSocket route
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+
+  - it: the fronts Ingress keeps the body limit Middleware on every other path
+    templates: [templates/ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - equal:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+          value: mairie360-dev-r-mairie360-stack-body-size@kubernetescrd
+      - contains:
+          path: spec.rules[?(@.host == "message.dev.mairie360-eip.fr")].http.paths
+          content:
+            path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: r-message-front
+                port:
+                  number: 80
+
+  - it: reuses the fronts TLS Secret and asks cert-manager for nothing
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - equal:
+          path: spec.tls
+          value:
+            - hosts: [message.dev.mairie360-eip.fr]
+              secretName: r-mairie360-stack-fronts-tls
+      - notExists:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+      - notExists:
+          path: metadata.annotations["acme.cert-manager.io/http01-ingress-ingressclassname"]
+
+  # --- nginx (still supported by the chart) -----------------------------------
+  - it: nginx gets long timeouts, no buffering and the HTTPS redirect, no body limit
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: nginx
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - isSubset:
+          path: metadata.annotations
+          content:
+            nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+            nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+            nginx.ingress.kubernetes.io/proxy-buffering: "off"
+            nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      - notExists:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.entrypoints"]
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.priority"]
+
+  - it: nginx follows ingress.websocket.timeoutSeconds
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: nginx
+      ingress.websocket.timeoutSeconds: 900
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+            nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+
+  # --- what must not change -----------------------------------------------------
+  - it: ingress.annotations stay off the WebSocket route, ingress.websocket.annotations win
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      global.ingressController: traefik
+      ingress.annotations:
+        traefik.ingress.kubernetes.io/router.middlewares: mairie360-dev-other@kubernetescrd
+      ingress.websocket.annotations:
+        example.com/extra: "yes"
+        traefik.ingress.kubernetes.io/router.tls: "false"
+    asserts:
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+      - isSubset:
+          path: metadata.annotations
+          content:
+            example.com/extra: "yes"
+            traefik.ingress.kubernetes.io/router.tls: "false"
+
+  - it: a disabled front gets no WebSocket route, and none left renders no Ingress
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      Fronts.instances.message-front.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: a front absent from Fronts.instances gets no route
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.paths:
+        message-front: ["/ws"]
+        unknown-front: ["/ws"]
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 1
+      - equal:
+          path: spec.rules[0].host
+          value: message.dev.mairie360-eip.fr
+
+  - it: several paths and fronts are routed, each path Exact
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.paths:
+        message-front: ["/ws", "/ws/v2"]
+        calendar-front: ["/live"]
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 2
+      - equal:
+          path: spec.rules[?(@.host == "message.dev.mairie360-eip.fr")].http.paths[0].path
+          value: /ws
+      - equal:
+          path: spec.rules[?(@.host == "message.dev.mairie360-eip.fr")].http.paths[1].path
+          value: /ws/v2
+      - equal:
+          path: spec.rules[?(@.host == "calendar.dev.mairie360-eip.fr")].http.paths[0].pathType
+          value: Exact
+      - contains:
+          path: spec.tls[0].hosts
+          content: calendar.dev.mairie360-eip.fr
+
+  - it: no path listed renders no WebSocket Ingress
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.paths: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ingress.enabled false renders no WebSocket Ingress
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: the WebSocket template renders only the Ingress, no NetworkPolicy (same ports as HTTP)
+    templates: [templates/websocket-ingress.yaml]
+    asserts:
+      - isKind:
+          of: Ingress
+      - hasDocuments:
+          count: 1
+
+  - it: the fronts still admit only the ingress controller's namespace
+    templates: [charts/Fronts/templates/network-policy.yaml]
+    set:
+      global.ingressController: traefik
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: traefik
+
+  # --- schema -------------------------------------------------------------------
+  - it: the schema refuses a WebSocket path not starting with /
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.paths:
+        message-front: ["ws"]
+    asserts:
+      - failedTemplate: {}
+
+  - it: the schema refuses a misspelled ingress.websocket key
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.timeoutSecond: 10
+    asserts:
+      - failedTemplate:
+          errorPattern: "[Aa]dditional propert(y|ies) '?timeoutSecond'? (is )?not allowed"
+
+  - it: the schema refuses a zero timeout
+    templates: [templates/websocket-ingress.yaml]
+    set:
+      ingress.websocket.timeoutSeconds: 0
+    asserts:
+      - failedTemplate: {}
