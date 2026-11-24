@@ -2,6 +2,8 @@
 MAIR-680 (audit A1): session tokens signed by core-api alone.
 
 Render guards on global.jwt (the APIs and BFFs charts inject the keys):
+  - publicKey is required: since JWT_SECRET was removed it is the only way
+    any service verifies a session;
   - publicKey, when set, holds only `PUBLIC KEY` PEM blocks: a private key
     pasted here would reach every API and BFF in clear;
   - each block is a complete Ed25519 public key (SPKI prefix MCowBQYDK2VwAyEA,
@@ -11,7 +13,9 @@ Render guards on global.jwt (the APIs and BFFs charts inject the keys):
     injected into every service as a key no token verifies against;
   - signing.enabled needs publicKey: core-api (API_lib) refuses to start with
     a JWT_PRIVATE_KEY no key of JWT_PUBLIC_KEY matches, and the other services
-    could not verify the tokens it signs.
+    could not verify the tokens it signs;
+  - an enabled core-api needs signing.enabled: without JWT_SECRET its private
+    key is the only way to issue a session, so nobody could log in.
 
 The signing Secret itself is a SealedSecret of secrets.yaml
 (scripts/seal-secrets.sh). Only the throwaway local cluster
@@ -20,6 +24,17 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- $jwt := .Values.global.jwt | default dict }}
 {{- $public := $jwt.publicKey | default "" | trim }}
 {{- $signing := ($jwt.signing | default dict) }}
+{{- $services := 0 }}
+{{- range $group := list .Values.APIs .Values.BFFs }}
+{{- if ($group | default dict).enabled }}
+{{- range $name, $cfg := ($group.instances | default dict) }}
+{{- if ($cfg | default dict).enabled }}{{- $services = add1 $services }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and (not $public) (gt $services 0) }}
+{{- fail "global.jwt.publicKey is required: JWT_SECRET is gone, every API and BFF verifies the session tokens with it (MAIR-680). Paste the public key printed by scripts/seal-secrets.sh" }}
+{{- end }}
 {{- if $public }}
 {{- if contains "PRIVATE KEY" $public }}
 {{- fail "global.jwt.publicKey holds a PRIVATE KEY: it is injected in clear into every API and BFF. Put the public half there (openssl pkey -pubout), the private key only in the sealed signing Secret (MAIR-680)" }}
@@ -31,8 +46,21 @@ The signing Secret itself is a SealedSecret of secrets.yaml
 {{- fail "global.jwt.publicKey must hold complete Ed25519 `PUBLIC KEY` blocks (BEGIN line, one MCowBQYDK2VwAyEA… line, END line), as printed by scripts/seal-secrets.sh (MAIR-680)" }}
 {{- end }}
 {{- end }}
+{{- $apis := .Values.APIs | default dict }}
+{{- $core := (($apis.instances | default dict) | dig "core-api" dict) | default dict }}
+{{- if and $apis.enabled $core.enabled (not $signing.enabled) }}
+{{- fail "global.jwt.signing.enabled must be true while core-api is enabled: JWT_SECRET is gone, its private key is the only way to issue a session. Seal the key pair with scripts/seal-secrets.sh" }}
+{{- end }}
 {{- if $signing.enabled }}
-{{- if not $public }}
+{{- $services := 0 }}
+{{- range $group := list .Values.APIs .Values.BFFs }}
+{{- if ($group | default dict).enabled }}
+{{- range $name, $cfg := ($group.instances | default dict) }}
+{{- if ($cfg | default dict).enabled }}{{- $services = add1 $services }}{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and (not $public) (gt $services 0) }}
 {{- fail "global.jwt.signing.enabled needs global.jwt.publicKey: every API and BFF must be able to verify what core-api signs (MAIR-680). Paste the public key printed by scripts/seal-secrets.sh" }}
 {{- end }}
 {{- if .Values.secrets.create }}

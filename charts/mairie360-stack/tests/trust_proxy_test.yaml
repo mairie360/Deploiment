@@ -73,21 +73,7 @@ tests:
             name: TRUST_PROXY
             value: "loopback, 10.42.0.0/16"
 
-  - it: "MAIR-520: every BFF gets JWT_SECRET from the app Secret (bffs-lib requireSession)"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: JWT_SECRET
-            valueFrom:
-              secretKeyRef: { name: RELEASE-NAME-app-secrets, key: JWT_SECRET }
-
-  - it: "MAIR-520: a BFF left out of jwtSecretInstances gets no JWT_SECRET"
-    set:
-      BFFs.jwtSecretInstances: [user-bff]
-    documentSelector:
-      path: metadata.name
-      value: RELEASE-NAME-project-bff
+  - it: "MAIR-680: no BFF gets JWT_SECRET anymore (EdDSA tokens only)"
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env

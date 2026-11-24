@@ -57,18 +57,9 @@ Takes a { root, name } context (name = the current instance, e.g. "user-bff").
   value: "0.0.0.0"
 {{- /*
 MAIR-414: no DB_* (no BFF has a database, and the database NetworkPolicy
-refuses them anyway). JWT_SECRET goes to the BFFs
-listed in jwtSecretInstances: every one of them since MAIR-474 made each BFF
-verify the session itself (bffs-lib `requireSession`) and fail at start
-without it (MAIR-520).
+refuses them anyway). MAIR-680: no JWT_SECRET either, the BFFs only verify
+the EdDSA session tokens core-api signs.
 */}}
-{{- if has $.name ($.root.Values.jwtSecretInstances | default list) }}
-- name: JWT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "bffs.appSecretName" $.root }}
-      key: JWT_SECRET
-{{- end }}
 {{- /*
 MAIR-680 (audit A1): every BFF verifies the EdDSA session tokens core-api
 signs with the public key(s) of global.jwt.publicKey (bffs-lib

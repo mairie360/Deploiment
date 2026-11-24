@@ -72,7 +72,7 @@ rateLimit:
     elearning-api: { perSecond: 50, burst: 100 }
 
 # Environment variables shared by every API (on top of the ones the chart
-# injects: DB_*, DB_POOL_*, REDIS_*, JWT_SECRET).
+# injects: DB_*, DB_POOL_*, REDIS_*, JWT_PUBLIC_KEY).
 commonEnv:
   - name: JWT_TIMEOUT
     value: "3600"

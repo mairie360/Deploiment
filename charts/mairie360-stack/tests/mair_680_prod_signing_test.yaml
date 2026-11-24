@@ -1,0 +1,63 @@
+suite: MAIR-680 prod instances sign EdDSA and hold no HS256 secret
+# Renders the real prod instance files: once JWT_SECRET is gone, an instance
+# with signing off would have no way to issue a session at all.
+tests:
+  - it: "MAIR-680 prod: core-api gets JWT_PRIVATE_KEY from the sealed signing Secret"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_PRIVATE_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-jwt-signing-secret, key: JWT_PRIVATE_KEY }
+          count: 1
+
+  - it: "MAIR-680 prod: no API gets JWT_SECRET"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    templates: [charts/APIs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_SECRET }
+          any: true
+
+  - it: "MAIR-680 prod: no BFF gets JWT_SECRET nor JWT_PRIVATE_KEY"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    templates: [charts/BFFs/templates/deployment.yaml]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_SECRET }
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_PRIVATE_KEY }
+          any: true
+
+  - it: "MAIR-680 client-example: a new prod instance renders with core-api signing"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/client-example/instances/prod/values.yaml
+    templates: [charts/APIs/templates/deployment.yaml]
+    documentSelector: { path: metadata.name, value: RELEASE-NAME-core-api }
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_PRIVATE_KEY
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-jwt-signing-secret, key: JWT_PRIVATE_KEY }
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: JWT_SECRET }
+          any: true

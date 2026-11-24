@@ -91,6 +91,12 @@ else
   ok "JWT_PRIVATE_KEY is only in the signing Secret"
 fi
 
+if grep -q 'JWT_SECRET' "$WORK/root/clusters/org/instances/env/secrets.yaml"; then
+  fail "the shared HS256 JWT_SECRET is still sealed"
+else
+  ok "no JWT_SECRET sealed anymore"
+fi
+
 if grep -q 'PRIVATE KEY' "$WORK/cluster.argv"; then
   fail "the private key is passed on kubectl's command line"
 else

@@ -46,7 +46,8 @@ tests:
       value: RELEASE-NAME-app-secrets
     set:
       secrets.create: true
-      secrets.jwtSecret: "test-only"
+      # prod signs EdDSA: the chart-created signing Secret needs a key
+      secrets.jwtPrivateKey: "test-only-not-a-pem-key"
       secrets.s3AccessKey: "SCWTESTACCESS"
       secrets.s3SecretKey: "test-secret"
       secrets.totpEncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -63,7 +64,8 @@ tests:
       value: RELEASE-NAME-app-secrets
     set:
       secrets.create: true
-      secrets.jwtSecret: "test-only"
+      # prod signs EdDSA: the chart-created signing Secret needs a key
+      secrets.jwtPrivateKey: "test-only-not-a-pem-key"
       secrets.s3AccessKey: "SCWTESTACCESS"
       secrets.s3SecretKey: "test-secret"
     asserts:

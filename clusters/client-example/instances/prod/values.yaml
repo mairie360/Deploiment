@@ -29,6 +29,17 @@ global:
       - { name: Scaleway, location: "France (fr-par)", purpose: "hébergement des sauvegardes chiffrées de la base et des pièces jointes des formations (stockage objet)" }
       - { name: Scaleway Cockpit, location: "France (fr-par)", purpose: "traces techniques des APIs lorsque l'observabilité est activée (sans contenu des requêtes)" }
       - { name: Resend, location: "European Union (eu-west-1)", purpose: "envoi des e-mails de la plateforme (réinitialisation du mot de passe, invitation)" }
+  # Session tokens signed by core-api alone. PLACEHOLDER: its private half was
+  # thrown away. On a real instance, run scripts/seal-secrets.sh (it seals
+  # <release>-jwt-signing-secret) and replace this block with the public key
+  # it prints; until then every session is refused.
+  jwt:
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      MCowBQYDK2VwAyEAZY3FGgKTWqmODLRDANkqPCQo8yGdAPVNfMedBZTd4vI=
+      -----END PUBLIC KEY-----
+    signing:
+      enabled: true
   domain: "mairie360.ville-exemple.fr"
   # Sender of core-api's e-mails; its domain must be verified
   # in the Resend dashboard.

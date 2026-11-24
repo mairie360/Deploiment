@@ -53,6 +53,15 @@ if [ -n "${INSTANCE:-}" ]; then
   while IFS= read -r f; do VALUES+=(-f "$f"); done < <("$ROOT/scripts/instance-values.sh" "$(dirname "$INSTANCE_VALUES")")
   VALUES+=(-f "$HERE/values-real.yaml"
           --set "database.env.POSTGRES_DB=mairie_db_${ENV}")
+  # The instance's signing key is sealed for its own machine: this run signs
+  # with a key pair of its own, removed on exit, and the real core-api refuses
+  # to start unless its private key matches the public one.
+  JWT_DIR="$(mktemp -d)"
+  openssl genpkey -algorithm ed25519 -out "$JWT_DIR/private.pem"
+  openssl pkey -in "$JWT_DIR/private.pem" -pubout -out "$JWT_DIR/public.pem"
+  VALUES+=(--set-file "secrets.jwtPrivateKey=$JWT_DIR/private.pem"
+          --set-file "global.jwt.publicKey=$JWT_DIR/public.pem"
+          --set "global.jwt.signing.enabled=true")
   INSTALL_TIMEOUT=20m
 else
   VALUES=(-f "$HERE/values.yaml")
@@ -97,6 +106,7 @@ dump() {
 
 cleanup() {
   rc=$?
+  [ -n "${JWT_DIR:-}" ] && rm -rf "$JWT_DIR"
   [ "$rc" -ne 0 ] && dump
   if [ "${KEEP:-0}" = 1 ]; then
     echo "cluster kept: kubectl --context $CTX -n $NAMESPACE get pods"
