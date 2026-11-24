@@ -103,36 +103,58 @@ Sur votre machine (`curl` et `jq`), avec `CORE=http://localhost:3000` et
 `ELEARNING=http://localhost:3006` :
 
 ```bash
-read -rs -p 'Mot de passe administrateur : ' ADMIN_PW; echo
-JWT=$(curl -sS -D - -o /dev/null -X POST "$CORE/api/v1/auth/login" -H 'Content-Type: application/json' \
-  -d "$(jq -n --arg e admin@mairie360.fr --arg p "$ADMIN_PW" '{email:$e,password:$p,device_info:"atp-runbook"}')" \
-  | sed -n 's/^[Aa]uthorization: Bearer \(.*\)\r$/\1/p')
+admin_login() { # pose JWT et AUTH ; demande le mot de passe administrateur actuel
+  local pw status code
+  read -rs -p 'Mot de passe administrateur actuel : ' pw; echo
+  status=$(curl -sS -D /tmp/atp-login.h -o /tmp/atp-login.b -w '%{http_code}' -X POST "$CORE/api/v1/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg e admin@mairie360.fr --arg p "$pw" '{email:$e,password:$p,device_info:"atp-runbook"}')")
+  if [ "$status" = 202 ]; then
+    read -r -p 'Code du second facteur : ' code
+    status=$(curl -sS -D /tmp/atp-login.h -o /tmp/atp-login.b -w '%{http_code}' -X POST "$CORE/api/v1/auth/login/2fa" \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg t "$(jq -r .token /tmp/atp-login.b)" --arg c "$code" '{token:$t,code:$c}')")
+  fi
+  JWT=$(sed -n 's/^[Aa]uthorization: Bearer \(.*\)\r$/\1/p' /tmp/atp-login.h)
+  AUTH="Authorization: Bearer $JWT"
+  rm -f /tmp/atp-login.h /tmp/atp-login.b
+  echo "login: $status"
+}
+admin_login
 ```
 
-Un `JWT` vide veut dire que la connexion n'a pas répondu `200` : un `202` demande le second
-facteur (`POST /api/v1/auth/login/2fa` avec son `token` et un code, le JWT est dans l'en-tête
-`Authorization` de cette réponse), un `412` veut dire que l'administrateur n'a jamais choisi son
-propre mot de passe (se connecter une fois dans les écrans d'abord).
+`login: 200` veut dire que `JWT` et `AUTH` sont posés. Un `202` (compte protégé par un second
+facteur) est géré par la fonction : elle lit le `token` du corps de la réponse et demande un code
+de l'application d'authentification (ou un code de secours). Un `412` veut dire que
+l'administrateur n'a jamais choisi son propre mot de passe : se connecter une fois dans les
+écrans d'abord. Relancer `admin_login` dès que le JWT expire ou que les sessions de
+l'administrateur sont révoquées (la réinitialisation de son propre mot de passe les révoque).
 
 ```bash
-AUTH="Authorization: Bearer $JWT"
 JSON='Content-Type: application/json'
 
 # 1. Renommer l'administrateur (compte 1), puis poser son mot de passe de la fiche.
 curl -sS -X PATCH "$CORE/api/v1/admin/users/1/" -H "$AUTH" -H "$JSON" -d '{"first_name":"Administrateur"}'
-curl -sS -X PATCH "$CORE/api/v1/admin/users/1/password" -H "$AUTH" -H "$JSON" \
-  -d "$(jq -n --arg p "$ADMIN_PW" '{new_password:$p}')"   # 204 ; se reconnecter pour un nouveau JWT
+read -rs -p 'Mot de passe de la fiche pour l'\''Administrateur : ' sheet_pw; echo
+curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH "$CORE/api/v1/admin/users/1/password" -H "$AUTH" -H "$JSON" \
+  -d "$(jq -n --arg p "$sheet_pw" '{new_password:$p}')"   # 204 : toutes les sessions de l'administrateur se terminent
+unset sheet_pw
+admin_login   # avec le mot de passe de la fiche désormais
 
 # Identifiants des rôles de l'instance.
 curl -sS "$CORE/api/v1/admin/roles/" -H "$AUTH" | jq '.[] | {id, name}'
 
 # 2 et 3. Un compte : création (mot de passe temporaire), rôle, mot de passe définitif.
 create_account() { # <email> <first name> <last name> <role id>
-  local pw tmp id
+  local pw tmp status id
   read -rs -p "Mot de passe de la fiche pour $1 : " pw; echo
   tmp="$(openssl rand -base64 24)"
-  id=$(curl -sS -X POST "$CORE/api/v1/admin/users/" -H "$AUTH" -H "$JSON" \
-    -d "$(jq -n --arg e "$1" --arg f "$2" --arg l "$3" --arg p "$tmp" '{email:$e,first_name:$f,last_name:$l,password:$p}')" | jq -r .id)
+  status=$(curl -sS -o /tmp/atp-create.b -w '%{http_code}' -X POST "$CORE/api/v1/admin/users/" -H "$AUTH" -H "$JSON" \
+    -d "$(jq -n --arg e "$1" --arg f "$2" --arg l "$3" --arg p "$tmp" '{email:$e,first_name:$f,last_name:$l,password:$p}')")
+  if [ "$status" != 201 ]; then
+    echo "$1: la création a répondu $status: $(cat /tmp/atp-create.b)"; rm -f /tmp/atp-create.b; return 1
+  fi
+  id=$(jq -r .id /tmp/atp-create.b); rm -f /tmp/atp-create.b
   curl -sS -X POST "$CORE/api/v1/admin/users/$id/roles/" -H "$AUTH" -H "$JSON" -d "{\"role_id\":$4}"
   curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH "$CORE/api/v1/admin/users/$id/password" -H "$AUTH" -H "$JSON" \
     -d "$(jq -n --arg p "$pw" '{new_password:$p}')"
@@ -148,8 +170,10 @@ précédent, ou archivé) : voir « Rejouer » plus bas. La réinitialisation du
 `204` ; un `400` nomme la règle que le mot de passe enfreint.
 
 ```bash
-# 4. La formation.
-COURSE=$(curl -sS -X POST "$ELEARNING/api/v1/admin/formations/" -H "$AUTH" -H "$JSON" -d @- <<'EOF' | jq -r .id
+# 4. La formation, sauf si elle existe déjà (rejeu).
+COURSE=$(curl -sS "$ELEARNING/api/v1/admin/formations/?limit=500" -H "$AUTH" \
+  | jq -r '[.formations[] | select(.name == "Prise en main de Mairie 360") | .id][0] // empty')
+[ -n "$COURSE" ] || COURSE=$(curl -sS -X POST "$ELEARNING/api/v1/admin/formations/" -H "$AUTH" -H "$JSON" -d @- <<'EOF' | jq -r .id
 {
   "name": "Prise en main de Mairie 360",
   "description": "Une courte découverte de l'outil : ses modules, leur usage au quotidien et les bons réflexes avec les données des administrés.",
@@ -193,7 +217,7 @@ echo "course $COURSE"
 for id in <id employé> <id responsable> <id maire>; do
   curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$ELEARNING/api/v1/admin/formations/$COURSE/" -H "$AUTH" -H "$JSON" -d "{\"user_id\":$id}"
 done
-unset ADMIN_PW JWT AUTH
+unset JWT AUTH
 ```
 
 ## Liste de vérification
@@ -204,7 +228,8 @@ unset ADMIN_PW JWT AUTH
 - [ ] Connecté en Employé, `https://elearning.<domain>/` liste « Prise en main de Mairie 360 »
       avec ses trois modules ; la formation s'ouvre.
 - [ ] En administrateur, le filtre « Origine » → « Formations de l'outil » du catalogue
-      e-learning montre la formation (origine `platform`).
+      e-learning montre la formation (origine `platform`). Sans objet quand la formation a été
+      créée depuis les écrans (origine `internal`, voir l'étape 4).
 - [ ] « Mot de passe oublié » sur `https://login.<domain>/` pour un des comptes : l'e-mail de
       réinitialisation arrive dans sa boîte `@mairie360.fr` (F5). Ne pas aller au bout de la
       réinitialisation, sinon le mot de passe de la fiche ne marche plus ; si c'est fait, reposer
@@ -215,6 +240,8 @@ unset ADMIN_PW JWT AUTH
 ## Nettoyage après l'ATP
 
 Seulement quand l'équipe de l'ATP le décide ; sinon ces données ne gênent pas l'instance.
+Les commandes d'API ci-dessous demandent d'abord la redirection de port et un nouvel
+`admin_login` (la fin de la mise en place a effacé `JWT` et `AUTH`).
 
 1. **Archiver les trois comptes** : Administration → Utilisateurs → chaque compte → archiver, ou
    `curl -X DELETE "$CORE/api/v1/admin/users/<id>/" -H "$AUTH"`. Les sessions se terminent, le
@@ -231,8 +258,9 @@ Responsable du testeur) se suppriment de la même façon si besoin, par l'équip
 ## Rejouer
 
 Les étapes se rejouent sans risque : l'inscription est idempotente, une réinitialisation de mot
-de passe peut se répéter, et un compte ou une formation qui existe déjà est gardé (`409` à la
-création d'un compte : retrouver le compte dans Administration → Utilisateurs et ne refaire que
-son rôle et son mot de passe). Un compte archivé garde son adresse : pour le recréer, soit le
+de passe peut se répéter, et un compte ou une formation qui existe déjà est gardé : `create_account` s'arrête
+sur le `409` d'une adresse déjà prise (retrouver le compte dans Administration → Utilisateurs et
+ne refaire que son rôle et son mot de passe), et l'étape 4 reprend la formation qui porte déjà ce
+nom. Un compte archivé garde son adresse : pour le recréer, soit le
 restaurer en base (`restore_user`), soit l'effacer d'abord
 (`POST /api/v1/admin/users/<id>/erase`, définitif) puis le créer à nouveau.

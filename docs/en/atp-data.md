@@ -100,36 +100,57 @@ On your own machine (`curl` and `jq`), with `CORE=http://localhost:3000` and
 `ELEARNING=http://localhost:3006`:
 
 ```bash
-read -rs -p 'Administrator password: ' ADMIN_PW; echo
-JWT=$(curl -sS -D - -o /dev/null -X POST "$CORE/api/v1/auth/login" -H 'Content-Type: application/json' \
-  -d "$(jq -n --arg e admin@mairie360.fr --arg p "$ADMIN_PW" '{email:$e,password:$p,device_info:"atp-runbook"}')" \
-  | sed -n 's/^[Aa]uthorization: Bearer \(.*\)\r$/\1/p')
+admin_login() { # sets JWT and AUTH; asks for the current administrator password
+  local pw status code
+  read -rs -p 'Current administrator password: ' pw; echo
+  status=$(curl -sS -D /tmp/atp-login.h -o /tmp/atp-login.b -w '%{http_code}' -X POST "$CORE/api/v1/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg e admin@mairie360.fr --arg p "$pw" '{email:$e,password:$p,device_info:"atp-runbook"}')")
+  if [ "$status" = 202 ]; then
+    read -r -p 'Second-factor code: ' code
+    status=$(curl -sS -D /tmp/atp-login.h -o /tmp/atp-login.b -w '%{http_code}' -X POST "$CORE/api/v1/auth/login/2fa" \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg t "$(jq -r .token /tmp/atp-login.b)" --arg c "$code" '{token:$t,code:$c}')")
+  fi
+  JWT=$(sed -n 's/^[Aa]uthorization: Bearer \(.*\)\r$/\1/p' /tmp/atp-login.h)
+  AUTH="Authorization: Bearer $JWT"
+  rm -f /tmp/atp-login.h /tmp/atp-login.b
+  echo "login: $status"
+}
+admin_login
 ```
 
-An empty `JWT` means the login did not answer `200`: a `202` asks for the second factor
-(`POST /api/v1/auth/login/2fa` with its `token` and a code, the JWT is in the
-`Authorization` header of that answer), a `412` means the administrator never chose their own
-password (sign in once in the screens first).
+`login: 200` means `JWT` and `AUTH` are set. A `202` (account protected by a second factor) is
+handled by the function: it reads the `token` of the answer's body and asks for a code of the
+authenticator application (or a backup code). A `412` means the administrator never chose
+their own password: sign in once in the screens first. Run `admin_login` again whenever the
+JWT expires or the administrator's sessions are revoked (its own password reset revokes them).
 
 ```bash
-AUTH="Authorization: Bearer $JWT"
 JSON='Content-Type: application/json'
 
 # 1. Rename the administrator (account 1), then set its sheet password.
 curl -sS -X PATCH "$CORE/api/v1/admin/users/1/" -H "$AUTH" -H "$JSON" -d '{"first_name":"Administrateur"}'
-curl -sS -X PATCH "$CORE/api/v1/admin/users/1/password" -H "$AUTH" -H "$JSON" \
-  -d "$(jq -n --arg p "$ADMIN_PW" '{new_password:$p}')"   # 204; sign in again for a new JWT
+read -rs -p 'Sheet password of the Administrator: ' sheet_pw; echo
+curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH "$CORE/api/v1/admin/users/1/password" -H "$AUTH" -H "$JSON" \
+  -d "$(jq -n --arg p "$sheet_pw" '{new_password:$p}')"   # 204: every session of the admin ends
+unset sheet_pw
+admin_login   # with the sheet password now
 
 # Role ids of the instance.
 curl -sS "$CORE/api/v1/admin/roles/" -H "$AUTH" | jq '.[] | {id, name}'
 
 # 2 and 3. One account: create (temporary password), role, final password.
 create_account() { # <email> <first name> <last name> <role id>
-  local pw tmp id
+  local pw tmp status id
   read -rs -p "Sheet password of $1: " pw; echo
   tmp="$(openssl rand -base64 24)"
-  id=$(curl -sS -X POST "$CORE/api/v1/admin/users/" -H "$AUTH" -H "$JSON" \
-    -d "$(jq -n --arg e "$1" --arg f "$2" --arg l "$3" --arg p "$tmp" '{email:$e,first_name:$f,last_name:$l,password:$p}')" | jq -r .id)
+  status=$(curl -sS -o /tmp/atp-create.b -w '%{http_code}' -X POST "$CORE/api/v1/admin/users/" -H "$AUTH" -H "$JSON" \
+    -d "$(jq -n --arg e "$1" --arg f "$2" --arg l "$3" --arg p "$tmp" '{email:$e,first_name:$f,last_name:$l,password:$p}')")
+  if [ "$status" != 201 ]; then
+    echo "$1: creation answered $status: $(cat /tmp/atp-create.b)"; rm -f /tmp/atp-create.b; return 1
+  fi
+  id=$(jq -r .id /tmp/atp-create.b); rm -f /tmp/atp-create.b
   curl -sS -X POST "$CORE/api/v1/admin/users/$id/roles/" -H "$AUTH" -H "$JSON" -d "{\"role_id\":$4}"
   curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH "$CORE/api/v1/admin/users/$id/password" -H "$AUTH" -H "$JSON" \
     -d "$(jq -n --arg p "$pw" '{new_password:$p}')"
@@ -145,8 +166,10 @@ run, or archived): see « Run it again » below. The password reset answers `204
 names the rule the password breaks.
 
 ```bash
-# 4. The course.
-COURSE=$(curl -sS -X POST "$ELEARNING/api/v1/admin/formations/" -H "$AUTH" -H "$JSON" -d @- <<'EOF' | jq -r .id
+# 4. The course, unless it already exists (replay).
+COURSE=$(curl -sS "$ELEARNING/api/v1/admin/formations/?limit=500" -H "$AUTH" \
+  | jq -r '[.formations[] | select(.name == "Prise en main de Mairie 360") | .id][0] // empty')
+[ -n "$COURSE" ] || COURSE=$(curl -sS -X POST "$ELEARNING/api/v1/admin/formations/" -H "$AUTH" -H "$JSON" -d @- <<'EOF' | jq -r .id
 {
   "name": "Prise en main de Mairie 360",
   "description": "Une courte découverte de l'outil : ses modules, leur usage au quotidien et les bons réflexes avec les données des administrés.",
@@ -190,7 +213,7 @@ echo "course $COURSE"
 for id in <employee id> <manager id> <mayor id>; do
   curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$ELEARNING/api/v1/admin/formations/$COURSE/" -H "$AUTH" -H "$JSON" -d "{\"user_id\":$id}"
 done
-unset ADMIN_PW JWT AUTH
+unset JWT AUTH
 ```
 
 ## Verification checklist
@@ -201,7 +224,8 @@ unset ADMIN_PW JWT AUTH
 - [ ] Signed in as the Employee, `https://elearning.<domain>/` lists « Prise en main de
       Mairie 360 » with its three modules; the course opens.
 - [ ] As an administrator, the e-learning catalogue filter « Origine » → « Formations de
-      l'outil » shows the course (origin `platform`).
+      l'outil » shows the course (origin `platform`). Not applicable when the course was
+      created from the screens (origin `internal`, see step 4).
 - [ ] « Mot de passe oublié » on `https://login.<domain>/` for one of the accounts: the
       reset e-mail arrives in its `@mairie360.fr` mailbox (F5). Do not finish the reset, or
       the sheet password no longer works; if it was finished, set the sheet password again
@@ -212,6 +236,8 @@ unset ADMIN_PW JWT AUTH
 ## Cleanup after the ATP
 
 Only when the ATP team decides it; the data is not in the way of the instance otherwise.
+The API commands below need the port forward and a fresh `admin_login` first (the end of
+the setup unset `JWT` and `AUTH`).
 
 1. **Archive the three accounts**: Administration → Users → each account → archive, or
    `curl -X DELETE "$CORE/api/v1/admin/users/<id>/" -H "$AUTH"`. The sessions end, the
@@ -228,8 +254,9 @@ Manager account) is removed by the ATP team in the same way if needed.
 ## Run it again
 
 The steps are safe to replay: the enrolment is idempotent, a password reset can be repeated,
-and an account or a course that already exists is kept (`409` on the account creation:
-look the account up in Administration → Users and only redo its role and password). An
+and an account or a course that already exists is kept: `create_account` stops on the `409`
+of an address already taken (look the account up in Administration → Users and only redo its
+role and password), and step 4 reuses the course that already has this name. An
 archived account still holds its address: to create it again, either restore it from the
 database (`restore_user`) or erase it first (`POST /api/v1/admin/users/<id>/erase`, final)
 and create it anew.
