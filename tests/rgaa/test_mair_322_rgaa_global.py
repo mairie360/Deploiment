@@ -241,3 +241,65 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Mair1204Exception(unittest.TestCase):
+    """MAIR-1204: the first full prod release measured 37.5 %; the user accepted it as an exception of that
+    release. The minimum stays 50 % unless a promotion lowers it with a reason."""
+
+    def setUp(self):
+        self.text = (ROOT / ".github" / "workflows" / "promote.yaml").read_text(encoding="utf-8")
+        step = self.text.split("- name: Global RGAA rate of the prod fronts", 1)[1]
+        script = step.split("run: |\n", 1)[1]
+        lines = []
+        for line in script.splitlines():
+            if line.strip() and not line.startswith("          "):
+                break
+            lines.append(line[10:])
+        self.script = "\n".join(lines) + "\n"
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        (root / "scripts").mkdir()
+        fake = root / "scripts" / "rgaa-global.py"
+        fake.write_text('#!/usr/bin/env bash\necho "gate $*" > "$CALLS"\n', encoding="utf-8")
+        fake.chmod(0o755)
+        self.root = root
+
+    def run_step(self, min_rate, exception=""):
+        summary = self.root / "summary.md"
+        calls = self.root / "calls"
+        for f in (summary, calls):
+            f.write_text("", encoding="utf-8")
+        env = dict(os.environ, MIN_RATE=min_rate, EXCEPTION=exception, GITHUB_STEP_SUMMARY=str(summary),
+                   CALLS=str(calls))
+        result = subprocess.run(["bash", "-e", "-c", self.script], cwd=self.root, env=env,
+                                capture_output=True, text=True)
+        return result, calls.read_text(encoding="utf-8"), summary.read_text(encoding="utf-8")
+
+    def test_MAIR_1204_the_minimum_defaults_to_50(self):
+        inputs = self.text.split("rgaa_min_rate:", 1)[1].split("rgaa_exception:", 1)[0]
+        self.assertIn('default: "50"', inputs)
+        result, calls, _ = self.run_step("50")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('--min 50', calls)
+
+    def test_MAIR_1204_a_lower_minimum_without_a_reason_is_refused(self):
+        result, calls, _ = self.run_step("37", "  ")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("needs rgaa_exception", result.stdout)
+        self.assertEqual(calls, "")
+
+    def test_MAIR_1204_a_lower_minimum_with_its_reason_is_traced_and_used(self):
+        result, calls, summary = self.run_step("37", "first full release, fixes in MAIR-1300")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--min 37", calls)
+        self.assertIn("::warning title=RGAA global::minimum lowered to 37 %", result.stdout)
+        self.assertIn("first full release, fixes in MAIR-1300", summary)
+
+    def test_MAIR_1204_an_invalid_minimum_is_refused(self):
+        for value in ("abc", "101", "-5", "50; rm -rf /"):
+            with self.subTest(value=value):
+                result, calls, _ = self.run_step(value, "reason")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, "")

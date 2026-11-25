@@ -55,6 +55,14 @@ on:
         description: Move the branch BACK to ref (force push, skips the CI checks)
         type: boolean
         default: false
+      rgaa_min_rate:
+        description: Minimum global RGAA rate of a prod promotion (%); below 50 needs rgaa_exception
+        type: string
+        default: "50"
+      rgaa_exception:
+        description: Why this prod promotion accepts a global RGAA rate below 50 % (ticket of the fixes)
+        type: string
+        required: false
 
 # One promotion at a time, and never cancel a push half way.
 concurrency:
@@ -298,7 +306,23 @@ jobs:
         env:
           # The fronts' repositories are public: the run's token reads their releases.
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/rgaa-global.py gate --values clusters/_base/prod.yaml --summary "$GITHUB_STEP_SUMMARY"
+          MIN_RATE: ${{ inputs.rgaa_min_rate }}
+          EXCEPTION: ${{ inputs.rgaa_exception }}
+        run: |
+          # The platform minimum is 50 %: a lower one is an exception of one release, given with its reason.
+          if ! [[ "$MIN_RATE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || awk -v m="$MIN_RATE" 'BEGIN { exit !(m > 100) }'; then
+            echo "::error title=RGAA global::rgaa_min_rate must be a number between 0 and 100"
+            exit 1
+          fi
+          if awk -v m="$MIN_RATE" 'BEGIN { exit !(m < 50) }'; then
+            if [ -z "${EXCEPTION// }" ]; then
+              echo "::error title=RGAA global::a minimum below 50 % needs rgaa_exception (why, and the ticket of the fixes)"
+              exit 1
+            fi
+            echo "::warning title=RGAA global::minimum lowered to $MIN_RATE % for this promotion: $EXCEPTION"
+            printf '> **Exception** : minimum abaissé à %s %% pour cette promotion. Raison : %s\n\n' "$MIN_RATE" "$EXCEPTION" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          ./scripts/rgaa-global.py gate --values clusters/_base/prod.yaml --min "$MIN_RATE" --summary "$GITHUB_STEP_SUMMARY"
 
   promote:
     name: Advance the branch
