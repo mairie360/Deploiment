@@ -24,6 +24,10 @@ The `rgaa-global` job of `Promote` (target prod) lists the failing criteria with
 and elements in the job summary, and stops the promotion below 50 %. A front released without a
 report is listed and left out of the rate.
 
+The minimum is the `rgaa_min_rate` input (default 50). A promotion may lower it for one release
+only with `rgaa_exception`, the reason and the ticket of the fixes: the run refuses a lower minimum
+without it, and writes the exception in its summary and as a warning.
+
 ## Release note
 
 After a release reaches prod, run the `Release note` workflow with the version of
