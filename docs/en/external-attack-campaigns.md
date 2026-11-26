@@ -45,6 +45,11 @@ created.
 
 ### Set the password (once per instance, dev then staging)
 
+Prerequisite: the instance's `liquibase.image.tag` is a `liquibase-migrations` build of
+Database that holds `repeatable/common/seed_test_accounts.sql` (any build from the Database
+change that added the test accounts on). An older image ignores the parameter and creates
+no account.
+
 1. Generate a password (at least 16 random characters) and store it in the team vault
    (Scaleway Secret Manager of the organisation, entry `test-accounts-password` of the
    instance) and in the GitHub secret the campaign workflows read. It is never written in a
@@ -54,14 +59,18 @@ created.
 
    ```bash
    read -rs TEST_ACCOUNTS_PASSWORD && export TEST_ACCOUNTS_PASSWORD
+   # dev
+   KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
+   # staging (with the staging password, read again)
    KUBECONFIG=/root/.kube/instance-staging.yaml ./scripts/seal-secrets.sh staging mairie360 staging
    ```
 
    Only its argon2id hash is sealed (`TEST_ACCOUNTS_PASSWORD` of `<env>-database-secret`).
    Later runs without the variable keep it; `--rotate` keeps it too.
-3. Commit the new `secrets.yaml` through a pull request, merge, promote to staging, sync
-   staging.
-4. Check: sign in at `https://login.staging.mairie360-eip.fr/` as `attack.guest@example.invalid`.
+3. Commit the new `secrets.yaml` through a pull request and merge: dev syncs by itself. For
+   staging, promote, then sync staging by hand.
+4. Check: sign in at `https://login.<env>.mairie360-eip.fr/` (`dev`, then `staging`) as
+   `attack.guest@example.invalid`.
 
 Until the key is sealed, the Liquibase Job logs that the test accounts are not seeded and
 migrates normally.

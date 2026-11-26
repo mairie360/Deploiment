@@ -47,6 +47,11 @@ mot de passe, rôle, actifs, sans étape de première connexion. Leurs projets, 
 
 ### Fixer le mot de passe (une fois par instance, dev puis staging)
 
+Prérequis : le `liquibase.image.tag` de l'instance est une image `liquibase-migrations` de
+Database qui contient `repeatable/common/seed_test_accounts.sql` (toute image construite
+depuis le changement de Database qui a ajouté les comptes de test). Une image plus ancienne
+ignore le paramètre et ne crée aucun compte.
+
 1. Générer un mot de passe (au moins 16 caractères aléatoires) et le ranger dans le coffre de
    l'équipe (Scaleway Secret Manager de l'organisation, entrée `test-accounts-password` de
    l'instance) et dans le secret GitHub que lisent les workflows de campagne. Il n'est jamais
@@ -56,15 +61,18 @@ mot de passe, rôle, actifs, sans étape de première connexion. Leurs projets, 
 
    ```bash
    read -rs TEST_ACCOUNTS_PASSWORD && export TEST_ACCOUNTS_PASSWORD
+   # dev
+   KUBECONFIG=/root/.kube/instance-dev.yaml ./scripts/seal-secrets.sh dev mairie360 dev
+   # staging (avec le mot de passe de staging, relu)
    KUBECONFIG=/root/.kube/instance-staging.yaml ./scripts/seal-secrets.sh staging mairie360 staging
    ```
 
    Seul son hash argon2id est scellé (`TEST_ACCOUNTS_PASSWORD` de `<env>-database-secret`).
    Les exécutions suivantes sans la variable le conservent ; `--rotate` aussi.
-3. Committer le nouveau `secrets.yaml` par une pull request, merger, promouvoir en staging,
-   synchroniser staging.
-4. Vérifier : se connecter sur `https://login.staging.mairie360-eip.fr/` avec
-   `attack.guest@example.invalid`.
+3. Committer le nouveau `secrets.yaml` par une pull request et merger : dev se synchronise
+   seule. Pour staging, promouvoir, puis synchroniser staging à la main.
+4. Vérifier : se connecter sur `https://login.<env>.mairie360-eip.fr/` (`dev`, puis
+   `staging`) avec `attack.guest@example.invalid`.
 
 Tant que la clé n'est pas scellée, le Job Liquibase indique que les comptes de test ne sont
 pas créés et migre normalement.
