@@ -183,7 +183,7 @@ APIs:
       image: { repository: ghcr.io/mairie360/message-api, tag: "staging-0350e1d" }
     elearning-api:
       enabled: true
-      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-e7b9a5a" }
+      image: { repository: ghcr.io/mairie360/elearning-api, tag: "staging-28cd45f" }
       env:
         # Course attachments are stored in Scaleway Object Storage (S3 API)
         # and served through presigned URLs. The access key pair lives in
