@@ -698,7 +698,9 @@ seal-secrets.sh`, kept afterwards, also by `--rotate`). Rules of engagement:
 scenarios (one folder per family). `recon/recon.py` checks, against `recon/expected.json`, the open
 ports of the five mairie360 machines (nmap, 1 probe per second per host), the subdomains of the
 certificate transparency logs, version banners, reachable admin interfaces and gitleaks on every
-public repository; any deviation exits 1. `.github/workflows/external-recon.yaml` runs it on the
+public repository, plus the DNS records of both zones (orphan addresses, dangling targets, read
+with the `RECON_DNS_SCW_SECRET_KEY` secret) and SPF/DKIM/DMARC of the mail domains (MAIR-1187);
+any deviation exits 1. `.github/workflows/external-recon.yaml` runs it on the
 first Monday of the month and on demand (artifact `external-recon`, compared with the previous run).
 A wanted change (new front, port) updates `expected.json` in the same PR. Tests `tests/security/` (CI).
 

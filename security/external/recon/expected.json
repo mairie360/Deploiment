@@ -105,5 +105,40 @@
     }
   ],
   "github_org": "mairie360",
-  "accepted_leaks": []
+  "accepted_leaks": [],
+  "dns": {
+    "zones": [
+      "mairie360-eip.fr",
+      "mairie360.fr"
+    ],
+    "known_addresses": [
+      "109.234.167.90",
+      "185.199.108.153",
+      "185.199.109.153",
+      "185.199.110.153",
+      "185.199.111.153"
+    ],
+    "mail_domains": {
+      "mairie360-eip.fr": {
+        "dkim_selectors": [
+          "default",
+          "resend"
+        ],
+        "dmarc_policies": [
+          "quarantine",
+          "reject"
+        ]
+      },
+      "mairie360.fr": {
+        "dkim_selectors": [
+          "resend"
+        ],
+        "dmarc_policies": [
+          "quarantine",
+          "reject"
+        ]
+      }
+    }
+  },
+  "_comment_dns": "known_addresses: o2switch mail server (mairie360-eip.fr mailbox) and GitHub Pages (mairie360.fr site); the machines' addresses are added from hosts. dmarc_policies: quarantine until reject is switched on, then reject only."
 }

@@ -12,7 +12,11 @@ Reads expected.json (next to this file, or --expected) and collects, from the In
 - banners: `Server`, `X-Powered-By` and similar headers, and version strings in error pages;
 - admin interfaces: URLs that must not answer from the Internet;
 - leaks: gitleaks on the full history of every public repository of the GitHub org
-  (docker image pinned by digest, like mairie360/CICD's gitleaks action).
+  (docker image pinned by digest, like mairie360/CICD's gitleaks action);
+- dns: the records of the group's zones (Scaleway Domains API, read-only key in
+  SCW_SECRET_KEY), each A/AAAA record pointing to a known address and each CNAME/MX target
+  resolving (a dangling one is a subdomain takeover waiting to happen), and the anti-spoofing
+  records of the mail domains (SPF, DKIM, DMARC policy and reports) as the Internet sees them.
 
 Writes recon.json and recon.md to --out-dir, with the changes since --previous (the report of
 the previous run), and exits 1 when anything deviates from the expected list. The rules of
@@ -30,6 +34,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -100,6 +105,47 @@ def accepted(finding, accepted_leaks):
                for a in accepted_leaks)
 
 
+DMARC_TAG = re.compile(r"(?:^|;)\s*(\w+)\s*=\s*([^;]*)")
+
+
+def mail_auth_findings(domain, spec, txt):
+    """[deviation, ...] of one mail domain; txt(name) -> [TXT record, ...] as published."""
+    out = []
+    spf = [r for r in txt(domain) if r.lower().startswith("v=spf1")]
+    if len(spf) != 1:
+        out.append(f"{domain}: {len(spf)} SPF records (exactly one expected)")
+    elif not re.search(r"\s[-~]all$", spf[0].strip()):
+        out.append(f"{domain}: SPF does not end with -all or ~all: {spf[0]}")
+    for selector in spec.get("dkim_selectors", []):
+        if not any("p=" in r for r in txt(f"{selector}._domainkey.{domain}")):
+            out.append(f"{domain}: no DKIM key for selector {selector}")
+    dmarc = [r for r in txt(f"_dmarc.{domain}") if r.lower().startswith("v=dmarc1")]
+    if len(dmarc) != 1:
+        out.append(f"{domain}: {len(dmarc)} DMARC records (exactly one expected)")
+        return out
+    tags = {k.lower(): v.strip() for k, v in DMARC_TAG.findall(dmarc[0])}
+    if tags.get("p", "").lower() not in spec["dmarc_policies"]:
+        out.append(f"{domain}: DMARC p={tags.get('p', 'missing')}, expected {' or '.join(spec['dmarc_policies'])}")
+    if not tags.get("rua", "").startswith("mailto:"):
+        out.append(f"{domain}: DMARC asks for no aggregate report (rua)")
+    return out
+
+
+def dns_record_findings(zone, records, known_addresses, resolves):
+    """[deviation, ...] of the records of one zone; resolves(name) -> bool."""
+    out = []
+    for r in records:
+        name = f"{r['name']}.{zone}" if r["name"] else zone
+        kind, data = r["type"], r["data"].strip()
+        if kind in ("A", "AAAA") and data not in known_addresses:
+            out.append(f"{name} {kind} {data}: not an address of the group (orphan record?)")
+        elif kind in ("CNAME", "MX"):
+            target = data.split()[-1].rstrip(".")
+            if not resolves(target):
+                out.append(f"{name} {kind} {target}: target does not resolve (takeover risk)")
+    return out
+
+
 # --------------------------------------------------------------------------- evaluation
 
 def evaluate(expected, observed):
@@ -134,6 +180,10 @@ def evaluate(expected, observed):
             if not accepted(finding, expected.get("accepted_leaks", [])):
                 deviations.append(f"secret in {finding['repo']}: {finding['rule']} at "
                                   f"{finding['file']}:{finding['line']} (commit {finding['commit'][:12]})")
+    if "dns" in observed:
+        deviations += observed["dns"].get("deviations", [])
+        if "error" in observed["dns"]:
+            deviations.append(f"dns: {observed['dns']['error']}")
     return deviations
 
 
@@ -191,6 +241,10 @@ def render_markdown(report):
     if obs.get("unreachable"):
         lines += ["## Unreachable pages (not a deviation)", ""]
         lines += [f"- {u}" for u in obs["unreachable"]]
+        lines.append("")
+    if obs.get("dns", {}).get("zones"):
+        lines += ["## DNS zones checked", ""]
+        lines += [f"- {z}: {n} records" for z, n in sorted(obs["dns"]["zones"].items())]
         lines.append("")
     if "leaks" in obs:
         lines += ["## Public repositories scanned by gitleaks", "",
@@ -296,6 +350,67 @@ def public_repos(org, token):
         page += 1
 
 
+def lookup_txt(name):
+    try:
+        out = subprocess.run(["dig", "+short", "TXT", name], capture_output=True, text=True, timeout=30, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return ["".join(re.findall(r'"((?:[^"\\]|\\.)*)"', line)) for line in out.stdout.splitlines() if line.strip()]
+
+
+def resolves(name):
+    try:
+        return bool(socket.getaddrinfo(name, None))
+    except (OSError, UnicodeError):
+        return False
+
+
+def addresses_of(name):
+    try:
+        return {info[4][0] for info in socket.getaddrinfo(name, None)}
+    except (OSError, UnicodeError):
+        return set()
+
+
+def zone_records(zone, key):
+    records, page = [], 1
+    while True:
+        query = urllib.parse.urlencode({"page": page, "page_size": 500})
+        status, _, body = http_get(f"https://api.scaleway.com/domain/v2beta1/dns-zones/{zone}/records?{query}",
+                                   timeout=30, headers={"X-Auth-Token": key})
+        if status != 200:
+            raise ValueError(f"Scaleway answered {status} for {zone}")
+        batch = json.loads(body).get("records", [])
+        records += batch
+        if len(batch) < 500:
+            return records
+        page += 1
+
+
+def collect_dns(expected):
+    spec = expected["dns"]
+    out = {"deviations": []}
+    for domain, mail in spec["mail_domains"].items():
+        out["deviations"] += mail_auth_findings(domain, mail, lookup_txt)
+    key = os.environ.get("SCW_SECRET_KEY")
+    if not key:
+        out["error"] = "SCW_SECRET_KEY not set: zone records not listed"
+        return out
+    known = set(spec.get("known_addresses", []))
+    for host in expected["hosts"].values():
+        known |= addresses_of(host["address"])
+    out["zones"] = {}
+    for zone in spec["zones"]:
+        try:
+            records = zone_records(zone, key)
+        except (OSError, ValueError) as err:
+            out["deviations"].append(f"dns: {zone} not listed ({str(err)[:120]})")
+            continue
+        out["zones"][zone] = len(records)
+        out["deviations"] += dns_record_findings(zone, records, known, resolves)
+    return out
+
+
 def collect_leaks(expected):
     org = expected["github_org"]
     try:
@@ -336,7 +451,7 @@ def main(argv=None):
     parser.add_argument("--expected", default=str(HERE / "expected.json"))
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--previous", help="recon.json of the previous run")
-    parser.add_argument("--skip", default="", help="comma-separated: ports,subdomains,banners,admin,gitleaks")
+    parser.add_argument("--skip", default="", help="comma-separated: ports,subdomains,banners,admin,gitleaks,dns")
     args = parser.parse_args(argv)
     skip = {s for s in args.skip.split(",") if s}
 
@@ -351,6 +466,8 @@ def main(argv=None):
         observed["admin"] = collect_admin(expected)
     if "gitleaks" not in skip:
         observed["leaks"] = collect_leaks(expected)
+    if "dns" not in skip:
+        observed["dns"] = collect_dns(expected)
     if "ports" in skip:
         expected = {**expected, "hosts": {}}
 

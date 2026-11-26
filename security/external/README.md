@@ -16,6 +16,8 @@ plus `nmap`, `git` and `docker`) collects:
 | Version banners | `Server`, `X-Powered-By` and similar headers of `banner_urls`, version strings of a 404 page | any product version is shown |
 | Admin interfaces | `admin_interfaces` (n8n editor, Argo CD, Kubernetes API) | one answers with a status below 500 |
 | Secrets | gitleaks (image pinned by digest, as in mairie360/CICD) on the full history of every public repository of `github_org` | a finding is not in `accepted_leaks` (repository + fingerprint) |
+| DNS records | every record of `dns.zones` (Scaleway Domains API, read-only key `SCW_SECRET_KEY`, secret `RECON_DNS_SCW_SECRET_KEY`) | an A/AAAA record points outside the machines of `hosts` and `dns.known_addresses` (orphan record), a CNAME/MX target does not resolve (subdomain takeover), or the key is missing |
+| Anti-spoofing | public TXT records of each `dns.mail_domains` entry | not exactly one SPF ending with `-all`/`~all`, a DKIM selector without key, not exactly one DMARC record, a policy outside `dmarc_policies`, no `rua` report address |
 
 `findings_to_close` are expected today but reported at every run (public SSH, until WireGuard is
 the only way in).
@@ -37,4 +39,4 @@ A deviation is either fixed (close the port, remove the DNS record, hide the ban
 purge the secret) or, when it is wanted, added to `expected.json` in a reviewed pull request. Each
 real finding goes to the vulnerability register with its MAIR ticket.
 
-Tests: `tests/security/test_mair_1186_external_recon.py` (CI).
+Tests: `tests/security/test_mair_1186_external_recon.py`, `tests/security/test_mair_1187_dns_mail.py` (CI).

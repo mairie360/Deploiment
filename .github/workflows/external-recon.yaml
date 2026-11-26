@@ -79,6 +79,9 @@ jobs:
       - name: Reconnaissance
         env:
           GH_TOKEN: ${{ github.token }}
+          # Key of the IAM application mairie360-ci-recon-dns (mairie360/Infra
+          # iam/campaigns.tf): reads DNS records, nothing else.
+          SCW_SECRET_KEY: ${{ secrets.RECON_DNS_SCW_SECRET_KEY }}
         run: |
           python3 security/external/recon/recon.py --out-dir report --previous previous/recon.json
 
