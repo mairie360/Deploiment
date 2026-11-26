@@ -93,12 +93,31 @@ The source address is written in the announcement. The attack source machine is 
 `security/external/recon/` (workflow `external-recon.yaml`, first Monday of every month and on
 demand) checks what an attacker sees of the mairie360 group (argocd, dev, staging, prod, n8n):
 open ports, subdomains in the certificate transparency logs, version banners, admin interfaces
-reachable from the Internet, secrets in the history of the public repositories. It connects at
+reachable from the Internet, secrets in the history of the public repositories, orphan or
+dangling DNS records and the anti-spoofing records of the mail domains. It connects at
 most once per second per host and sends no attack payload, so it needs no window nor
 announcement; the GitHub-hosted runner is its source. Any deviation from
 `security/external/recon/expected.json` fails the run; the report (artifact `external-recon` and
 job summary) lists the changes since the previous month. Details:
 [`security/external/README.md`](../../security/external/README.md).
+
+## DNS and e-mail spoofing
+
+| Domain | SPF | DKIM | DMARC |
+| --- | --- | --- | --- |
+| `mairie360-eip.fr` (team mailbox at o2switch, Resend) | o2switch and its relay, `~all` | `default` (o2switch), `resend` | `p=quarantine` |
+| `mairie360.fr` (Resend only, envelope `send.mairie360.fr`) | `v=spf1 -all` | `resend` | `p=quarantine` |
+
+Both zones are in Scaleway Domains (mairie360/Infra `orgs/mairie360`), which refuses a DMARC
+record without enforcement or report address. Aggregate reports go to `dmarc@mairie360.fr` (the
+Resend inbox). **Target: `p=reject` on both domains on 2026-12-28**, once a month of reports only
+shows Resend and o2switch as senders; then `dmarc_policies` of `expected.json` becomes
+`["reject"]`.
+
+The forged sender is tested for real every month by mairie360/Infra's `spoof-test.yml`: a
+throwaway machine of the attack project sends one e-mail with `From: noreply@mairie360-eip.fr`
+to the Resend inbox, which must judge it `dmarc=fail`. That workflow is the only scenario of the
+campaigns that sends e-mail; it never writes to anyone outside the group.
 
 ## Window and announcement
 

@@ -217,7 +217,7 @@ class WholeRun(unittest.TestCase):
             expected["hosts"] = {"prod": {"address": "203.0.113.10", "tcp": [22, 80, 443]}}
             (tmp / "expected.json").write_text(json.dumps(expected))
             args = ["--expected", str(tmp / "expected.json"), "--out-dir", str(tmp / "out"),
-                    "--skip", "subdomains,gitleaks"]
+                    "--skip", "subdomains,gitleaks,dns"]
             if previous:
                 (tmp / "previous.json").write_text(json.dumps(previous))
                 args += ["--previous", str(tmp / "previous.json")]

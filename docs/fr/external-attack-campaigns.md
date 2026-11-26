@@ -96,11 +96,30 @@ la sortie `source_ip`.
 la demande) vérifie ce qu'un attaquant voit du groupe mairie360 (argocd, dev, staging, prod,
 n8n) : ports ouverts, sous-domaines des journaux de transparence des certificats, bannières de
 version, interfaces d'administration joignables depuis Internet, secrets dans l'historique des
-dépôts publics. Elle se connecte au plus une fois par seconde et par hôte et n'envoie aucune
+dépôts publics, enregistrements DNS orphelins ou pendants et enregistrements anti-usurpation des
+domaines de messagerie. Elle se connecte au plus une fois par seconde et par hôte et n'envoie aucune
 charge d'attaque : elle n'a besoin ni de fenêtre ni d'annonce, sa source est le runner hébergé
 par GitHub. Tout écart par rapport à `security/external/recon/expected.json` fait échouer
 l'exécution ; le rapport (artefact `external-recon` et résumé du job) liste les changements
 depuis le mois précédent. Détails : [`security/external/README.md`](../../security/external/README.md).
+
+## DNS et usurpation d'e-mail
+
+| Domaine | SPF | DKIM | DMARC |
+| --- | --- | --- | --- |
+| `mairie360-eip.fr` (boîte de l'équipe chez o2switch, Resend) | o2switch et son relais, `~all` | `default` (o2switch), `resend` | `p=quarantine` |
+| `mairie360.fr` (Resend seulement, enveloppe `send.mairie360.fr`) | `v=spf1 -all` | `resend` | `p=quarantine` |
+
+Les deux zones sont dans Scaleway Domains (mairie360/Infra `orgs/mairie360`), qui refuse un
+enregistrement DMARC sans politique appliquée ni adresse de rapport. Les rapports agrégés vont à
+`dmarc@mairie360.fr` (la boîte de réception Resend). **Cible : `p=reject` sur les deux domaines le
+2026-12-28**, une fois qu'un mois de rapports ne montre que Resend et o2switch comme expéditeurs ;
+`dmarc_policies` de `expected.json` passe alors à `["reject"]`.
+
+L'expéditeur usurpé est testé pour de vrai chaque mois par `spoof-test.yml` de mairie360/Infra :
+une machine jetable du projet d'attaque envoie un e-mail `From: noreply@mairie360-eip.fr` à la
+boîte Resend, qui doit le juger `dmarc=fail`. C'est le seul scénario des campagnes qui envoie un
+e-mail ; il n'écrit jamais à personne hors du groupe.
 
 ## Fenêtre et annonce
 
