@@ -1,4 +1,4 @@
-# Authentication attack scenarios of the external attack campaigns (MAIR-1188, epic MAIR-1184),
+# Authentication attack scenarios of the external attack campaigns,
 # monthly and on demand. Replays, against staging through the ingress, brute force, account
 # enumeration, second-factor bypass, password-reset hijacking and token forging; any finding
 # exits 1. The report (artifact external-auth, and the job summary) feeds the findings register.
