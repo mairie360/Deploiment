@@ -15,6 +15,7 @@ scenarios assume the attacker has read this file.
 | Target | **staging** only: `*.staging.mairie360-eip.fr` (the fronts, the only exposed services) |
 | Never | prod (`*.prod.mairie360-eip.fr`), a client instance, dev, the Argo CD machines, Scaleway's own APIs and consoles |
 | Why staging | it runs the release about to reach prod, with the prod settings (network policies, Traefik, sealed secrets), and holds no real user data |
+| Exception | the monthly reconnaissance (below) looks at every machine of the mairie360 group, prod included: it only connects to ports and reads public pages, never a client group |
 
 Staging may be unavailable during a campaign window. It stays manually synced
 (`deploiment_auto_sync_envs` is `dev` only): do not promote or sync it during a window, so
@@ -86,6 +87,18 @@ The source address is written in the announcement. The attack source machine is 
 `scripts/tf.sh attack-source apply` and destroyed with `scripts/tf.sh attack-source destroy`
 (Infra repository, with a team member's approval like any apply); its reserved IP is the
 `source_ip` output.
+
+## Monthly reconnaissance
+
+`security/external/recon/` (workflow `external-recon.yaml`, first Monday of every month and on
+demand) checks what an attacker sees of the mairie360 group (argocd, dev, staging, prod, n8n):
+open ports, subdomains in the certificate transparency logs, version banners, admin interfaces
+reachable from the Internet, secrets in the history of the public repositories. It connects at
+most once per second per host and sends no attack payload, so it needs no window nor
+announcement; the GitHub-hosted runner is its source. Any deviation from
+`security/external/recon/expected.json` fails the run; the report (artifact `external-recon` and
+job summary) lists the changes since the previous month. Details:
+[`security/external/README.md`](../../security/external/README.md).
 
 ## Window and announcement
 

@@ -16,6 +16,7 @@ et les scénarios supposent que l'attaquant a lu ce fichier.
 | Cible | **staging** uniquement : `*.staging.mairie360-eip.fr` (les fronts, seuls services exposés) |
 | Jamais | la prod (`*.prod.mairie360-eip.fr`), une instance cliente, dev, les machines Argo CD, les API et consoles de Scaleway |
 | Pourquoi staging | elle fait tourner la version sur le point d'aller en prod, avec les réglages de prod (network policies, Traefik, secrets scellés), et ne contient aucune donnée d'usager réel |
+| Exception | la reconnaissance mensuelle (ci-dessous) regarde toutes les machines du groupe mairie360, prod comprise : elle ne fait que se connecter aux ports et lire des pages publiques, jamais un groupe client |
 
 Staging peut être indisponible pendant une fenêtre de campagne. Elle reste synchronisée à la
 main (`deploiment_auto_sync_envs` vaut `dev` seulement) : ne pas la promouvoir ni la
@@ -88,6 +89,18 @@ L'adresse source est écrite dans l'annonce. La machine source se crée avec
 `scripts/tf.sh attack-source apply` et se détruit avec `scripts/tf.sh attack-source destroy`
 (dépôt Infra, avec l'accord d'un membre de l'équipe comme tout apply) ; son IP réservée est
 la sortie `source_ip`.
+
+## Reconnaissance mensuelle
+
+`security/external/recon/` (workflow `external-recon.yaml`, le premier lundi de chaque mois et à
+la demande) vérifie ce qu'un attaquant voit du groupe mairie360 (argocd, dev, staging, prod,
+n8n) : ports ouverts, sous-domaines des journaux de transparence des certificats, bannières de
+version, interfaces d'administration joignables depuis Internet, secrets dans l'historique des
+dépôts publics. Elle se connecte au plus une fois par seconde et par hôte et n'envoie aucune
+charge d'attaque : elle n'a besoin ni de fenêtre ni d'annonce, sa source est le runner hébergé
+par GitHub. Tout écart par rapport à `security/external/recon/expected.json` fait échouer
+l'exécution ; le rapport (artefact `external-recon` et résumé du job) liste les changements
+depuis le mois précédent. Détails : [`security/external/README.md`](../../security/external/README.md).
 
 ## Fenêtre et annonce
 

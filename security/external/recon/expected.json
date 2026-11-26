@@ -1,0 +1,109 @@
+{
+  "_comment": "What the Internet may see of the mairie360 group. Any other open port, certified subdomain, version banner, reachable admin interface or secret in a public repository fails the monthly reconnaissance. Ports mirror mairie360/Infra orgs/mairie360/main.tf (public_ports): SSH is still public on every machine (wireguard_close_public_ssh false), each run lists it as a finding.",
+  "zone": "mairie360-eip.fr",
+  "scan_ports": "1-1024,2379-2380,3000-3010,4000-4010,4244-4245,5000-5010,5432,5678,6379,6443,8000,8080,8443,9090,9100,10250,10255,30000-32767",
+  "max_rate": 1,
+  "hosts": {
+    "argocd": {
+      "address": "212.47.242.79",
+      "tcp": [
+        22
+      ]
+    },
+    "dev": {
+      "address": "login.dev.mairie360-eip.fr",
+      "tcp": [
+        22,
+        80,
+        443
+      ]
+    },
+    "staging": {
+      "address": "login.staging.mairie360-eip.fr",
+      "tcp": [
+        22,
+        80,
+        443
+      ]
+    },
+    "prod": {
+      "address": "login.prod.mairie360-eip.fr",
+      "tcp": [
+        22,
+        80,
+        443
+      ]
+    },
+    "n8n": {
+      "address": "n8n.mairie360-eip.fr",
+      "tcp": [
+        22,
+        80,
+        443
+      ]
+    }
+  },
+  "findings_to_close": {
+    "tcp/22": "public SSH on every machine: close it once WireGuard is the only way in (ansible wireguard_close_public_ssh)"
+  },
+  "subdomains": [
+    "admin.dev.mairie360-eip.fr",
+    "admin.prod.mairie360-eip.fr",
+    "admin.staging.mairie360-eip.fr",
+    "auth.dev.mairie360-eip.fr",
+    "auth.prod.mairie360-eip.fr",
+    "auth.staging.mairie360-eip.fr",
+    "calendar.dev.mairie360-eip.fr",
+    "calendar.prod.mairie360-eip.fr",
+    "calendar.staging.mairie360-eip.fr",
+    "dashboard.dev.mairie360-eip.fr",
+    "dashboard.prod.mairie360-eip.fr",
+    "dashboard.staging.mairie360-eip.fr",
+    "elearning.dev.mairie360-eip.fr",
+    "elearning.prod.mairie360-eip.fr",
+    "elearning.staging.mairie360-eip.fr",
+    "login.dev.mairie360-eip.fr",
+    "login.prod.mairie360-eip.fr",
+    "login.staging.mairie360-eip.fr",
+    "message.dev.mairie360-eip.fr",
+    "message.prod.mairie360-eip.fr",
+    "message.staging.mairie360-eip.fr",
+    "n8n.mairie360-eip.fr",
+    "project.dev.mairie360-eip.fr",
+    "project.prod.mairie360-eip.fr",
+    "project.staging.mairie360-eip.fr",
+    "settings.dev.mairie360-eip.fr",
+    "settings.prod.mairie360-eip.fr",
+    "settings.staging.mairie360-eip.fr"
+  ],
+  "banner_urls": [
+    "https://login.dev.mairie360-eip.fr/",
+    "https://login.staging.mairie360-eip.fr/",
+    "https://login.prod.mairie360-eip.fr/",
+    "https://n8n.mairie360-eip.fr/"
+  ],
+  "admin_interfaces": [
+    {
+      "name": "n8n editor",
+      "url": "https://n8n.mairie360-eip.fr/signin"
+    },
+    {
+      "name": "Argo CD",
+      "url": "https://argocd-hub.mairie360-eip.fr/"
+    },
+    {
+      "name": "Kubernetes API (dev)",
+      "url": "https://login.dev.mairie360-eip.fr:6443/version"
+    },
+    {
+      "name": "Kubernetes API (staging)",
+      "url": "https://login.staging.mairie360-eip.fr:6443/version"
+    },
+    {
+      "name": "Kubernetes API (prod)",
+      "url": "https://login.prod.mairie360-eip.fr:6443/version"
+    }
+  ],
+  "github_org": "mairie360",
+  "accepted_leaks": []
+}

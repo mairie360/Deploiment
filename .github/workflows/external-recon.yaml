@@ -1,0 +1,97 @@
+name: External reconnaissance
+
+# What an attacker sees of the mairie360 group before attacking, once a month
+# (security/external/recon/): open ports of every machine, subdomains in the
+# certificate transparency logs, version banners, admin interfaces reachable
+# from the Internet, secrets in the history of the public repositories.
+# Any deviation from security/external/recon/expected.json fails the run; the
+# report (artifact `external-recon`, kept 400 days, and the job summary) lists
+# the changes since the previous run. Rules of engagement:
+# docs/en/external-attack-campaigns.md (mairie360 group only, 1 probe per
+# second per host).
+
+on:
+  schedule:
+    # The first Monday of the month, 09:17 UTC (10:17 or 11:17 in Paris), inside
+    # the weekday 09:00-18:00 window. Cron ORs day-of-month and day-of-week, so it
+    # fires every Monday and the `when` job keeps the first one.
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Download the report of the previous run.
+  actions: read
+
+concurrency:
+  group: external-recon
+  cancel-in-progress: false
+
+jobs:
+  when:
+    name: first Monday of the month or manual run
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.day.outputs.run }}
+    steps:
+      - id: day
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != schedule ] || [ "$(date -u +%-d)" -le 7 ]; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+  recon:
+    name: external reconnaissance of the mairie360 group
+    needs: when
+    if: needs.when.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install nmap
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nmap
+
+      - name: Fetch the report of the previous run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous
+          # The newest earlier run that uploaded a report (skipped Mondays have none).
+          for run_id in $(gh run list -R "$GITHUB_REPOSITORY" --workflow external-recon.yaml --status completed \
+              --limit 30 --json databaseId --jq '.[].databaseId'); do
+            [ "$run_id" = "$GITHUB_RUN_ID" ] && continue
+            if gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n external-recon -D previous 2>/dev/null; then
+              echo "previous report: run $run_id"
+              exit 0
+            fi
+          done
+          echo "no previous report"
+
+      - name: Reconnaissance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 security/external/recon/recon.py --out-dir report --previous previous/recon.json
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f report/recon.md ]; then cat report/recon.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: external-recon
+          path: report/
+          retention-days: 400
+          if-no-files-found: ignore

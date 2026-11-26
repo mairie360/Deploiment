@@ -694,6 +694,14 @@ seal-secrets.sh`, kept afterwards, also by `--rotate`). Rules of engagement:
 `docs/en/external-attack-campaigns.md`. Tests `tests/mair_1185_test_accounts_test.yaml`,
 `tests/scripts/mair_1185_test_accounts_seal_test.sh`.
 
+**Monthly external reconnaissance (MAIR-1186).** `security/external/` holds the external attack
+scenarios (one folder per family). `recon/recon.py` checks, against `recon/expected.json`, the open
+ports of the five mairie360 machines (nmap, 1 probe per second per host), the subdomains of the
+certificate transparency logs, version banners, reachable admin interfaces and gitleaks on every
+public repository; any deviation exits 1. `.github/workflows/external-recon.yaml` runs it on the
+first Monday of the month and on demand (artifact `external-recon`, compared with the previous run).
+A wanted change (new front, port) updates `expected.json` in the same PR. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the
