@@ -712,6 +712,14 @@ and on demand, staging only, capped at five requests per second, on the `attack.
 locks them on purpose). It needs the `AUTH_TEST_PASSWORD` secret (plaintext of `TEST_ACCOUNTS_PASSWORD`)
 for the scoped-lockout and refresh-replay checks. Tests `tests/security/` (CI).
 
+**Monthly access-control scenarios (MAIR-1189).** `security/external/access/access.py` replays,
+against staging through the front origins, privilege elevation (a Guest reaching the admin front)
+and IDOR (one test account reaching another's resource, created and deleted at runtime); any finding
+exits 1. `.github/workflows/external-access.yaml` runs it on the first Monday of the month and on
+demand, staging only, five requests per second. The per-API access matrices drive the expected
+allow/deny; their completeness stays enforced per-API by `access_matrix.rs`. Needs `AUTH_TEST_PASSWORD`.
+Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

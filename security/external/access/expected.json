@@ -1,0 +1,47 @@
+{
+  "_comment": "Behavioural access-control scenarios of the external attack campaigns, replayed against staging through the FRONT origins (the only surface exposed; the per-API access-matrix.yaml are the source of the expected allow/deny, but the front paths are BFF-reshaped so they are not matched 1:1). The per-API completeness of the matrices stays enforced by each API's tests/endpoints/access_matrix.rs. Accounts are the attack.* test accounts; their shared password is the plaintext of TEST_ACCOUNTS_PASSWORD, read from AUTH_TEST_PASSWORD, never written here. Rules of engagement: docs/en/external-attack-campaigns.md (5 requests per second, staging only).",
+  "domain": "staging.mairie360-eip.fr",
+  "login": {"front": "login", "path": "/api/auth/login", "cookie": "accessToken"},
+  "rate_per_second": 5,
+  "accounts": {
+    "guest": "attack.guest@example.invalid",
+    "user": "attack.user@example.invalid",
+    "user_b": "attack.user.b@example.invalid",
+    "responsable": "attack.responsable@example.invalid",
+    "maire": "attack.maire@example.invalid",
+    "admin": "attack.admin@example.invalid"
+  },
+  "elevation": {
+    "role": "guest",
+    "_comment": "A Guest session must not reach the /api/v1/admin scope (Core access-matrix: access admin = admin_guard, Admin only). The admin front proxies those operations; every one must answer 403 (or 401) to a Guest.",
+    "probes": [
+      {"name": "list every user", "front": "admin", "method": "GET", "path": "/admin/users"},
+      {"name": "list the roles", "front": "admin", "method": "GET", "path": "/admin/roles"},
+      {"name": "list the active sessions", "front": "admin", "method": "GET", "path": "/admin/sessions"},
+      {"name": "read the security alerts", "front": "admin", "method": "GET", "path": "/admin/security-alerts"},
+      {"name": "read the 2FA policy", "front": "admin", "method": "GET", "path": "/admin/two-factor-policy"},
+      {"name": "create a role (write elevation)", "front": "admin", "method": "POST", "path": "/admin/roles",
+       "body": {"name": "campaign-should-be-refused", "permissions": []}},
+      {"name": "grant itself a role", "front": "admin", "method": "POST",
+       "path": "/admin/users/00000000-0000-0000-0000-000000000000/roles", "body": {"roleId": "admin"}}
+    ]
+  },
+  "idor": [
+    {
+      "name": "calendar event of another account",
+      "front": "calendar",
+      "owner_role": "user",
+      "other_role": "user_b",
+      "create": {"method": "POST", "path": "/calendar/events",
+                 "body": {"title": "CAMPAIGN-MARKER", "date": "2026-12-15", "description": "campaign private note"}},
+      "id_fields": ["id", "eventId"],
+      "marker": "CAMPAIGN-MARKER",
+      "access": [
+        {"method": "GET", "path": "/calendar/events/{id}"},
+        {"method": "PATCH", "path": "/calendar/events/{id}", "body": {"title": "HIJACKED"}},
+        {"method": "DELETE", "path": "/calendar/events/{id}"}
+      ],
+      "cleanup": {"method": "DELETE", "path": "/calendar/events/{id}"}
+    }
+  ]
+}
