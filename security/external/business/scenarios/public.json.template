@@ -1,0 +1,8 @@
+{
+  "_comment": "Template for the business-logic scenarios of the FUTURE public part of Mairie 360 (forms open without a session: spam, illicit content upload). Empty until that part's specs exist. Copy this to public.json, fill the sequences and no-session abuses the same shape as ../expected.json, and wire it into business.py (a second --expected, or a merge) when the public endpoints are published. Keep the rules of engagement: staging only, rate cap, attack.* accounts.",
+  "sequences": [],
+  "no_session_abuse": {
+    "form_spam": {"_todo": "the public form endpoint, its field(s), the per-IP cap to observe"},
+    "illicit_upload": {"_todo": "the public upload endpoint, a poisoned file, the expected refusal"}
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "_comment": "Business-logic and no-session abuse scenarios of the external attack campaigns, replayed against the staging front origins. Run by hand in an announced window (the email block triggers real Resend sends). Data-driven: a new case is a declaration. Accounts are the attack.* test accounts; their password is the plaintext of TEST_ACCOUNTS_PASSWORD, read from AUTH_TEST_PASSWORD. Rules of engagement: docs/en/external-attack-campaigns.md (5 requests per second, staging only). The per-module sequences start representative and grow by data; the public part's template is scenarios/public.json.template.",
+  "domain": "staging.mairie360-eip.fr",
+  "login": {"front": "login", "path": "/api/auth/login", "cookie": "accessToken"},
+  "forgot_password": {"front": "login", "path": "/api/auth/forgot-password", "field": "email"},
+  "rate_per_second": 5,
+  "accounts": {
+    "user": "attack.user@example.invalid",
+    "responsable": "attack.responsable@example.invalid",
+    "admin": "attack.admin@example.invalid"
+  },
+  "sequences": [
+    {
+      "name": "calendar: acting on a deleted event is refused",
+      "front": "calendar",
+      "role": "user",
+      "setup": {"create": {"method": "POST", "path": "/calendar/events",
+                            "body": {"title": "CAMPAIGN-BL", "date": "2026-12-15"}}, "id_fields": ["id"]},
+      "steps": [
+        {"name": "delete the event", "method": "DELETE", "path": "/calendar/events/{id}", "expect": "allow"},
+        {"name": "read the deleted event", "method": "GET", "path": "/calendar/events/{id}", "expect": "refuse"},
+        {"name": "edit the deleted event", "method": "PATCH", "path": "/calendar/events/{id}",
+         "body": {"title": "HIJACK"}, "expect": "refuse"},
+        {"name": "replay the delete", "method": "DELETE", "path": "/calendar/events/{id}", "expect": "refuse"}
+      ]
+    },
+    {
+      "name": "calendar: an event ending before it starts is refused",
+      "front": "calendar",
+      "role": "user",
+      "cleanup": {"method": "DELETE", "path": "/calendar/events/{id}"},
+      "steps": [
+        {"name": "create with endDate before date", "method": "POST", "path": "/calendar/events",
+         "body": {"title": "CAMPAIGN-BL-DATES", "date": "2026-12-15", "endDate": "2026-12-01"}, "expect": "refuse"}
+      ]
+    }
+  ],
+  "email_abuse": [
+    {"name": "forgot-password flood on one account", "mode": "single", "account": "user", "max": 15, "expect_cap": true},
+    {"name": "forgot-password spray over many addresses", "mode": "spray", "max": 30, "expect_cap": true}
+  ],
+  "alert_abuse": {"front": "login", "method": "POST", "path": "/api/security-alert",
+                  "body": {"type": "unusual_activity", "email": "attack.user@example.invalid"},
+                  "max": 15, "expect_cap": true}
+}

@@ -137,6 +137,18 @@ cookie flags, open redirect, path traversal, SSRF). `dast.py` folds every tool's
 gate: a High alert fails the run, a Medium is a finding for the register. The first run's report is
 attached to the ticket. Details: [`security/external/README.md`](../../security/external/README.md).
 
+## Business logic and no-session abuse (manual, announced window)
+
+`security/external/business/` (workflow `external-business.yaml`, **`workflow_dispatch` only**,
+staging) replays the logic flaws scanners miss and the abuses that need no session: per-module
+sequences (a skipped step, a replayed action, an action on a deleted/archived item, inconsistent
+dates — each must be refused server-side even when the front is bypassed), a bounded forgot-password
+loop per account and per IP (a 429 cap must appear, Resend must not become a bulk sender) and the
+unusual-activity alert hammered. It runs by hand in an announced window (the e-mail block triggers
+real Resend sends), 5 requests per second; the loops stop at the first cap and are bounded. The
+future public part (form spam, illicit upload) has an empty template, `scenarios/public.json.template`.
+Any finding fails the run. Details: [`security/external/README.md`](../../security/external/README.md).
+
 ## DNS and e-mail spoofing
 
 | Domain | SPF | DKIM | DMARC |

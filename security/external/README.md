@@ -128,3 +128,27 @@ The report (artifact `external-dast`) is attached to the ticket. Each High is fi
 window; each Medium goes to the vulnerability register. Tests:
 `tests/security/test_mair_1190_active_dast.py` (CI).
 
+## `business/`: business logic and no-session abuse (manual, announced window)
+
+Logic flaws and no-session abuses replayed against the staging front origins (`business/business.py`,
+standard library only), **data-driven from `expected.json`** so a new case is a declaration. Run **by
+hand in an announced window** (`.github/workflows/external-business.yaml`, `workflow_dispatch` only):
+the e-mail block triggers real Resend sends. 5 req/s.
+
+| Family | What it does | A finding when |
+| --- | --- | --- |
+| Sequences | a per-module journey where each step carries its expected outcome (allow / refuse) | a skipped step, a replayed action or an action on a deleted/archived item is allowed; or a legitimate step is refused |
+| E-mail abuse | a bounded forgot-password loop, on one account and sprayed over many addresses | no 429 cap appears within the bound (Resend can be used to send in bulk) |
+| Alert abuse | the unusual-activity alert endpoint hammered | no cap appears |
+
+The e-mail loops stop at the first 429 and are bounded, so they never flood Resend; the sequences
+create and delete their own disposable resources. `scenarios/public.json.template` is the empty
+template for the future public part (form spam, illicit upload), to fill when its specs exist. Any
+finding fails the run.
+
+```bash
+AUTH_TEST_PASSWORD=... python3 security/external/business/business.py --out-dir report/
+```
+
+Tests: `tests/security/test_mair_1191_business_logic.py` (CI).
+
