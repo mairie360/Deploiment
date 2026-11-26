@@ -231,3 +231,16 @@ E-05). Its answer is archived on the Jira ticket of the campaign frame and summa
 | Date | Request | Answer |
 | --- | --- | --- |
 | — | to be sent | — |
+
+## A full campaign
+
+`security/external/campaign.py` is the single entry point: it chains the families in this order —
+reconnaissance, authentication, access control, active scan, business logic, supply chain, then
+denial of service last — and writes one `campaign-report.md` with a section per family (what ran,
+result vs its success criterion, where the evidence is), the state of controls E-01 → E-13, and the
+next dates. A full campaign is played on staging **every quarter and before any major release**,
+black-box then grey-box; the monthly reconnaissance stays scheduled; the denial of service stays
+manual, from the source machine. The planning lives in `compliance/<org>/deadlines.yaml`
+(`security-campaign`, every 3 months, n8n opens a ticket). Each finding goes to the vulnerability
+register with its severity and a ticket. Details:
+[`security/external/README.md`](../../security/external/README.md).

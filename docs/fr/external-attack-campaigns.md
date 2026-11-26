@@ -241,3 +241,16 @@ campagne et résumée ici.
 | Date | Demande | Réponse |
 | --- | --- | --- |
 | — | à envoyer | — |
+
+## Une campagne complète
+
+`security/external/campaign.py` est le point d'entrée unique : il enchaîne les familles dans cet
+ordre — reconnaissance, authentification, contrôle d'accès, scan actif, logique métier, chaîne de
+livraison, puis déni de service en dernier — et écrit un seul `campaign-report.md` avec une section
+par famille (ce qui a tourné, résultat vs critère de réussite, où sont les preuves), l'état des
+contrôles E-01 → E-13, et les prochaines dates. Une campagne complète est jouée sur staging **chaque
+trimestre et avant toute version majeure**, boîte noire puis boîte grise ; la reconnaissance mensuelle
+reste planifiée ; le déni de service reste manuel, depuis la machine source. La planification est dans
+`compliance/<org>/deadlines.yaml` (`security-campaign`, tous les 3 mois, n8n ouvre un ticket). Chaque
+constat part au registre des failles avec sa sévérité et un ticket. Détails :
+[`security/external/README.md`](../../security/external/README.md).

@@ -27,3 +27,7 @@ deadlines:
     task: renewal of the confidentiality commitments of the people with access
     every: "1 year"
     last_done: null
+  - id: security-campaign
+    task: full external attack campaign on staging (security/external/campaign.py, docs/en/external-attack-campaigns.md), black-box then grey-box, and before any major release
+    every: "3 months"
+    last_done: null

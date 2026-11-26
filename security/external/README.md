@@ -1,8 +1,31 @@
 # External attack scenarios
 
-What the external attack campaigns replay from the Internet against the platform, one folder per
-family. Rules of engagement (target, source, accounts, rate caps, stop criteria):
+What the external attack campaigns replay against the platform, one folder per family, chained by
+one entry point. Rules of engagement (target, source, accounts, rate caps, stop criteria, window):
 [`docs/en/external-attack-campaigns.md`](../../docs/en/external-attack-campaigns.md).
+
+## `campaign.py`: the single entry point
+
+`campaign.py` (standard library) chains the families in the order of the rules of engagement —
+reconnaissance → authentication → access control → active scan → business logic → supply chain →
+**denial of service last** — and folds each family's report into one `campaign-report.md`: a section
+per family (what ran, result vs its success criterion, where the evidence is) plus the state of
+controls E-01 → E-13 and the next dates. It runs the `driver` families (recon, auth, access,
+business) itself and reads the `manual` ones (active DAST and DoS, run by hand in the window; the
+supply-chain guards enforced in mairie360/CICD) from their report folders if present.
+
+```bash
+# A full campaign from a driver host (recon/auth/access/business run; DAST and DoS reports read if present)
+AUTH_TEST_PASSWORD=... python3 security/external/campaign.py --out-dir campaign/
+# Only aggregate the family reports already produced in campaign/
+python3 security/external/campaign.py --out-dir campaign/ --aggregate-only
+```
+
+Exit 1 if any family that ran reports a finding, or if a required family did not run. Each finding
+goes to the vulnerability register with its severity and a MAIR ticket. Planning: a `security-campaign`
+deadline every 3 months (`compliance/<org>/deadlines.yaml`, n8n opens a ticket) plus before any major
+release; the monthly reconnaissance stays scheduled, the denial of service stays manual. Tests
+`tests/security/test_mair_1195_campaign.py` (CI).
 
 ## `recon/`: monthly reconnaissance
 
@@ -183,4 +206,3 @@ python3 security/external/dos/dos.py --artifacts report/
 ```
 
 Tests: `tests/security/test_mair_1192_dos.py` (CI).
-
