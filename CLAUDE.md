@@ -744,6 +744,15 @@ which aggregates the k6 summaries, pod snapshots and recovery probe and gates (4
 restart, memory under limit, agent p95 under threshold, recovery within the window). No GitHub workflow;
 only `dos.py`'s tests run in CI. Tests `tests/security/` (CI).
 
+**Incident response (MAIR-1194).** `docs/{en,fr}/incident-response.md` is the runbook for a real
+attack in progress (who decides — Quentin, backup Hugo —, how to recognise one, what to cut by type,
+warning the mairie + the 72 h GDPR clock, traces to keep, the feedback loop). Each cut is a tested
+command under `scripts/incident/`: `block-ip.sh` (CiliumClusterwideNetworkPolicy ingressDeny of a
+CIDR), `maintenance.sh on|off` (scale the fronts down, then re-sync Argo CD), `close-route.sh` (deny
+NetworkPolicy on one front) — out-of-band, held until the next Argo sync. Revoke every session =
+`seal-secrets.sh --rotate-signing-key`; rotate a secret = `--rotate` / `--rotate-roles`. Tests
+`tests/scripts/mair_1194_incident_cuts_test.sh`.
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the
