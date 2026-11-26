@@ -727,6 +727,14 @@ gate: a High alert fails, a Medium is a finding. `.github/workflows/external-das
 `workflow_dispatch` only (it writes on staging: announced campaign window, 10 req/s). Needs
 `AUTH_TEST_PASSWORD`; the tool image digests are pinned before the first run. Tests `tests/security/` (CI).
 
+**Business logic and no-session abuse (MAIR-1191).** `security/external/business/business.py` replays,
+against the staging front origins, per-module logic sequences (skipped step, replay, action on a
+deleted/archived item, inconsistent dates — each must be refused server-side) and no-session abuses (a
+bounded forgot-password loop that must hit a 429 cap, the unusual-activity alert hammered); data-driven
+from `expected.json`. `.github/workflows/external-business.yaml` is `workflow_dispatch` only (the e-mail
+block triggers real Resend sends: announced window, 5 req/s). `scenarios/public.json.template` is the
+empty template for the future public part. Needs `AUTH_TEST_PASSWORD`. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

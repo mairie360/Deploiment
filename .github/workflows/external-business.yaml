@@ -1,0 +1,53 @@
+# Business-logic and no-session abuse scenarios of the external attack campaigns, run BY HAND in an
+# announced campaign window against the staging front origins. The e-mail abuse block loops
+# /forgot-password until the cap, which triggers real Resend sends, so it is workflow_dispatch only
+# (no cron): the rules of engagement require an announced window (docs/en/external-attack-campaigns.md).
+# 5 requests per second. The e-mail loops stop at the first 429 and are bounded, so they never flood
+# Resend; the business-logic sequences only create and delete their own disposable resources.
+name: External attack — business logic
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "staging" to confirm (this sends real forgot-password e-mails on staging)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-business
+  cancel-in-progress: false
+
+jobs:
+  business:
+    name: business logic and no-session abuse on staging (announced window)
+    if: inputs.confirm == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Business-logic scenarios
+        env:
+          AUTH_TEST_PASSWORD: ${{ secrets.AUTH_TEST_PASSWORD }}
+        run: |
+          python3 security/external/business/business.py --out-dir report
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f report/report.md ]; then cat report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: external-business
+          path: report/
+          retention-days: 400

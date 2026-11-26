@@ -160,6 +160,19 @@ rapport de chaque outil dans un même verdict : une alerte Élevée fait échoue
 Moyenne est un constat au registre. Le rapport du premier passage est joint au ticket. Détails :
 [`security/external/README.md`](../../security/external/README.md).
 
+## Logique métier et abus sans session (manuel, fenêtre annoncée)
+
+`security/external/business/` (workflow `external-business.yaml`, **`workflow_dispatch` seulement**,
+staging) rejoue les failles de logique que les scanners manquent et les abus sans session : des
+séquences par module (une étape sautée, une action rejouée, une action sur un élément supprimé ou
+archivé, des dates incohérentes — chacune doit être refusée côté serveur même front contourné), une
+boucle forgot-password bornée par compte et par IP (un plafond 429 doit apparaître, Resend ne doit pas
+devenir un envoyeur de masse) et l'alerte « activité inhabituelle » martelée. Il se lance à la main
+pendant une fenêtre annoncée (le bloc e-mail déclenche de vrais envois Resend), 5 requêtes par
+seconde ; les boucles s'arrêtent au premier plafond et sont bornées. La future partie publique (spam
+de formulaires, dépôt illicite) a un gabarit vide, `scenarios/public.json.template`. Tout constat fait
+échouer l'exécution. Détails : [`security/external/README.md`](../../security/external/README.md).
+
 ## Fenêtre et annonce
 
 - Annoncée dans le canal de l'équipe **au moins 24 heures avant** : début et fin (date et
