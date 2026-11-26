@@ -63,6 +63,11 @@ liquibase:
     tag: "4.0.0"
   db:
     name: "mairie_db_prod"
+  # The external attack campaign test accounts never exist in prod: an
+  # instance file that enables them fails to render.
+  testAccounts:
+    enabled: false
+    forbidden: true
 
 # Off-machine encrypted Postgres backups (MAIR-119/MAIR-231,
 # charts/backup/README.md). Needs the bucket below to exist and

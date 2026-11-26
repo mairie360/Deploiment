@@ -680,6 +680,20 @@ account while it still carries the template credentials, so once the town
 hall administrator has changed their password, the sealed value would just
 go stale — see the comment above `--rotate` in `scripts/seal-secrets.sh`.
 
+### External attack campaign test accounts
+
+`liquibase.testAccounts.enabled` (dev and staging values) makes the Liquibase Job pass
+`-Dtest_accounts_password` from the optional key `TEST_ACCOUNTS_PASSWORD` of
+`<release>-database-secret` (argon2id hash) to Database's `seed_test_accounts` (seven
+`attack.*@example.invalid` accounts, one per role plus two `User`). An unsealed key only skips
+the seed; a plaintext one stops the Job. Never in prod: `clusters/_base/prod.yaml` sets
+`testAccounts.forbidden` (enabling it fails the render), `scripts/seal-secrets.sh` refuses the
+variable for an environment named `prod` and drops a value found there, `scripts/verify.sh`
+fails when one is sealed on prod. The password is never generated (`TEST_ACCOUNTS_PASSWORD=…
+seal-secrets.sh`, kept afterwards, also by `--rotate`). Rules of engagement:
+`docs/en/external-attack-campaigns.md`. Tests `tests/mair_1185_test_accounts_test.yaml`,
+`tests/scripts/mair_1185_test_accounts_seal_test.sh`.
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

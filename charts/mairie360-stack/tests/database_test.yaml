@@ -139,7 +139,7 @@ tests:
               secretKeyRef: { name: RELEASE-NAME-database-secret, key: ADMIN_PASSWORD, optional: true }
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'argon2id'
+          pattern: 'ADMIN_PASSWORD is not an argon2id hash'
 
   - it: "MAIR-170: the database Secret carries ADMIN_EMAIL/ADMIN_PASSWORD when created by the chart, empty by default"
     set:
