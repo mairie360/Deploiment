@@ -147,7 +147,7 @@ jobs:
         run: python3 -m unittest discover -s tests/rgaa -v
 
       # Monthly external attack scenarios (security/external/, workflows
-      # external-recon/auth/access/dast/business.yaml + the DoS aggregator): parsing, deviations, the
+      # external-recon/auth/access/dast/business.yaml, the DoS aggregator and the campaign orchestrator): parsing, deviations, the
       # expected lists, JWT forging and the per-scenario verdicts.
       - name: Test the external attack scenarios
         run: python3 -m unittest discover -s tests/security -v

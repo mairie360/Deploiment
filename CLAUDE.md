@@ -753,6 +753,14 @@ NetworkPolicy on one front) — out-of-band, held until the next Argo sync. Revo
 `seal-secrets.sh --rotate-signing-key`; rotate a secret = `--rotate` / `--rotate-roles`. Tests
 `tests/scripts/mair_1194_incident_cuts_test.sh`.
 
+**Full campaign (MAIR-1195).** `security/external/campaign.py` is the single entry point: it chains
+the families (reconnaissance → authentication → access control → active scan → business logic → supply
+chain → denial of service last, `campaign.json`), runs the driver ones and folds the manual ones'
+reports into one `campaign-report.md` with a section per family and the state of controls E-01 → E-13.
+A full campaign runs every quarter and before any major release (`compliance/<org>/deadlines.yaml`,
+`security-campaign`, n8n); the first campaign is run by hand on staging and its report attached to the
+ticket. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the
