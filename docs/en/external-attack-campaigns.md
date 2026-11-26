@@ -126,6 +126,17 @@ Any finding fails the run (artifact `external-access`) and goes to the vulnerabi
 Compliance_API has no matrix yet (follow-up ticket). Details:
 [`security/external/README.md`](../../security/external/README.md).
 
+## Active DAST (manual, announced window)
+
+`security/external/dast/` (workflow `external-dast.yaml`, **`workflow_dispatch` only**, staging) is
+the active scan: it sends real injection payloads and writes on staging, so it runs by hand in an
+announced campaign window, 10 requests per second, 5 threads. It drives ZAP (active scan, OpenAPI
+coverage through the ingress with the `CICD/tests/zap` hook, a session per role), sqlmap on the
+filter/sort parameters, testssl.sh per front, and the HTTP-level checks of `dast.py` (headers,
+cookie flags, open redirect, path traversal, SSRF). `dast.py` folds every tool's report into one
+gate: a High alert fails the run, a Medium is a finding for the register. The first run's report is
+attached to the ticket. Details: [`security/external/README.md`](../../security/external/README.md).
+
 ## DNS and e-mail spoofing
 
 | Domain | SPF | DKIM | DMARC |

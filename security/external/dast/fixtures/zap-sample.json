@@ -1,0 +1,6 @@
+{"@version":"2.15","site":[{"@name":"https://project.staging.mairie360-eip.fr","alerts":[
+  {"alert":"SQL Injection","riskcode":"3","instances":[{"uri":"/projects-page?filter=x"}]},
+  {"alert":"CSP: Wildcard Directive","riskcode":"2","instances":[{"uri":"/"}]},
+  {"alert":"Timestamp Disclosure","riskcode":"1","instances":[{"uri":"/"},{"uri":"/health"}]},
+  {"alert":"Modern Web Application","riskcode":"0","instances":[{"uri":"/"}]}
+]}]}

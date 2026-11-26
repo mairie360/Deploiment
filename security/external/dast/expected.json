@@ -1,0 +1,35 @@
+{
+  "_comment": "Active DAST of the external attack campaigns, run by hand in an announced window against the public front origins of staging (through the ingress). The workflow runs ZAP (active scan, per-role session, the CICD OpenAPI coverage hook), sqlmap, testssl.sh and the HTTP-level checks of dast.py; dast.py folds every tool's report into one gate (High fails, Medium is a finding for the register). Accounts are the attack.* test accounts; their password is the plaintext of TEST_ACCOUNTS_PASSWORD, read from AUTH_TEST_PASSWORD. Rules of engagement: docs/en/external-attack-campaigns.md (10 requests per second, 5 threads, staging only).",
+  "domain": "staging.mairie360-eip.fr",
+  "login": {"front": "login", "path": "/api/auth/login", "cookie": "accessToken"},
+  "accounts": {
+    "user": "attack.user@example.invalid",
+    "admin": "attack.admin@example.invalid"
+  },
+  "fronts": ["login", "admin", "project", "calendar", "message", "dashboard", "settings", "elearning"],
+  "security_headers": {
+    "strict-transport-security": {"severity": "medium", "min_max_age": 31536000},
+    "content-security-policy": {"severity": "medium"},
+    "x-frame-options": {"severity": "medium", "any_of": ["DENY", "SAMEORIGIN"]},
+    "x-content-type-options": {"severity": "low", "equals": "nosniff"},
+    "referrer-policy": {"severity": "low"}
+  },
+  "csp_forbidden": ["unsafe-inline", "unsafe-eval"],
+  "session_cookie_flags": ["Secure", "HttpOnly", "SameSite"],
+  "open_redirect": [
+    {"front": "login", "method": "GET", "path": "/api/auth/logout", "param": "redirect",
+     "role": "user", "payload": "https://attacker.example/evil"}
+  ],
+  "path_traversal": [
+    {"front": "elearning", "method": "GET", "path_template": "/elearning/files/{p}", "role": "user",
+     "payload": "..%2f..%2f..%2f..%2fetc%2fpasswd", "leak_signatures": ["root:x:0:0", "root:.*:0:0:"]}
+  ],
+  "ssrf": [
+    {"front": "message", "method": "POST", "path": "/message/link-preview", "role": "user",
+     "url_field": "url", "payload": "http://169.254.169.254/latest/meta-data/",
+     "leak_signatures": ["ami-id", "instance-id", "iam/"]}
+  ],
+  "sqlmap_targets": [
+    {"front": "project", "path": "/projects-page", "params": ["sort", "filter"], "role": "user"}
+  ]
+}

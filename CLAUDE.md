@@ -720,6 +720,13 @@ demand, staging only, five requests per second. The per-API access matrices driv
 allow/deny; their completeness stays enforced per-API by `access_matrix.rs`. Needs `AUTH_TEST_PASSWORD`.
 Tests `tests/security/` (CI).
 
+**Active DAST (MAIR-1190).** `security/external/dast/dast.py` drives the active scan against the
+staging front origins (ZAP active scan with the `CICD/tests/zap` coverage hook, sqlmap, testssl.sh,
+plus its own header/cookie/redirect/path-traversal/SSRF checks) and folds every tool's report into one
+gate: a High alert fails, a Medium is a finding. `.github/workflows/external-dast.yaml` is
+`workflow_dispatch` only (it writes on staging: announced campaign window, 10 req/s). Needs
+`AUTH_TEST_PASSWORD`; the tool image digests are pinned before the first run. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

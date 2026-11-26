@@ -148,6 +148,18 @@ utilisent les chemins CRUD propres des fronts (la complétude des matrices reste
 des failles. Compliance_API n'a pas encore de matrice (ticket de suivi). Détails :
 [`security/external/README.md`](../../security/external/README.md).
 
+## DAST actif (manuel, fenêtre annoncée)
+
+`security/external/dast/` (workflow `external-dast.yaml`, **`workflow_dispatch` seulement**, staging)
+est le scan actif : il envoie de vraies charges d'injection et écrit sur staging, donc il se lance à
+la main pendant une fenêtre annoncée, 10 requêtes par seconde, 5 threads. Il pilote ZAP (scan actif,
+couverture OpenAPI à travers l'ingress avec le hook `CICD/tests/zap`, une session par rôle), sqlmap
+sur les paramètres de filtre/tri, testssl.sh par front, et les contrôles HTTP de `dast.py` (en-têtes,
+drapeaux du cookie de session, redirection ouverte, traversée de chemin, SSRF). `dast.py` agrège le
+rapport de chaque outil dans un même verdict : une alerte Élevée fait échouer l'exécution, une
+Moyenne est un constat au registre. Le rapport du premier passage est joint au ticket. Détails :
+[`security/external/README.md`](../../security/external/README.md).
+
 ## Fenêtre et annonce
 
 - Annoncée dans le canal de l'équipe **au moins 24 heures avant** : début et fin (date et

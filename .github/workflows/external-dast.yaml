@@ -1,0 +1,126 @@
+# Active DAST of the external attack campaigns (injection, browser-side, server-side, TLS, headers),
+# run BY HAND in an announced campaign window against the public front origins of staging. It sends
+# real injection payloads and writes on staging, so it is workflow_dispatch only (no cron): the
+# rules of engagement require an announced window with someone at the keyboard
+# (docs/en/external-attack-campaigns.md). 10 requests per second, 5 threads.
+#
+# Pipeline: ZAP active scan per front (the CICD OpenAPI coverage hook, per-role session) + sqlmap on
+# the declared filter/sort parameters + testssl.sh per front + the HTTP-level checks of dast.py
+# (headers, cookie flags, open redirect, path traversal, SSRF). dast.py folds every report into one
+# gate: a High alert fails the run, a Medium is a finding for the register.
+name: External attack — active DAST
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "staging" to confirm this active scan runs against staging only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-dast
+  cancel-in-progress: false
+
+jobs:
+  dast:
+    name: active DAST on staging (announced window)
+    if: inputs.confirm == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      DOMAIN: staging.mairie360-eip.fr
+      AUTH_TEST_PASSWORD: ${{ secrets.AUTH_TEST_PASSWORD }}
+      # Tool images. Pin each by digest (`<ref>@sha256:...` with the tag in a comment, supply-chain
+      # policy) before the first run; left on the tag here so no fabricated digest ships.
+      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
+      TESTSSL_IMAGE: docker.io/drwetter/testssl.sh:3.2
+      SQLMAP_IMAGE: docker.io/parrotsec/sqlmap:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Fetch the front contracts (coverage specs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p contracts
+          # Front repo per front key (image name mismatch kept: project-front -> Projects_Web_Service).
+          declare -A REPO=(
+            [login]=Login_Web_Service [admin]=Administrator_Web_Service [project]=Projects_Web_Service
+            [calendar]=Calendars_Web_Service [message]=Messages_Web_Service [dashboard]=Dashboard_Web_Service
+            [settings]=Settings_Web_Service [elearning]=Elearning_Web_Service
+          )
+          for front in "${!REPO[@]}"; do
+            gh api "repos/mairie360/${REPO[$front]}/contents/contracts/openapi.json" \
+              --jq '.content' | base64 -d > "contracts/$front.json" || echo "no contract for $front"
+          done
+
+      - name: Fetch the OpenAPI coverage hook (mairie360/CICD)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p hook
+          gh api repos/mairie360/CICD/contents/tests/zap/zap_hooks.py --jq '.content' | base64 -d > hook/zap_hooks.py
+
+      - name: ZAP active scan through the ingress (per front, OpenAPI coverage)
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          for front in login admin project calendar message dashboard settings elearning; do
+            [ -s "contracts/$front.json" ] || continue
+            docker run --rm \
+              -v "$PWD/contracts:/zap/wrk/contracts:ro" \
+              -v "$PWD/hook/zap_hooks.py:/zap/wrk/zap_hooks.py:ro" \
+              -v "$PWD/reports:/zap/wrk/reports" \
+              -e OPENAPI_COVERAGE_BASE_URL="https://$front.$DOMAIN" \
+              "$ZAP_IMAGE" zap-api-scan.py \
+                -t "/zap/wrk/contracts/$front.json" -f openapi \
+                -O "https://$front.$DOMAIN" \
+                --hook /zap/wrk/zap_hooks.py \
+                -z "-config scanner.threadPerHost=5 -config scanner.delayInMs=100" \
+                -J "reports/zap-$front.json" || true
+          done
+
+      - name: sqlmap on the declared parameters
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          docker run --rm "$SQLMAP_IMAGE" sqlmap \
+            -u "https://project.$DOMAIN/projects-page?sort=title&filter=open" \
+            -p "sort,filter" --batch --level 2 --risk 1 --flush-session \
+            > reports/sqlmap.log 2>&1 || true
+
+      - name: testssl.sh per front
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          for front in login admin project calendar message dashboard settings elearning; do
+            docker run --rm -v "$PWD/reports:/reports" "$TESTSSL_IMAGE" \
+              --jsonfile "/reports/testssl-$front.json" --quiet "https://$front.$DOMAIN" || true
+          done
+
+      - name: Aggregate and gate
+        run: |
+          python3 security/external/dast/dast.py --out-dir reports \
+            $(ls reports/zap-*.json 2>/dev/null | sed 's/^/--zap /') \
+            $(ls reports/testssl-*.json 2>/dev/null | sed 's/^/--testssl /') \
+            --sqlmap reports/sqlmap.log
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f reports/report.md ]; then cat reports/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: external-dast
+          path: reports/
+          retention-days: 400

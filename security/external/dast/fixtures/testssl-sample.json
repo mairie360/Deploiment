@@ -1,0 +1,5 @@
+[
+  {"id":"BREACH","ip":"project/1.2.3.4","severity":"MEDIUM","finding":"potentially VULNERABLE, uses gzip HTTP compression"},
+  {"id":"cert_expirationStatus","ip":"project/1.2.3.4","severity":"OK","finding":"89 days"},
+  {"id":"RC4","ip":"project/1.2.3.4","severity":"HIGH","finding":"VULNERABLE (NOT ok)"}
+]
