@@ -120,6 +120,7 @@ comment (`@<sha> # v7`; Renovate's pinDigest keeps both), `cicd.yaml` runs with
 `permissions: contents: read`, and every tool fetched with curl (kubeconform, helm-unittest,
 kind, cilium CLI, chainsaw) is checked against a `*_SHA256` written next to its version before
 use: a version bump changes both in one commit (`tests/scripts/mair_686_ci_pins_test.sh`).
+`scripts/verify.sh` step 16 (MAIR-1193, control D-12) runs `scripts/check-signed-images.sh`: every running `ghcr.io/mairie360/*` digest must carry a valid cosign signature (`SIGNER_IDENTITY_REGEXP` matching CICD's `docker-release`), else the acceptance fails; skipped without cosign. Tests `tests/scripts/mair_1193_signed_images_test.sh`.
 `trivy config` is not wired yet. The Kind + Cilium
 end-to-end suite runs separately (`.github/workflows/k8s-e2e.yaml`).
 `.github/workflows/promote.yaml` is the manual main → staging → prod promotion
