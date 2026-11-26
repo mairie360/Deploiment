@@ -152,3 +152,35 @@ AUTH_TEST_PASSWORD=... python3 security/external/business/business.py --out-dir 
 
 Tests: `tests/security/test_mair_1191_business_logic.py` (CI).
 
+## `dos/`: application denial of service (source machine, no CI)
+
+Measures at what hostile load staging stops serving legitimate agents and whether it recovers on its
+own. **Runs from the disposable source machine** (`run.sh`), **never from a GitHub runner** (the rules
+of engagement forbid it), in the denial-of-service sub-window, raised by steps and stopped at the
+first breaking point. The Argo CD machine captures the cluster-side evidence (`snapshot.sh`). Then
+`dos.py` aggregates and gates.
+
+| Scenario | Tool |
+| --- | --- |
+| HTTP burst (login, search, costly ops) at a multiple of nominal | k6 (`k6/attack.js`), with `k6/legit.js` measuring a legitimate agent's latency in parallel |
+| slow connections (headers/body at a crawl) | slowhttptest |
+| resource exhaustion (oversized body, nested JSON, unbounded pagination, uploads, mass WebSockets) | k6 / curl generators |
+
+`dos.py` reads, per scenario, the k6 summaries, the kubectl snapshots (`pods-before/after.json`,
+`top-after.txt`) and `recovery.json`, and checks the acceptance thresholds (`expected.json`): the
+service sheds with **429/413 not 5xx/timeouts**, **no pod restarted**, **memory under each pod's
+limit**, the **legitimate agent's p95 latency** under the threshold, and **self-recovery** within the
+window. Any threshold not met is a finding; the run exits 1 on any finding. **No GitHub workflow** (the
+attack is manual from the source machine); only `dos.py`'s tests run in CI.
+
+```bash
+# On the source machine, per scenario:
+BASE=https://login.staging.mairie360-eip.fr LEGIT_COOKIE="accessToken=..." ./run.sh http-burst-login report/
+# On the Argo CD machine (before, during, after):
+KUBECONFIG=/home/gh-runner/.kube/instance-staging.yaml ./snapshot.sh before report/http-burst-login
+# ... then aggregate:
+python3 security/external/dos/dos.py --artifacts report/
+```
+
+Tests: `tests/security/test_mair_1192_dos.py` (CI).
+

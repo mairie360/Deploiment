@@ -173,6 +173,20 @@ seconde ; les boucles s'arrêtent au premier plafond et sont bornées. La future
 de formulaires, dépôt illicite) a un gabarit vide, `scenarios/public.json.template`. Tout constat fait
 échouer l'exécution. Détails : [`security/external/README.md`](../../security/external/README.md).
 
+## Déni de service applicatif (machine source, pas de CI)
+
+`security/external/dos/` mesure à partir de quelle charge hostile staging cesse de servir les agents
+légitimes et s'il se rétablit seul. Il **tourne depuis la machine source jetable** (`run.sh`), **jamais
+depuis un runner GitHub**, dans la sous-fenêtre de déni de service, par paliers, arrêté au premier
+seuil de rupture ; la machine Argo CD capture les instantanés cluster (`snapshot.sh`). k6 joue la
+rafale HTTP (avec un agent légitime en parallèle), slowhttptest les connexions lentes, et des
+générateurs l'épuisement de ressources (corps géant, JSON imbriqué, pagination sans borne, uploads,
+WebSocket en masse). `dos.py` agrège les résumés k6, les instantanés kubectl et la sonde de
+rétablissement et vérifie : 429/413 et non 5xx/timeouts, aucun pod redémarré, mémoire sous la limite
+de chaque pod, latence p95 de l'agent légitime sous le seuil, rétablissement dans la fenêtre. Tout
+seuil non tenu est un constat. Pas de workflow GitHub (seuls les tests de l'agrégateur tournent en
+CI). Détails : [`security/external/README.md`](../../security/external/README.md).
+
 ## Fenêtre et annonce
 
 - Annoncée dans le canal de l'équipe **au moins 24 heures avant** : début et fin (date et

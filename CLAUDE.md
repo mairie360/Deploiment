@@ -735,6 +735,14 @@ from `expected.json`. `.github/workflows/external-business.yaml` is `workflow_di
 block triggers real Resend sends: announced window, 5 req/s). `scenarios/public.json.template` is the
 empty template for the future public part. Needs `AUTH_TEST_PASSWORD`. Tests `tests/security/` (CI).
 
+**Application denial of service (MAIR-1192).** `security/external/dos/` measures the breaking point and
+self-recovery of staging under hostile load. It runs from the disposable source machine (`run.sh`),
+**never from a GitHub runner**; the Argo CD machine captures the kubectl snapshots (`snapshot.sh`). k6
+(burst + a parallel legitimate agent), slowhttptest and resource-exhaustion generators feed `dos.py`,
+which aggregates the k6 summaries, pod snapshots and recovery probe and gates (429/413 not 5xx, no
+restart, memory under limit, agent p95 under threshold, recovery within the window). No GitHub workflow;
+only `dos.py`'s tests run in CI. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the

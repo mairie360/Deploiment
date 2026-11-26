@@ -1,0 +1,2 @@
+staging-core-api-1   220m   300Mi
+staging-user-bff-1   90m    120Mi
