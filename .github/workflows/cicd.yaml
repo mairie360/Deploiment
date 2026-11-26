@@ -146,6 +146,11 @@ jobs:
       - name: Test the platform RGAA rate and release note
         run: python3 -m unittest discover -s tests/rgaa -v
 
+      # Monthly external reconnaissance (security/external/recon/, workflow
+      # external-recon.yaml): parsing, deviations and the expected list.
+      - name: Test the external reconnaissance
+        run: python3 -m unittest discover -s tests/security -v
+
       # Every instance must start before argocd-image-updater's first pass
       # (MAIR-172): tags follow the image-updater's family for the env and
       # exist on their registry. skopeo is preinstalled on ubuntu-latest.
