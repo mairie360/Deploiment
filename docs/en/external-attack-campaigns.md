@@ -149,6 +149,20 @@ real Resend sends), 5 requests per second; the loops stop at the first cap and a
 future public part (form spam, illicit upload) has an empty template, `scenarios/public.json.template`.
 Any finding fails the run. Details: [`security/external/README.md`](../../security/external/README.md).
 
+## Application denial of service (source machine, no CI)
+
+`security/external/dos/` measures at what hostile load staging stops serving legitimate agents and
+whether it recovers on its own. It **runs from the disposable source machine** (`run.sh`), **never
+from a GitHub runner**, in the denial-of-service sub-window, raised by steps and stopped at the first
+breaking point; the Argo CD machine captures the cluster snapshots (`snapshot.sh`). k6 drives the HTTP
+burst (with a parallel legitimate agent), slowhttptest the slow connections, and generators the
+resource exhaustion (oversized body, nested JSON, unbounded pagination, uploads, mass WebSockets).
+`dos.py` aggregates the k6 summaries, the kubectl snapshots and the recovery probe and checks: the
+service sheds with 429/413 not 5xx/timeouts, no pod restarted, memory under each pod's limit, the
+legitimate agent's p95 latency under the frame's threshold, and self-recovery within the window. Any
+threshold not met is a finding. No GitHub workflow (only the aggregator's tests run in CI). Details:
+[`security/external/README.md`](../../security/external/README.md).
+
 ## DNS and e-mail spoofing
 
 | Domain | SPF | DKIM | DMARC |

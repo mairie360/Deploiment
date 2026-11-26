@@ -1,0 +1,4 @@
+{"items":[
+ {"metadata":{"name":"staging-core-api-1"},"spec":{"containers":[{"name":"core-api","resources":{"limits":{"memory":"512Mi"}}}]},"status":{"containerStatuses":[{"name":"core-api","restartCount":0}]}},
+ {"metadata":{"name":"staging-user-bff-1"},"spec":{"containers":[{"name":"user-bff","resources":{"limits":{"memory":"256Mi"}}}]},"status":{"containerStatuses":[{"name":"user-bff","restartCount":1}]}}
+]}

@@ -1,0 +1,20 @@
+{
+  "_comment": "Application denial-of-service scenarios of the external attack campaigns. The attack runs from the disposable source machine (run.sh), NEVER from a GitHub runner; the Argo CD machine captures the kubectl snapshots. dos.py aggregates each scenario's artifacts and checks the acceptance thresholds. Rules of engagement: docs/en/external-attack-campaigns.md (own sub-window, raised by steps, stopped at the first breaking point).",
+  "domain": "staging.mairie360-eip.fr",
+  "namespace": "mairie360-staging",
+  "scenarios": [
+    "http-burst-login",
+    "http-burst-search",
+    "slow-connections",
+    "oversized-body",
+    "nested-json",
+    "unbounded-pagination",
+    "mass-websocket"
+  ],
+  "thresholds": {
+    "max_error_fraction": 0.02,
+    "legit_p95_ms": 2000,
+    "memory_fraction": 0.9,
+    "recovery_max_seconds": 120
+  }
+}

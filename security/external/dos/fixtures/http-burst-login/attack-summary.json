@@ -1,0 +1,7 @@
+{"metrics":{
+  "status_2xx":{"values":{"count":120}},
+  "status_429":{"values":{"count":8700}},
+  "status_413":{"values":{"count":0}},
+  "status_5xx":{"values":{"count":5}},
+  "status_timeout":{"values":{"count":2}}
+}}
