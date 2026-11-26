@@ -146,9 +146,10 @@ jobs:
       - name: Test the platform RGAA rate and release note
         run: python3 -m unittest discover -s tests/rgaa -v
 
-      # Monthly external reconnaissance (security/external/recon/, workflow
-      # external-recon.yaml): parsing, deviations and the expected list.
-      - name: Test the external reconnaissance
+      # Monthly external attack scenarios (security/external/, workflows
+      # external-recon.yaml and external-auth.yaml): parsing, deviations, the
+      # expected lists, JWT forging and the per-scenario verdicts.
+      - name: Test the external attack scenarios
         run: python3 -m unittest discover -s tests/security -v
 
       # Every instance must start before argocd-image-updater's first pass

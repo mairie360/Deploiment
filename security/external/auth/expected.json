@@ -1,0 +1,25 @@
+{
+  "_comment": "Black-box authentication scenarios replayed against staging through the ingress. Target the Login front origin; endpoints are its /api/auth/* routes. Accounts are the attack.* test accounts seeded by liquibase.testAccounts; their shared password is the plaintext of TEST_ACCOUNTS_PASSWORD, read from the AUTH_TEST_PASSWORD env var, never written here. Rules of engagement: docs/en/external-attack-campaigns.md (5 requests per second, staging only).",
+  "base_url": "https://login.staging.mairie360-eip.fr",
+  "endpoints": {
+    "login": "/api/auth/login",
+    "login_2fa": "/api/auth/login/2fa",
+    "forgot_password": "/api/auth/forgot-password",
+    "reset_password": "/api/auth/reset-password",
+    "refresh": "/api/auth/refresh",
+    "logout": "/api/auth/logout",
+    "session": "/session/me"
+  },
+  "session_cookie": "accessToken",
+  "rate_per_second": 5,
+  "accounts": {
+    "primary": "attack.user@example.invalid",
+    "secondary": "attack.user.b@example.invalid",
+    "refresh": "attack.user.c@example.invalid",
+    "unknown": "attack.nobody@example.invalid"
+  },
+  "login_lockout_max": 10,
+  "ip_lockout_max": 30,
+  "timing_ratio": 3.0,
+  "hs256_wordlist": ["secret", "changeme", "jwt_secret", "jwtsecret", "mairie360", "password", "test"]
+}

@@ -103,6 +103,19 @@ par GitHub. Tout écart par rapport à `security/external/recon/expected.json` f
 l'exécution ; le rapport (artefact `external-recon` et résumé du job) liste les changements
 depuis le mois précédent. Détails : [`security/external/README.md`](../../security/external/README.md).
 
+## Scénarios d'authentification mensuels
+
+`security/external/auth/` (workflow `external-auth.yaml`, le premier lundi de chaque mois et à la
+demande, **staging uniquement**) rejoue, à travers l'ingress, les attaques sur l'authentification :
+force brute et bourrage d'identifiants, énumération de comptes (même réponse et même temps qu'un
+compte existe ou non), contournement du second facteur, détournement de la réinitialisation de mot de
+passe (sans lire l'e-mail : les comptes de test sont sans boîte) et forge de jetons (`alg` none /
+HS256 / signature falsifiée, rejeu du refresh). Plafonné à cinq requêtes par seconde, sur les comptes
+de test `attack.*` qu'il verrouille volontairement : il tourne donc hors démonstration. Les jetons
+forgés le sont sans aucune clé. Tout constat fait échouer l'exécution (artefact `external-auth`,
+résumé du job) et part au registre des failles. Corriger un constat est un ticket à part. Détails :
+[`security/external/README.md`](../../security/external/README.md).
+
 ## DNS et usurpation d'e-mail
 
 | Domaine | SPF | DKIM | DMARC |

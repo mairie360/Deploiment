@@ -40,3 +40,35 @@ purge the secret) or, when it is wanted, added to `expected.json` in a reviewed 
 real finding goes to the vulnerability register with its MAIR ticket.
 
 Tests: `tests/security/test_mair_1186_external_recon.py`, `tests/security/test_mair_1187_dns_mail.py` (CI).
+
+## `auth/`: monthly authentication scenarios
+
+Black-box authentication attacks replayed against staging through the ingress (`auth/auth.py`,
+standard library only), one scenario per family, capped at `rate_per_second` requests
+(`auth/expected.json`):
+
+| Scenario | What it does | A finding when |
+| --- | --- | --- |
+| Brute force | wrong logins for one test account, then failed logins over many accounts from one address | no 429 appears per account or per IP, or locking one account blocks another before the per-IP budget is spent |
+| Account enumeration | a known and an unknown account on login and forgot-password | status, body length or timing tells them apart |
+| Second factor | a forged / 2FA-pending token on the session route, bursts of 2FA codes | the partial token reaches a session, a forged code is accepted, or codes are not rate-limited |
+| Password reset | a modified `Host`, a forged and a random reset token | the Host is reflected in the answer, or a forged / random token is accepted |
+| Tokens | JWT with `alg` none, HS256 (weak-secret wordlist) or a tampered signature; a replayed refresh token | a forged token is accepted on the session route, or a refresh token is accepted twice |
+
+The attacker never signs a valid token: `none` / HS256 / tamper need no key. The scoped-lockout and
+refresh-replay checks need a valid login, so they read the test-account password from
+`AUTH_TEST_PASSWORD` (plaintext of `TEST_ACCOUNTS_PASSWORD`); without it they are skipped.
+
+```bash
+# Every scenario against staging (locks the attack.* test accounts on purpose)
+AUTH_TEST_PASSWORD=... python3 security/external/auth/auth.py --out-dir report/
+# Only the forging checks, no burst
+python3 security/external/auth/auth.py --out-dir report/ --skip brute_force,account_enumeration,second_factor
+```
+
+It writes `report.json` / `report.md` and exits 1 on any finding.
+`.github/workflows/external-auth.yaml` runs it on the first Monday of every month and on demand,
+staging only (artifact `external-auth`, 400 days). Each finding goes to the vulnerability register
+with its MAIR ticket; fixing one is its own ticket.
+
+Tests: `tests/security/test_mair_1188_auth_scenarios.py` (CI).
