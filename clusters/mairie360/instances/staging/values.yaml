@@ -106,6 +106,10 @@ liquibase:
     tag: "staging-99cb14d"
   db:
     name: "mairie_db_staging"
+  # Test accounts of the external attack campaigns (docs/en/external-attack-campaigns.md):
+  # TEST_ACCOUNTS_PASSWORD sealed by scripts/seal-secrets.sh.
+  testAccounts:
+    enabled: true
 
 # Off-machine encrypted Postgres backups (MAIR-119/MAIR-231,
 # charts/backup/README.md). Needs the bucket below to exist and

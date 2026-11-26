@@ -1,0 +1,87 @@
+suite: MAIR-1185 external attack campaign test accounts exist on dev and staging, never in prod
+# The Liquibase Job passes -Dtest_accounts_password (Database's
+# seed_test_accounts) only when liquibase.testAccounts.enabled; without it the
+# seed is a no-op. Renders the real instance files.
+tests:
+  - it: "MAIR-1185 disabled (chart default): the Job passes no test accounts parameter"
+    values:
+      - ../../../clusters/mairie360/instances/dev/values.yaml
+    set:
+      liquibase.testAccounts.enabled: false
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: test_accounts_password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: TEST_ACCOUNTS_PASSWORD }
+          any: true
+
+  - it: "MAIR-1185 dev: the Job passes the sealed hash after the command, key optional"
+    values:
+      - ../../../clusters/mairie360/instances/dev/values.yaml
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TEST_ACCOUNTS_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: RELEASE-NAME-database-secret, key: TEST_ACCOUNTS_PASSWORD, optional: true }
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)\bupdate\b.*-Dtest_accounts_password="\$TEST_ACCOUNTS_PASSWORD"'
+
+  - it: "MAIR-1185 dev: a plaintext TEST_ACCOUNTS_PASSWORD stops the Job before migrating"
+    values:
+      - ../../../clusters/mairie360/instances/dev/values.yaml
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)TEST_ACCOUNTS_PASSWORD is not an argon2id hash.*exit 1.*exec liquibase'
+
+  - it: "MAIR-1185 staging: the Job passes the test accounts parameter"
+    values:
+      - ../../../clusters/mairie360/instances/staging/values.yaml
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '-Dtest_accounts_password="\$TEST_ACCOUNTS_PASSWORD"'
+
+  - it: "MAIR-1185 prod: the Job never passes the test accounts parameter"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: test_accounts_password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: { name: TEST_ACCOUNTS_PASSWORD }
+          any: true
+
+  - it: "MAIR-1185 client-example prod: the Job never passes the test accounts parameter"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/client-example/instances/prod/values.yaml
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: test_accounts_password
+
+  - it: "MAIR-1185 prod: an instance file enabling the test accounts fails to render"
+    values:
+      - ../../../clusters/_base/prod.yaml
+      - ../../../clusters/mairie360/instances/prod/values.yaml
+    set:
+      liquibase.testAccounts.enabled: true
+    templates: [charts/liquibase/templates/job.yaml]
+    asserts:
+      - failedTemplate:
+          errorPattern: "liquibase.testAccounts.enabled is forbidden on this instance"

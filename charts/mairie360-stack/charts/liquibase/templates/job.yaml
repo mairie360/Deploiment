@@ -1,3 +1,6 @@
+{{- if and .Values.testAccounts.enabled .Values.testAccounts.forbidden }}
+{{- fail "liquibase.testAccounts.enabled is forbidden on this instance: the external attack campaign test accounts never exist in prod" }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -112,6 +115,15 @@ spec:
                   {{- if $optional }}
                   optional: true
                   {{- end }}
+            {{- if .Values.testAccounts.enabled }}
+            # Test accounts of the external attack campaigns (dev and staging).
+            - name: TEST_ACCOUNTS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "liquibase.dbSecretName" . }}
+                  key: TEST_ACCOUNTS_PASSWORD
+                  optional: true
+            {{- end }}
           # Per-role passwords are passed as Liquibase changelog parameters
           # (-D<role>_password) so the changelog can CREATE ROLE ... PASSWORD
           # :role_password without the values ever appearing in the chart.
@@ -139,6 +151,15 @@ spec:
               # away at each run: the role exists but nobody can log in.
               COMPLIANCE_API_PASSWORD="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
               {{- end }}
+              {{- if .Values.testAccounts.enabled }}
+              # An unsealed key only skips the test accounts; a plaintext one
+              # would be refused by the seed halfway through the migration.
+              case "$TEST_ACCOUNTS_PASSWORD" in
+                '$argon2id$'*) ;;
+                '') echo "TEST_ACCOUNTS_PASSWORD is not sealed: the test accounts are not seeded (scripts/seal-secrets.sh)" >&2 ;;
+                *) echo "TEST_ACCOUNTS_PASSWORD is not an argon2id hash: re-run scripts/seal-secrets.sh" >&2; exit 1 ;;
+              esac
+              {{- end }}
               exec liquibase --changelog-file={{ .Values.changelogFile }} update
                 {{- range $role := $roles }} \
                 -D{{ include "liquibase.roleName" $role }}_password="${{ include "liquibase.rolePasswordKey" $role }}"
@@ -148,6 +169,9 @@ spec:
                 {{- end }} \
                 -Dadmin_email="$ADMIN_EMAIL" \
                 -Dadmin_password="$ADMIN_PASSWORD"
+                {{- if .Values.testAccounts.enabled }} \
+                -Dtest_accounts_password="$TEST_ACCOUNTS_PASSWORD"
+                {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:

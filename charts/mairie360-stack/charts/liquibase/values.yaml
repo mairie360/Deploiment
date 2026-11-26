@@ -34,6 +34,17 @@ changelogFile: "changelog.xml"
 # `helm install` turn it off, to keep the Database template admin account.
 adminAccount:
   required: true
+
+# Test accounts of the external attack campaigns (Database's
+# repeatable/common/seed_test_accounts.sql): one account per role plus two more
+# User accounts, @example.invalid. When enabled, the Job passes
+# -Dtest_accounts_password from TEST_ACCOUNTS_PASSWORD (argon2id hash) of the
+# database secret, sealed by scripts/seal-secrets.sh; an unsealed key only
+# skips the seed. Dev and staging only: clusters/_base/prod.yaml sets
+# `forbidden`, which makes a prod instance that enables them fail to render.
+testAccounts:
+  enabled: false
+  forbidden: false
 backoffLimit: 3
 # Le Job terminé est nettoyé automatiquement (utile hors ArgoCD).
 ttlSecondsAfterFinished: 3600

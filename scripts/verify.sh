@@ -136,6 +136,17 @@ done
 key_set "${RELEASE}-database-secret" ADMIN_EMAIL \
   "the Liquibase Job refuses to migrate (MAIR-414, ADMIN_EMAIL=… scripts/seal-secrets.sh)"
 
+# The external attack campaign test accounts never exist in prod: their hash
+# is never sealed there (seal-secrets.sh refuses it, the chart refuses
+# liquibase.testAccounts on prod). Elsewhere the key is optional.
+if [ "$ENV" = prod ]; then
+  if [ "$(sealed_len "${RELEASE}-database-secret" TEST_ACCOUNTS_PASSWORD)" -gt 0 ]; then
+    ko "TEST_ACCOUNTS_PASSWORD is sealed in ${RELEASE}-database-secret on prod: re-run scripts/seal-secrets.sh, which drops it"
+  else
+    ok "no test accounts password sealed on prod"
+  fi
+fi
+
 # Checks on the plaintext values themselves need a Secret read, which the
 # Promote workflow's runner does not have (MAIR-346, see the header). There
 # they are skipped: what they guard against still fails this script, through

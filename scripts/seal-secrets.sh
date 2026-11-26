@@ -85,6 +85,16 @@
 #                   all, that Secret is not sealed (only needed with
 #                   global.compliance.enabled, every key is optional).
 #   GHCR_USER / GHCR_TOKEN  optional, seal the ghcr-secret pull secret too.
+#   TEST_ACCOUNTS_PASSWORD  password of the external attack campaign test
+#                   accounts (docs/en/external-attack-campaigns.md), dev and
+#                   staging only. Plaintext (hashed here) or an `$argon2id$`
+#                   hash, sealed as TEST_ACCOUNTS_PASSWORD in
+#                   <env>-database-secret: the Liquibase Job of an instance with
+#                   liquibase.testAccounts.enabled passes it to Database's
+#                   seed_test_accounts. Never generated: unset keeps the hash
+#                   already on the cluster, else nothing is sealed (no test
+#                   accounts). Refused for an environment named prod, and a
+#                   value found on a prod cluster is dropped.
 #
 # MAIR-680 (audit A1): the Ed25519 key pair core-api signs the session tokens
 # with. The private key (PEM, `openssl genpkey -algorithm ed25519`) is sealed
@@ -280,6 +290,29 @@ else
 fi
 is_argon2id "$APPADMINPWD" || APPADMINPWD="$(argon2id_hash "$APPADMINPWD")"
 
+# External attack campaign test accounts: dev and staging only, never prod.
+TESTACCPWD="${TEST_ACCOUNTS_PASSWORD:-}"
+if [ "$ENV" = prod ]; then
+  if [ -n "$TESTACCPWD" ]; then
+    echo "TEST_ACCOUNTS_PASSWORD is refused for prod: the test accounts never exist there" >&2
+    exit 1
+  fi
+  if [ -n "$(prev "${RELEASE}-database-secret" TEST_ACCOUNTS_PASSWORD)" ]; then
+    echo "  TEST_ACCOUNTS_PASSWORD : found on a prod cluster, dropped"
+  fi
+elif [ -n "$TESTACCPWD" ]; then
+  echo "  TEST_ACCOUNTS_PASSWORD : from TEST_ACCOUNTS_PASSWORD"
+  is_argon2id "$TESTACCPWD" || TESTACCPWD="$(argon2id_hash "$TESTACCPWD")"
+else
+  TESTACCPWD="$(prev "${RELEASE}-database-secret" TEST_ACCOUNTS_PASSWORD)"
+  if is_argon2id "$TESTACCPWD"; then
+    echo "  TEST_ACCOUNTS_PASSWORD : kept from cluster"
+  else
+    [ -z "$TESTACCPWD" ] || echo "  TEST_ACCOUNTS_PASSWORD : not an argon2id hash on the cluster, dropped"
+    TESTACCPWD=""
+  fi
+fi
+
 redis_args=(--from-literal="redis-password=${ADMINPASS}")
 for role in $REDIS_ROLES; do
   key="${role}-password"
@@ -319,6 +352,8 @@ db_args+=(
   --from-literal=ADMIN_EMAIL="${APPADMINEMAIL}"
   --from-literal=ADMIN_PASSWORD="${APPADMINPWD}"
 )
+[ "$ENV" = prod ] || [ -z "$TESTACCPWD" ] \
+  || db_args+=(--from-literal=TEST_ACCOUNTS_PASSWORD="${TESTACCPWD}")
 
 # The Resend API key cannot be generated: it comes from RESEND_API_KEY, or is
 # kept from the cluster. --rotate does not clear it (a new key is issued from
