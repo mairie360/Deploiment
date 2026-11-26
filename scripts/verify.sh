@@ -347,5 +347,19 @@ if [ -n "$DOMAIN" ]; then
   done
 fi
 
+step 16 "MAIR-1193: every running mairie360 image is a cosign-signed digest (D-12)"
+if ! command -v cosign >/dev/null 2>&1; then
+  ok "cosign not installed: image signature check skipped"
+else
+  IMG=$($K get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.imageID}{"\n"}{end}' 2>/dev/null)
+  if [ -z "$IMG" ]; then
+    ok "no running container image read: skipped"
+  elif printf '%s\n' "$IMG" | "$(dirname "$0")/check-signed-images.sh"; then
+    ok "every mairie360 image digest is signed"
+  else
+    ko "an unsigned or unverifiable mairie360 image is running (see above)"
+  fi
+fi
+
 echo
 [ $FAILED -eq 0 ] && { echo "Acceptance OK"; exit 0; } || { echo "Acceptance FAILED"; exit 1; }
