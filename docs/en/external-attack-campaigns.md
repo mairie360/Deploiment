@@ -101,6 +101,18 @@ announcement; the GitHub-hosted runner is its source. Any deviation from
 job summary) lists the changes since the previous month. Details:
 [`security/external/README.md`](../../security/external/README.md).
 
+## Monthly authentication scenarios
+
+`security/external/auth/` (workflow `external-auth.yaml`, first Monday of every month and on
+demand, **staging only**) replays, through the ingress, the authentication attacks: brute force and
+credential stuffing, account enumeration (same answer and timing whether the account exists or not),
+second-factor bypass, password-reset hijacking (without reading the e-mail: the test accounts are
+undeliverable) and token forging (`alg` none / HS256 / tampered signature, refresh replay). It is
+capped at five requests per second and uses the `attack.*` test accounts; it locks them on purpose,
+so it runs apart from a demonstration. The forged tokens are built with no key. Any finding fails the
+run (artifact `external-auth`, job summary) and goes to the vulnerability register. Fixing a finding
+is its own ticket. Details: [`security/external/README.md`](../../security/external/README.md).
+
 ## DNS and e-mail spoofing
 
 | Domain | SPF | DKIM | DMARC |

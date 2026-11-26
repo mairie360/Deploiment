@@ -1,0 +1,72 @@
+# Authentication attack scenarios of the external attack campaigns,
+# monthly and on demand. Replays, against staging through the ingress, brute force, account
+# enumeration, second-factor bypass, password-reset hijacking and token forging; any finding
+# exits 1. The report (artifact external-auth, and the job summary) feeds the findings register.
+#
+# Staging only (the rules of engagement forbid prod): docs/en/external-attack-campaigns.md. It
+# locks the attack.* test accounts of staging on purpose, so it runs apart from a demonstration.
+# AUTH_TEST_PASSWORD is the plaintext of TEST_ACCOUNTS_PASSWORD, needed to log a test account in
+# for the scoped-lockout and refresh-replay checks; without it those two are reported skipped.
+name: External attack — authentication
+
+on:
+  schedule:
+    # First Monday of the month (the `when` job keeps it), 09:41 UTC — apart from the reconnaissance.
+    - cron: "41 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-auth
+  cancel-in-progress: false
+
+jobs:
+  when:
+    name: first Monday of the month or manual run
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.day.outputs.run }}
+    steps:
+      - id: day
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != schedule ] || [ "$(date -u +%-d)" -le 7 ]; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+  auth:
+    name: authentication scenarios on staging
+    needs: when
+    if: needs.when.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Authentication scenarios
+        env:
+          AUTH_TEST_PASSWORD: ${{ secrets.AUTH_TEST_PASSWORD }}
+        run: |
+          python3 security/external/auth/auth.py --out-dir report
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f report/report.md ]; then cat report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: external-auth
+          path: report/
+          retention-days: 400

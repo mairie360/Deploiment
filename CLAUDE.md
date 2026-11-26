@@ -704,6 +704,14 @@ any deviation exits 1. `.github/workflows/external-recon.yaml` runs it on the
 first Monday of the month and on demand (artifact `external-recon`, compared with the previous run).
 A wanted change (new front, port) updates `expected.json` in the same PR. Tests `tests/security/` (CI).
 
+**Monthly authentication scenarios (MAIR-1188).** `security/external/auth/auth.py` replays, against
+staging through the ingress, brute force, account enumeration, second-factor bypass, password-reset
+hijacking (without reading the e-mail) and token forging (`alg` none/HS256/tampered, refresh replay);
+any finding exits 1. `.github/workflows/external-auth.yaml` runs it on the first Monday of the month
+and on demand, staging only, capped at five requests per second, on the `attack.*` test accounts (it
+locks them on purpose). It needs the `AUTH_TEST_PASSWORD` secret (plaintext of `TEST_ACCOUNTS_PASSWORD`)
+for the scoped-lockout and refresh-replay checks. Tests `tests/security/` (CI).
+
 ### Network observability (Cilium / Hubble)
 
 The `k3s` machines run Cilium as CNI instead of flannel (installed by the
