@@ -107,9 +107,9 @@ def render_markdown(cfg, report):
                   f"- Run: {fam['mode']}; {fam.get('detail', '')}",
                   f"- Report: `{cfg['out_dir_name']}/{fam['key']}/`",
                   f"- Controls: {', '.join(fam['controls']) or '—'}", ""]
-    lines += ["## Controls E-01 → E-13", "", "| Control | Family | State | Ticket |", "| --- | --- | --- | --- |"]
+    lines += ["## Controls E-01 → E-13", "", "| Control | Item | State | Ticket |", "| --- | --- | --- | --- |"]
     for control in cfg["controls"]:
-        lines.append(f"| {control['id']} | {control['family']} | {control['state']} | {control['ticket']} |")
+        lines.append(f"| {control['id']} | {control['control']} | {control['state']} | {control['ticket']} |")
     lines += ["", "## Next dates", "",
               f"- Next full campaign: {cfg['schedule']['next_campaign']} (every quarter and before any "
               "major release).",

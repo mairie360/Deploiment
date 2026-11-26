@@ -34,7 +34,20 @@ class Config(unittest.TestCase):
         for n in range(1, 14):
             self.assertIn(f"E-{n:02d}", ids, f"E-{n:02d} missing")
         for c in CFG["controls"]:
-            self.assertTrue(c["ticket"].startswith("MAIR-"), c)
+            # Each control carries a short label, an honest state and either the ticket that
+            # touched it or "—" for a control outside this epic's scope (E-05 host, E-06 WAF).
+            self.assertTrue(c["control"] and c["state"], c)
+            self.assertTrue(c["ticket"] == "—" or c["ticket"].startswith("MAIR-"), c)
+
+    def test_mair_1195_scoped_controls_are_delivered_not_overstated(self):
+        by_id = {c["id"]: c for c in CFG["controls"]}
+        # Controls this epic actually delivers are marked in place; defences it only tests or
+        # leaves out of scope are not claimed as done.
+        self.assertIn("En place", by_id["E-08"]["state"])   # monthly reconnaissance
+        self.assertIn("En place", by_id["E-09"]["state"])   # incident runbook
+        self.assertIn("En place", by_id["E-11"]["state"])   # campaign orchestrator + planning
+        self.assertNotIn("En place", by_id["E-06"]["state"])  # WAF: out of scope
+        self.assertEqual("—", by_id["E-06"]["ticket"])
 
     def test_mair_1195_schedule_has_next_dates(self):
         self.assertIn("next_campaign", CFG["schedule"])

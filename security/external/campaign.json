@@ -1,236 +1,50 @@
 {
-  "_comment": "Config of the external attack campaign orchestrator (security/external/campaign.py). The families run in the order of the rules of engagement (docs/en/external-attack-campaigns.md); denial of service is last. 'driver' families are run by campaign.py; 'manual' families (active DAST, DoS) are run by hand in the window and their reports read if present; the supply-chain guards are enforced in mairie360/CICD. The controls table is the state at the close of the epic: every control is implemented and awaits validation by the first campaign.",
+  "_comment": "Config of the external attack campaign orchestrator (security/external/campaign.py). Families run in the order of the rules of engagement (docs/en/external-attack-campaigns.md); denial of service is last. 'driver' families are run by campaign.py; 'manual' families (active DAST, DoS) are run by hand in the window and their reports read if present; the supply-chain guards are enforced in mairie360/CICD. The controls table mirrors the external-exposure controls E-01..E-13 of the security policy: its state column is the honest state after this epic, which adds the testing campaign, the monthly reconnaissance and the incident runbook, and does NOT by itself implement the defences E-01/E-02/E-03/E-06.",
   "target": "staging.mairie360-eip.fr",
   "families": [
-    {
-      "key": "recon",
-      "label": "Reconnaissance",
-      "mode": "driver",
-      "command": "recon/recon.py",
-      "report_file": "recon.json",
-      "result_key": "deviations",
-      "criterion": "no deviation from expected.json (ports, subdomains, banners, admin, leaks, DNS, mail)",
-      "controls": [
-        "E-11",
-        "E-12",
-        "E-13"
-      ]
-    },
-    {
-      "key": "auth",
-      "label": "Authentication, sessions and tokens",
-      "mode": "driver",
-      "command": "auth/auth.py",
-      "report_file": "report.json",
-      "result_key": "deviations",
-      "needs_password": true,
-      "criterion": "progressive per-IP and per-account block, uniform responses, every invalid token refused",
-      "controls": [
-        "E-04",
-        "A-02",
-        "A-03",
-        "A-04",
-        "A-05"
-      ]
-    },
-    {
-      "key": "access",
-      "label": "Access control",
-      "mode": "driver",
-      "command": "access/access.py",
-      "report_file": "report.json",
-      "result_key": "deviations",
-      "needs_password": true,
-      "criterion": "403/401 out of the matrix, no other account's data in a response",
-      "controls": [
-        "A-01"
-      ]
-    },
-    {
-      "key": "dast",
-      "label": "Active scan (injection, browser-side, server-side)",
-      "mode": "manual",
-      "report_file": "report.json",
-      "result_key": "findings",
-      "criterion": "no High alert; each Medium a finding; errors without technical detail",
-      "controls": [
-        "D-02",
-        "D-03",
-        "A-06",
-        "A-07"
-      ]
-    },
-    {
-      "key": "business",
-      "label": "Business logic and no-session abuse",
-      "mode": "driver",
-      "command": "business/business.py",
-      "report_file": "report.json",
-      "result_key": "deviations",
-      "needs_password": true,
-      "criterion": "every business rule holds server-side, an e-mail cap per account and per IP",
-      "controls": [
-        "E-05"
-      ]
-    },
-    {
-      "key": "supply-chain",
-      "label": "Supply chain",
-      "mode": "manual",
-      "report_file": "report.json",
-      "result_key": "findings",
-      "criterion": "enforced in mairie360/CICD (zizmor blocking, guard tests); no secret read nor workflow modified from a fork, unsigned image refused",
-      "controls": [
-        "C-07",
-        "D-12"
-      ]
-    },
-    {
-      "key": "dos",
-      "label": "Application denial of service",
-      "mode": "manual",
-      "report_file": "report.json",
-      "result_key": "deviations",
-      "criterion": "429/413 not 5xx, no pod restarted, memory under limit, legit p95 under threshold, self-recovery",
-      "controls": [
-        "E-01",
-        "E-02",
-        "E-03",
-        "E-07",
-        "E-10"
-      ]
-    }
+    {"key": "recon", "label": "Reconnaissance", "mode": "driver", "command": "recon/recon.py",
+     "report_file": "recon.json", "result_key": "deviations",
+     "criterion": "no deviation from expected.json (ports, subdomains, banners, admin, leaks, DNS, mail)",
+     "controls": ["E-08", "E-12", "E-13"]},
+    {"key": "auth", "label": "Authentication, sessions and tokens", "mode": "driver", "command": "auth/auth.py",
+     "report_file": "report.json", "result_key": "deviations", "needs_password": true,
+     "criterion": "progressive per-IP and per-account block, uniform responses, every invalid token refused",
+     "controls": ["E-04"]},
+    {"key": "access", "label": "Access control", "mode": "driver", "command": "access/access.py",
+     "report_file": "report.json", "result_key": "deviations", "needs_password": true,
+     "criterion": "403/401 out of the matrix, no other account's data in a response",
+     "controls": []},
+    {"key": "dast", "label": "Active scan (injection, browser-side, server-side)", "mode": "manual",
+     "report_file": "report.json", "result_key": "findings",
+     "criterion": "no High alert; each Medium a finding; errors without technical detail",
+     "controls": []},
+    {"key": "business", "label": "Business logic and no-session abuse", "mode": "driver", "command": "business/business.py",
+     "report_file": "report.json", "result_key": "deviations", "needs_password": true,
+     "criterion": "every business rule holds server-side, an e-mail cap per account and per IP",
+     "controls": []},
+    {"key": "supply-chain", "label": "Supply chain", "mode": "manual",
+     "report_file": "report.json", "result_key": "findings",
+     "criterion": "enforced in mairie360/CICD (zizmor blocking, guard tests); no secret read nor workflow modified from a fork, unsigned image refused",
+     "controls": []},
+    {"key": "dos", "label": "Application denial of service", "mode": "manual",
+     "report_file": "report.json", "result_key": "deviations",
+     "criterion": "429/413 not 5xx, no pod restarted, memory under limit, legit p95 under threshold, self-recovery",
+     "controls": ["E-01", "E-02", "E-03", "E-07", "E-10"]}
   ],
   "controls": [
-    {
-      "id": "E-01",
-      "family": "DoS",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1192"
-    },
-    {
-      "id": "E-02",
-      "family": "DoS",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1192"
-    },
-    {
-      "id": "E-03",
-      "family": "DoS",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1192"
-    },
-    {
-      "id": "E-04",
-      "family": "Auth",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1188"
-    },
-    {
-      "id": "E-05",
-      "family": "Business logic",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1191"
-    },
-    {
-      "id": "E-06",
-      "family": "Politique §7",
-      "state": "revu à chaque campagne (reconnaissance + scan actif)",
-      "ticket": "MAIR-1195"
-    },
-    {
-      "id": "E-07",
-      "family": "DoS",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1192"
-    },
-    {
-      "id": "E-08",
-      "family": "Politique §7",
-      "state": "revu à chaque campagne",
-      "ticket": "MAIR-1195"
-    },
-    {
-      "id": "E-09",
-      "family": "Incident response",
-      "state": "en place (runbook + coupures testées)",
-      "ticket": "MAIR-1194"
-    },
-    {
-      "id": "E-10",
-      "family": "DoS / exposure",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1192"
-    },
-    {
-      "id": "E-11",
-      "family": "Reconnaissance",
-      "state": "en place (reconnaissance mensuelle)",
-      "ticket": "MAIR-1186"
-    },
-    {
-      "id": "E-12",
-      "family": "DNS / mail",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1187"
-    },
-    {
-      "id": "E-13",
-      "family": "Reconnaissance",
-      "state": "en place (campagne + planification)",
-      "ticket": "MAIR-1195"
-    },
-    {
-      "id": "A-01",
-      "family": "Access control",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1189"
-    },
-    {
-      "id": "A-02",
-      "family": "Auth",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1188"
-    },
-    {
-      "id": "A-06",
-      "family": "Browser-side",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1190"
-    },
-    {
-      "id": "A-07",
-      "family": "Server-side",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1190"
-    },
-    {
-      "id": "C-07",
-      "family": "Supply chain",
-      "state": "en place (zizmor bloquant + tests)",
-      "ticket": "MAIR-1193"
-    },
-    {
-      "id": "D-02",
-      "family": "Injection",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1190"
-    },
-    {
-      "id": "D-03",
-      "family": "Browser/server-side",
-      "state": "en place, à valider par la 1ʳᵉ campagne",
-      "ticket": "MAIR-1190"
-    },
-    {
-      "id": "D-12",
-      "family": "Image signing",
-      "state": "en place (vérif signature au déploiement + promotion)",
-      "ticket": "MAIR-1193"
-    }
+    {"id": "E-01", "control": "Rate limit par IP et par compte, ingress et services", "state": "Partiel (pas à l'ingress) ; testé par la campagne DoS", "ticket": "MAIR-1192"},
+    {"id": "E-02", "control": "Taille de corps, délais et connexions bornés à l'ingress", "state": "Partiel ; testé par la campagne DoS", "ticket": "MAIR-1192"},
+    {"id": "E-03", "control": "Requêtes et limites de ressources par pod", "state": "Partiel ; mémoire testée sous attaque", "ticket": "MAIR-1192"},
+    {"id": "E-04", "control": "Blocage progressif après échecs de connexion", "state": "Testé par les scénarios d'authentification ; à valider par la 1re campagne", "ticket": "MAIR-1188"},
+    {"id": "E-05", "control": "Protection volumétrique amont (hébergeur)", "state": "Inchangé (engagement hébergeur, hors périmètre)", "ticket": "—"},
+    {"id": "E-06", "control": "Filtrage applicatif à l'ingress (WAF)", "state": "Absent (hors périmètre de l'epic)", "ticket": "—"},
+    {"id": "E-07", "control": "Campagne de déni de service applicatif sur staging", "state": "Outillage livré ; campagne à exécuter", "ticket": "MAIR-1192"},
+    {"id": "E-08", "control": "Reconnaissance externe sans surprise", "state": "En place : reconnaissance mensuelle", "ticket": "MAIR-1186"},
+    {"id": "E-09", "control": "Procédure de réponse à une attaque", "state": "En place : runbook et coupures testées", "ticket": "MAIR-1194"},
+    {"id": "E-10", "control": "Rétablissement automatique après attaque", "state": "Outillage livré (mesuré par la campagne) ; à valider", "ticket": "MAIR-1192"},
+    {"id": "E-11", "control": "Campagne d'attaque externe trimestrielle (boîte noire et grise)", "state": "En place : orchestrateur et planification ; 1re campagne à jouer", "ticket": "MAIR-1195"},
+    {"id": "E-12", "control": "DNS et e-mail : SPF, DKIM, DMARC stricts", "state": "En place : contrôle DNS/e-mail mensuel", "ticket": "MAIR-1187"},
+    {"id": "E-13", "control": "Aucune interface d'administration joignable depuis Internet", "state": "Partiel (n8n ouvert) ; vérifié par la reconnaissance", "ticket": "MAIR-1186"}
   ],
-  "schedule": {
-    "next_campaign": "2027-02 (trimestriel + avant version majeure)",
-    "next_recon": "2026-12-01 (premier lundi, n8n)"
-  }
+  "schedule": {"next_campaign": "2027-02 (trimestriel + avant version majeure)", "next_recon": "2026-12-01 (premier lundi, n8n)"}
 }
