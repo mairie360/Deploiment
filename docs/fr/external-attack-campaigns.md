@@ -134,6 +134,20 @@ une machine jetable du projet d'attaque envoie un e-mail `From: noreply@mairie36
 boîte Resend, qui doit le juger `dmarc=fail`. C'est le seul scénario des campagnes qui envoie un
 e-mail ; il n'écrit jamais à personne hors du groupe.
 
+## Scénarios de contrôle d'accès mensuels
+
+`security/external/access/` (workflow `external-access.yaml`, le premier lundi de chaque mois et à
+la demande, **staging uniquement**) rejoue, à travers les origines des fronts, les attaques de
+contrôle d'accès : élévation de privilège (une session Guest appelant le front admin → 403 attendu)
+et IDOR (un compte de test crée une ressource, un autre tente de la lire, la modifier ou la
+supprimer → 403/404 attendu, aucune donnée du premier). Les matrices d'accès par API sont la source
+des autorisations attendues ; les chemins des fronts sont remodelés par les BFFs, donc les scénarios
+utilisent les chemins CRUD propres des fronts (la complétude des matrices reste vérifiée par
+`access_matrix.rs` côté API). Plafonné à cinq requêtes par seconde, sur les comptes de test
+`attack.*`. Tout constat fait échouer l'exécution (artefact `external-access`) et part au registre
+des failles. Compliance_API n'a pas encore de matrice (ticket de suivi). Détails :
+[`security/external/README.md`](../../security/external/README.md).
+
 ## Fenêtre et annonce
 
 - Annoncée dans le canal de l'équipe **au moins 24 heures avant** : début et fin (date et

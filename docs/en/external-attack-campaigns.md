@@ -113,6 +113,19 @@ so it runs apart from a demonstration. The forged tokens are built with no key. 
 run (artifact `external-auth`, job summary) and goes to the vulnerability register. Fixing a finding
 is its own ticket. Details: [`security/external/README.md`](../../security/external/README.md).
 
+## Monthly access-control scenarios
+
+`security/external/access/` (workflow `external-access.yaml`, first Monday of every month and on
+demand, **staging only**) replays, through the front origins, the access-control attacks: privilege
+elevation (a Guest session calling the admin front → 403 expected) and IDOR (one test account
+creates a resource, another tries to read, change or delete it → 403/404 expected, no data of the
+first). The per-API access matrices are the source of the expected allow/deny; the front paths are
+BFF-reshaped, so the scenarios use the fronts' own CRUD paths (matrix completeness stays enforced
+per-API by `access_matrix.rs`). Capped at five requests per second, on the `attack.*` test accounts.
+Any finding fails the run (artifact `external-access`) and goes to the vulnerability register.
+Compliance_API has no matrix yet (follow-up ticket). Details:
+[`security/external/README.md`](../../security/external/README.md).
+
 ## DNS and e-mail spoofing
 
 | Domain | SPF | DKIM | DMARC |

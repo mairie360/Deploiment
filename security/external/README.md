@@ -72,3 +72,32 @@ staging only (artifact `external-auth`, 400 days). Each finding goes to the vuln
 with its MAIR ticket; fixing one is its own ticket.
 
 Tests: `tests/security/test_mair_1188_auth_scenarios.py` (CI).
+
+## `access/`: monthly access-control scenarios
+
+Behavioural access-control attacks replayed against staging through the **front origins**
+(`access/access.py`, standard library only). The per-API `access-matrix.yaml` are the source of
+the expected allow/deny, but the front paths are BFF-reshaped, so the scenarios use the fronts'
+own CRUD paths, not a 1:1 map of the matrices (matrix completeness stays enforced per-API by each
+API's `tests/endpoints/access_matrix.rs`). Families:
+
+| Family | What it does | A finding when |
+| --- | --- | --- |
+| Elevation | a Guest session calls every operation of the admin front | one answers 2xx instead of 403/401 |
+| IDOR | one account creates a resource through its front, another account tries GET/PATCH/DELETE on it | the other account gets 2xx, and a data leak when the answer carries the owner's marker |
+
+It signs the `attack.*` test accounts in with `AUTH_TEST_PASSWORD` (plaintext of
+`TEST_ACCOUNTS_PASSWORD`); without it nothing runs. Each IDOR case creates then deletes a
+disposable resource. Compliance_API has no matrix yet (follow-up ticket); the five others do.
+
+```bash
+AUTH_TEST_PASSWORD=... python3 security/external/access/access.py --out-dir report/
+```
+
+It writes `report.json` / `report.md` and exits 1 on any finding.
+`.github/workflows/external-access.yaml` runs it on the first Monday of every month and on demand,
+staging only (artifact `external-access`, 400 days). Each finding goes to the vulnerability
+register with its MAIR ticket; fixing one is its own ticket.
+
+Tests: `tests/security/test_mair_1189_access_scenarios.py` (CI).
+

@@ -1,0 +1,71 @@
+# Access-control attack scenarios of the external attack campaigns, monthly and on demand.
+# Replays, against staging through the front origins, privilege elevation (a Guest reaching the
+# admin scope) and IDOR (one account reaching another's resource); any finding exits 1. The report
+# (artifact external-access, and the job summary) feeds the findings register.
+#
+# Staging only (the rules of engagement forbid prod): docs/en/external-attack-campaigns.md. It
+# signs the attack.* test accounts in with AUTH_TEST_PASSWORD (plaintext of TEST_ACCOUNTS_PASSWORD)
+# and creates then deletes a disposable resource per IDOR case.
+name: External attack — access control
+
+on:
+  schedule:
+    # First Monday of the month (the `when` job keeps it), 09:53 UTC — apart from the other scenarios.
+    - cron: "53 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-access
+  cancel-in-progress: false
+
+jobs:
+  when:
+    name: first Monday of the month or manual run
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      run: ${{ steps.day.outputs.run }}
+    steps:
+      - id: day
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != schedule ] || [ "$(date -u +%-d)" -le 7 ]; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+  access:
+    name: access-control scenarios on staging
+    needs: when
+    if: needs.when.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Access-control scenarios
+        env:
+          AUTH_TEST_PASSWORD: ${{ secrets.AUTH_TEST_PASSWORD }}
+        run: |
+          python3 security/external/access/access.py --out-dir report
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f report/report.md ]; then cat report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: external-access
+          path: report/
+          retention-days: 400
